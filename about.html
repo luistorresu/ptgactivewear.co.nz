@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About | PTG Activewear</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { DEFAULT: '#5BB8D4', dark: '#3A9CBD', light: '#EBF7FB' }
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="font-sans text-gray-900 bg-white">
+
+  <!-- ── HEADER ── -->
+  <header class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+      <a href="index.html" class="flex items-center gap-2.5">
+        <svg class="w-8 h-8 text-brand" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2zm0 2.18L19 8.3V12c0 4.25-3.05 8.22-7 9.38C8.05 20.22 5 16.25 5 12V8.3L12 4.18z"/>
+          <path d="M13.5 8h-3l-1.5 3H7l2.5 2.5-1 3 3-1.5 3 1.5-1-3L16 11h-2z"/>
+        </svg>
+        <span class="text-xl font-black tracking-tight text-brand">PTG Activewear</span>
+      </a>
+      <nav class="hidden md:flex items-center gap-8">
+        <a href="index.html"  class="text-sm font-medium text-gray-600 hover:text-brand transition-colors">Home</a>
+        <a href="shop.html"   class="text-sm font-medium text-gray-600 hover:text-brand transition-colors">Shop</a>
+        <a href="about.html"  class="text-sm font-medium text-brand border-b-2 border-brand pb-0.5">About</a>
+      </nav>
+      <div class="flex items-center gap-4">
+        <button onclick="toggleCart()" class="relative text-gray-700 hover:text-brand transition-colors p-1" aria-label="Cart">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 5.6A1 1 0 007 20h10a1 1 0 00.97-.76L19 13M7 13H5.4M10 21a1 1 0 100-2 1 1 0 000 2zm7 0a1 1 0 100-2 1 1 0 000 2z"/>
+          </svg>
+          <span id="cart-count" class="hidden absolute -top-1 -right-1 bg-brand text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">0</span>
+        </button>
+        <button onclick="toggleMobileMenu()" class="md:hidden text-gray-700 hover:text-brand p-1">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="mobile-menu" class="hidden md:hidden border-t border-gray-100 bg-white px-4 py-5">
+      <nav class="flex flex-col gap-4">
+        <a href="index.html" class="text-sm font-medium text-gray-600 hover:text-brand transition-colors">Home</a>
+        <a href="shop.html"  class="text-sm font-medium text-gray-600 hover:text-brand transition-colors">Shop</a>
+        <a href="about.html" class="text-sm font-medium text-brand">About</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ── PAGE HERO ── -->
+  <section class="relative hero-bg flex items-center justify-center py-28 px-4 sm:px-6 lg:px-8 text-center overflow-hidden">
+    <div class="absolute inset-0 opacity-10" style="background-image:radial-gradient(circle, rgba(91,184,212,0.6) 1px, transparent 1px); background-size:40px 40px;"></div>
+    <div class="relative z-10 max-w-2xl mx-auto text-white">
+      <span class="text-brand text-xs font-semibold tracking-widest uppercase">Our Story</span>
+      <h1 class="text-5xl font-black mt-3 mb-5 leading-tight">Built by Players,<br>for Players.</h1>
+      <p class="text-gray-300 text-lg font-light leading-relaxed">
+        PTG Activewear started on a training pitch in New Zealand and grew into a brand that believes every footballer deserves pro-level gear.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── MISSION ── -->
+  <section class="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <div class="grid md:grid-cols-2 gap-16 items-center">
+      <div>
+        <span class="text-brand text-xs font-semibold tracking-widest uppercase">Our Mission</span>
+        <h2 class="text-3xl font-bold text-gray-900 mt-2 mb-6">Performance Without Compromise</h2>
+        <p class="text-gray-500 leading-relaxed mb-5 text-sm">
+          We founded PTG Activewear because we were tired of choosing between gear that performs and gear that looks good. Too many brands made you pick one. We decided to build something different.
+        </p>
+        <p class="text-gray-500 leading-relaxed mb-5 text-sm">
+          Every PTG product is obsessively tested on real pitches by real players before it ever reaches you. If it doesn't survive a pre-season of hard training sessions, it doesn't get made.
+        </p>
+        <p class="text-gray-500 leading-relaxed text-sm">
+          We're a small team based in New Zealand, but we ship to players across the country — and we're proud of every order that goes out the door.
+        </p>
+      </div>
+      <div class="grid grid-cols-2 gap-5">
+        <div class="bg-brand-light rounded-2xl p-7 text-center border border-brand/20">
+          <div class="text-4xl font-black text-brand mb-1">500+</div>
+          <div class="text-sm text-gray-600 font-medium">Happy Customers</div>
+        </div>
+        <div class="bg-gray-950 rounded-2xl p-7 text-center">
+          <div class="text-4xl font-black text-brand mb-1">12+</div>
+          <div class="text-sm text-gray-400 font-medium">Products</div>
+        </div>
+        <div class="bg-gray-950 rounded-2xl p-7 text-center">
+          <div class="text-4xl font-black text-brand mb-1">NZ</div>
+          <div class="text-sm text-gray-400 font-medium">Made &amp; Shipped</div>
+        </div>
+        <div class="bg-brand-light rounded-2xl p-7 text-center border border-brand/20">
+          <div class="text-4xl font-black text-brand mb-1">4.9★</div>
+          <div class="text-sm text-gray-600 font-medium">Average Rating</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── VALUES ── -->
+  <section class="bg-gray-50 py-20 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto">
+      <div class="text-center mb-14">
+        <span class="text-brand text-xs font-semibold tracking-widest uppercase">What We Stand For</span>
+        <h2 class="text-3xl font-bold text-gray-900 mt-2">Our Values</h2>
+      </div>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
+
+        <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+          <div class="w-12 h-12 bg-brand/15 rounded-xl flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+          </div>
+          <h3 class="font-bold text-gray-900 mb-2">Performance First</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">Every design decision starts with one question: does this make the player better? Style follows function — always.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+          <div class="w-12 h-12 bg-brand/15 rounded-xl flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <h3 class="font-bold text-gray-900 mb-2">Uncompromising Quality</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">We use pro-grade fabrics and manufacturing. If it's not something we'd wear ourselves in a match, it doesn't leave our hands.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+          <div class="w-12 h-12 bg-brand/15 rounded-xl flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+          </div>
+          <h3 class="font-bold text-gray-900 mb-2">Community Driven</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">We listen to our players. New product ideas, sizing feedback, and design tweaks all come directly from the PTG community.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+          <div class="w-12 h-12 bg-brand/15 rounded-xl flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"/>
+            </svg>
+          </div>
+          <h3 class="font-bold text-gray-900 mb-2">Proudly Kiwi</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">Designed in New Zealand for New Zealand conditions — and the growing global community of Kiwi footballers.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+          <div class="w-12 h-12 bg-brand/15 rounded-xl flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <h3 class="font-bold text-gray-900 mb-2">Fair Pricing</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">Pro-level quality shouldn't cost a fortune. We cut out the middlemen and sell direct so players get the best value possible.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+          <div class="w-12 h-12 bg-brand/15 rounded-xl flex items-center justify-center mb-5">
+            <svg class="w-6 h-6 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+            </svg>
+          </div>
+          <h3 class="font-bold text-gray-900 mb-2">Passion for the Game</h3>
+          <p class="text-gray-500 text-sm leading-relaxed">We're footballers first, a brand second. That passion shows in every product we put our name on.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ── -->
+  <section class="py-20 px-4 sm:px-6 lg:px-8 text-center">
+    <div class="max-w-xl mx-auto">
+      <h2 class="text-3xl font-bold text-gray-900 mb-4">Ready to Gear Up?</h2>
+      <p class="text-gray-500 mb-8 text-sm">Join hundreds of players who trust PTG for their match day and training gear.</p>
+      <a href="shop.html" class="btn-primary px-9 py-4 text-base">Shop the Collection</a>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ── -->
+  <footer class="bg-gray-950 text-gray-500 pt-16 pb-8 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+        <div class="md:col-span-2">
+          <a href="index.html" class="flex items-center gap-2 mb-4">
+            <svg class="w-7 h-7 text-brand" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2zm0 2.18L19 8.3V12c0 4.25-3.05 8.22-7 9.38C8.05 20.22 5 16.25 5 12V8.3L12 4.18z"/>
+            </svg>
+            <span class="text-white font-bold">PTG Activewear</span>
+          </a>
+          <p class="text-sm leading-relaxed max-w-xs">Premium football apparel designed and shipped from New Zealand. Built for performance, made to last.</p>
+        </div>
+        <div>
+          <h4 class="text-white font-semibold text-xs mb-5 uppercase tracking-wider">Quick Links</h4>
+          <ul class="space-y-3 text-sm">
+            <li><a href="index.html" class="hover:text-brand transition-colors">Home</a></li>
+            <li><a href="shop.html"  class="hover:text-brand transition-colors">Shop</a></li>
+            <li><a href="about.html" class="hover:text-brand transition-colors">About Us</a></li>
+            <li><a href="#"          class="hover:text-brand transition-colors">Contact</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 class="text-white font-semibold text-xs mb-5 uppercase tracking-wider">Support</h4>
+          <ul class="space-y-3 text-sm">
+            <li><a href="#" class="hover:text-brand transition-colors">Shipping Info</a></li>
+            <li><a href="#" class="hover:text-brand transition-colors">Returns Policy</a></li>
+            <li><a href="#" class="hover:text-brand transition-colors">Size Guide</a></li>
+            <li><a href="#" class="hover:text-brand transition-colors">FAQ</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="border-t border-gray-800 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+        <p>&copy; 2025 PTG Activewear. All rights reserved.</p>
+        <div class="flex gap-6">
+          <a href="#" class="hover:text-brand transition-colors">Privacy Policy</a>
+          <a href="#" class="hover:text-brand transition-colors">Terms of Service</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ── CART SIDEBAR ── -->
+  <div id="cart-overlay" onclick="toggleCart()" class="fixed inset-0 bg-black/50 z-40 hidden"></div>
+  <aside id="cart-sidebar" class="fixed right-0 top-0 h-full w-full sm:w-96 bg-white z-50 shadow-2xl flex flex-col">
+    <div class="flex items-center justify-between px-6 py-5 border-b">
+      <h2 class="text-base font-bold">Your Cart</h2>
+      <button onclick="toggleCart()" class="text-gray-400 hover:text-gray-900 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div id="cart-items" class="flex-1 overflow-y-auto px-6"></div>
+    <div class="px-6 py-5 border-t bg-gray-50">
+      <div class="flex justify-between mb-4 text-sm">
+        <span class="text-gray-600">Subtotal</span>
+        <span id="cart-total" class="font-bold text-lg">$0.00</span>
+      </div>
+      <button class="w-full btn-primary py-4 text-sm">Proceed to Checkout</button>
+      <p class="text-center text-xs text-gray-400 mt-3">Shipping calculated at checkout</p>
+    </div>
+  </aside>
+
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full text-sm font-medium z-[60] whitespace-nowrap shadow-lg"></div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
