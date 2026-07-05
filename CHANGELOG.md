@@ -2,6 +2,18 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-05
+
+### Changed
+
+* Updated the live product list to the five requested Patagonia FC products.
+* Added product image galleries and a zoom lightbox for product angles.
+* Merged duplicate product image angles into single product galleries and removed unapproved products from the visible catalogue.
+* Updated live product prices and descriptions from the merchandise PDF.
+* Added the Luchito image as the homepage hero background with a dark readability overlay.
+* Added a subtle reduced-motion-safe fade-in for the Luchito homepage hero background.
+* Added a favicon generated from the PTG logo.
+
 ## 2026-07-02
 
 ### Added

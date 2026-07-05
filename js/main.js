@@ -16,6 +16,10 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function escapeJsString(value) {
+  return JSON.stringify(String(value ?? ''));
+}
+
 function formatMoney(value) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -219,22 +223,27 @@ function renderProductCard(product, isShop) {
   const badgeTextSize = isShop ? 'text-[10px] px-2.5' : 'text-[11px] px-3';
   const variantMarkup = renderVariantSelect(product, isShop);
   const sizeMarkup = renderSizeSelect(product, isShop);
+  const gallery = getProductGallery(product);
+  const galleryCount = gallery.length;
 
   return `
       <div class="${cardClasses}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}">
         <div class="product-image-wrap relative overflow-hidden ${imageHeight}">
-          <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
+          <button type="button" class="product-image-button" onclick='openProductLightbox(${escapeJsString(product.name)}, 0)' aria-label="View ${escapeHtml(product.name)} image gallery">
+            <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
+            ${galleryCount > 1 ? `<span class="product-gallery-count">${galleryCount} angles</span>` : ''}
+          </button>
           ${product.badge ? `<span class="absolute top-3 left-3 bg-brand text-white ${badgeTextSize} py-1 rounded-full font-semibold">${escapeHtml(product.badge)}</span>` : ''}
         </div>
-        <div class="${bodyPadding}">
+        <div class="${bodyPadding} product-card-content">
           <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">${escapeHtml(product.type)}</p>
           <h3 class="${titleClass}">${escapeHtml(product.name)}</h3>
           <p class="${copyClass}">${escapeHtml(product.description)}</p>
           ${variantMarkup}
           ${sizeMarkup}
-          <div class="flex items-center justify-between ${actionMargin}">
+          <div class="product-actions flex items-center justify-between ${actionMargin}">
             <span class="${priceClass}">${formatMoney(product.price).replace('.00', '')}</span>
-            <button onclick="addToCart('${escapeHtml(product.name)}', ${Number(product.price)}, this)" class="${buttonClass}">Add to Cart</button>
+            <button onclick='addToCart(${escapeJsString(product.name)}, ${Number(product.price)}, this)' class="${buttonClass}">Add to Cart</button>
           </div>
         </div>
       </div>
@@ -274,6 +283,126 @@ function slugify(value) {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
+let activeLightboxProduct = null;
+let activeLightboxImages = [];
+let activeLightboxIndex = 0;
+
+function getProductGallery(product) {
+  const gallery = Array.isArray(product.gallery) && product.gallery.length ? product.gallery : [product.image];
+  return gallery.filter(Boolean);
+}
+
+function setupProductLightbox() {
+  if (document.getElementById('product-lightbox')) return;
+
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="product-lightbox" class="product-lightbox is-hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Product image gallery">
+      <button type="button" class="product-lightbox-backdrop" onclick="closeProductLightbox()" aria-label="Close image gallery"></button>
+      <div class="product-lightbox-panel">
+        <div class="product-lightbox-header">
+          <div>
+            <p id="product-lightbox-title" class="product-lightbox-title"></p>
+            <p id="product-lightbox-counter" class="product-lightbox-counter"></p>
+          </div>
+          <button type="button" class="product-lightbox-close" onclick="closeProductLightbox()" aria-label="Close image gallery">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="product-lightbox-stage">
+          <button type="button" class="product-lightbox-nav product-lightbox-prev" onclick="changeLightboxImage(-1)" aria-label="Previous product image">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+          </button>
+          <img id="product-lightbox-image" class="product-lightbox-image" src="" alt="">
+          <button type="button" class="product-lightbox-nav product-lightbox-next" onclick="changeLightboxImage(1)" aria-label="Next product image">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </button>
+        </div>
+        <div id="product-lightbox-thumbnails" class="product-lightbox-thumbnails"></div>
+      </div>
+    </div>
+  `);
+
+  document.addEventListener('keydown', event => {
+    const lightbox = document.getElementById('product-lightbox');
+    if (!lightbox || lightbox.classList.contains('is-hidden')) return;
+
+    if (event.key === 'Escape') closeProductLightbox();
+    if (event.key === 'ArrowLeft') changeLightboxImage(-1);
+    if (event.key === 'ArrowRight') changeLightboxImage(1);
+  });
+}
+
+function openProductLightbox(productName, index = 0) {
+  const products = window.PTG_PRODUCTS || globalThis.PTG_PRODUCTS || [];
+  const product = products.find(item => item.name === productName);
+  if (!product) return;
+
+  setupProductLightbox();
+  activeLightboxProduct = product;
+  activeLightboxImages = getProductGallery(product);
+  activeLightboxIndex = Math.min(Math.max(Number(index) || 0, 0), activeLightboxImages.length - 1);
+  renderProductLightbox();
+
+  const lightbox = document.getElementById('product-lightbox');
+  lightbox.classList.remove('is-hidden');
+  lightbox.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeProductLightbox() {
+  const lightbox = document.getElementById('product-lightbox');
+  if (!lightbox) return;
+
+  lightbox.classList.add('is-hidden');
+  lightbox.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+}
+
+function changeLightboxImage(delta) {
+  if (!activeLightboxImages.length) return;
+  activeLightboxIndex = (activeLightboxIndex + delta + activeLightboxImages.length) % activeLightboxImages.length;
+  renderProductLightbox();
+}
+
+function setLightboxImage(index) {
+  activeLightboxIndex = Number(index) || 0;
+  renderProductLightbox();
+}
+
+function renderProductLightbox() {
+  if (!activeLightboxProduct || !activeLightboxImages.length) return;
+
+  const image = document.getElementById('product-lightbox-image');
+  const title = document.getElementById('product-lightbox-title');
+  const counter = document.getElementById('product-lightbox-counter');
+  const thumbnails = document.getElementById('product-lightbox-thumbnails');
+  const currentImage = activeLightboxImages[activeLightboxIndex];
+
+  if (image) {
+    image.classList.remove('is-loaded');
+    image.src = currentImage;
+    image.alt = `${activeLightboxProduct.name} image ${activeLightboxIndex + 1}`;
+    requestAnimationFrame(() => image.classList.add('is-loaded'));
+  }
+
+  if (title) title.textContent = activeLightboxProduct.name;
+  if (counter) counter.textContent = `${activeLightboxIndex + 1} of ${activeLightboxImages.length}`;
+
+  if (thumbnails) {
+    thumbnails.innerHTML = activeLightboxImages.map((src, index) => `
+      <button type="button" class="product-lightbox-thumb ${index === activeLightboxIndex ? 'is-active' : ''}" onclick="setLightboxImage(${index})" aria-label="View image ${index + 1}">
+        <img src="${escapeHtml(src)}" alt="${escapeHtml(activeLightboxProduct.name)} thumbnail ${index + 1}">
+      </button>
+    `).join('');
+  }
+}
+
 function setupPersonalisationOptions() {
   document.querySelectorAll('.product-card').forEach((card, index) => {
     const button = card.querySelector('button[onclick^="addToCart"]');
@@ -288,12 +417,12 @@ function setupPersonalisationOptions() {
     options.className = 'personalisation-options';
     options.innerHTML = `
       <label class="personalisation-field" for="${idBase}-name">
-        <span>ADD YOUR NAME <strong>(+${formatMoney(PERSONALISATION_ADDON_PRICE)})</strong></span>
-        <input id="${idBase}-name" data-personalisation="name" type="text" maxlength="20" autocomplete="off" placeholder="Player name">
+        <span>Player Name <strong>(+${formatMoney(PERSONALISATION_ADDON_PRICE)})</strong></span>
+        <input id="${idBase}-name" data-personalisation="name" type="text" maxlength="20" autocomplete="off" placeholder="Optional player name">
       </label>
       <label class="personalisation-field" for="${idBase}-number">
-        <span>ADD YOUR NUMBER <strong>(+${formatMoney(PERSONALISATION_ADDON_PRICE)})</strong></span>
-        <input id="${idBase}-number" data-personalisation="number" type="text" inputmode="numeric" maxlength="2" pattern="(?:0|00|[1-9][0-9]?)" title="Enter a jersey number from 0 to 99" placeholder="e.g. 10">
+        <span>Player Number <strong>(+${formatMoney(PERSONALISATION_ADDON_PRICE)})</strong></span>
+        <input id="${idBase}-number" data-personalisation="number" type="text" inputmode="numeric" maxlength="2" pattern="(?:0|00|[1-9][0-9]?)" title="Enter a jersey number from 0 to 99" placeholder="Optional number">
       </label>
     `;
 
@@ -327,7 +456,8 @@ function setupProductVariants() {
 
 function filterProducts(category) {
   document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
-  document.querySelector(`[data-filter="${category}"]`).classList.add('active');
+  const activeFilter = document.querySelector(`[data-filter="${category}"]`);
+  if (activeFilter) activeFilter.classList.add('active');
 
   document.querySelectorAll('.product-item').forEach(card => {
     const cat = card.dataset.category;
@@ -337,6 +467,7 @@ function filterProducts(category) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 renderProductCards();
+setupProductLightbox();
 setupPersonalisationOptions();
 setupProductVariants();
 updateCartUI();
