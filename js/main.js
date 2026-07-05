@@ -28,11 +28,16 @@ function sameVariant(a = '', b = '') {
   return (a || '') === (b || '');
 }
 
+function sameSize(a = '', b = '') {
+  return (a || '') === (b || '');
+}
+
 function renderPersonalisationDetails(item) {
   const details = [];
   const personalisation = item.personalisation || {};
 
   if (item.variant) details.push(`Colour: ${escapeHtml(item.variant)}`);
+  if (item.size) details.push(`Size: ${escapeHtml(item.size)}`);
   if (personalisation.name) details.push(`Name: ${escapeHtml(personalisation.name)} (+${formatMoney(PERSONALISATION_ADDON_PRICE)})`);
   if (personalisation.number) details.push(`Number: ${escapeHtml(personalisation.number)} (+${formatMoney(PERSONALISATION_ADDON_PRICE)})`);
 
@@ -113,19 +118,26 @@ function getSelectedVariant(trigger) {
   return variantSelect ? variantSelect.value : '';
 }
 
+function getSelectedSize(trigger) {
+  const card = trigger ? trigger.closest('.product-card') : null;
+  const sizeSelect = card ? card.querySelector('[data-product-size]') : null;
+  return sizeSelect ? sizeSelect.value : '';
+}
+
 function addToCart(name, price, trigger) {
   const personalisation = getPersonalisation(trigger);
   if (!personalisation) return;
 
   const variant = getSelectedVariant(trigger);
+  const size = getSelectedSize(trigger);
   const basePrice = Number(price);
   const addOnTotal =
     (personalisation.name ? PERSONALISATION_ADDON_PRICE : 0) +
     (personalisation.number ? PERSONALISATION_ADDON_PRICE : 0);
   const finalPrice = basePrice + addOnTotal;
-  const existing = cart.find(i => i.name === name && sameVariant(i.variant, variant) && samePersonalisation(i.personalisation, personalisation));
+  const existing = cart.find(i => i.name === name && sameVariant(i.variant, variant) && sameSize(i.size, size) && samePersonalisation(i.personalisation, personalisation));
 
-  if (existing) { existing.qty++; } else { cart.push({ name, basePrice, price: finalPrice, qty: 1, variant, personalisation }); }
+  if (existing) { existing.qty++; } else { cart.push({ name, basePrice, price: finalPrice, qty: 1, variant, size, personalisation }); }
   saveCart();
   updateCartUI();
   showToast(`✓  ${name} added to cart`);
@@ -177,9 +189,95 @@ function handleNewsletter(e) {
   e.target.reset();
 }
 
+function renderProductCards() {
+  if (!Array.isArray(window.PTG_PRODUCTS || globalThis.PTG_PRODUCTS)) return;
+
+  const products = window.PTG_PRODUCTS || globalThis.PTG_PRODUCTS;
+
+  document.querySelectorAll('[data-product-grid]').forEach(grid => {
+    const scope = grid.dataset.productGrid;
+    const isShop = scope === 'shop';
+    const cardProducts = scope === 'featured'
+      ? products.filter(product => product.featured)
+      : products;
+
+    grid.innerHTML = cardProducts.map(product => renderProductCard(product, isShop)).join('');
+  });
+}
+
+function renderProductCard(product, isShop) {
+  const cardClasses = isShop
+    ? 'product-card product-item group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100'
+    : 'product-card group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100';
+  const imageHeight = isShop ? 'h-60' : 'h-72';
+  const bodyPadding = isShop ? 'p-4' : 'p-5';
+  const titleClass = isShop ? 'font-semibold text-gray-900 text-sm' : 'font-semibold text-gray-900';
+  const copyClass = isShop ? 'text-gray-400 text-xs mt-1 leading-relaxed' : 'text-gray-400 text-sm mt-1';
+  const priceClass = isShop ? 'font-bold text-gray-900' : 'text-xl font-bold';
+  const buttonClass = isShop ? 'btn-primary px-4 py-1.5 text-xs' : 'btn-primary px-5 py-2 text-sm';
+  const actionMargin = isShop ? 'mt-3' : 'mt-4';
+  const badgeTextSize = isShop ? 'text-[10px] px-2.5' : 'text-[11px] px-3';
+  const variantMarkup = renderVariantSelect(product, isShop);
+  const sizeMarkup = renderSizeSelect(product, isShop);
+
+  return `
+      <div class="${cardClasses}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}">
+        <div class="product-image-wrap relative overflow-hidden ${imageHeight}">
+          <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
+          ${product.badge ? `<span class="absolute top-3 left-3 bg-brand text-white ${badgeTextSize} py-1 rounded-full font-semibold">${escapeHtml(product.badge)}</span>` : ''}
+        </div>
+        <div class="${bodyPadding}">
+          <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">${escapeHtml(product.type)}</p>
+          <h3 class="${titleClass}">${escapeHtml(product.name)}</h3>
+          <p class="${copyClass}">${escapeHtml(product.description)}</p>
+          ${variantMarkup}
+          ${sizeMarkup}
+          <div class="flex items-center justify-between ${actionMargin}">
+            <span class="${priceClass}">${formatMoney(product.price).replace('.00', '')}</span>
+            <button onclick="addToCart('${escapeHtml(product.name)}', ${Number(product.price)}, this)" class="${buttonClass}">Add to Cart</button>
+          </div>
+        </div>
+      </div>
+  `;
+}
+
+function renderVariantSelect(product, isShop) {
+  if (!Array.isArray(product.variants) || product.variants.length === 0) return '';
+
+  const id = `${isShop ? 'shop' : 'home'}-${slugify(product.name)}-colour`;
+  return `
+          <div class="product-option">
+            <label for="${id}">Colour</label>
+            <select id="${id}" data-product-variant>
+              ${product.variants.map(variant => `
+              <option value="${escapeHtml(variant.value)}" data-image="${escapeHtml(variant.image)}" data-alt="${escapeHtml(variant.alt)}">${escapeHtml(variant.label)}</option>`).join('')}
+            </select>
+          </div>
+  `;
+}
+
+function renderSizeSelect(product, isShop) {
+  if (!Array.isArray(product.sizes) || product.sizes.length === 0) return '';
+
+  const id = `${isShop ? 'shop' : 'home'}-${slugify(product.name)}-size`;
+  return `
+          <div class="product-option">
+            <label for="${id}">Size</label>
+            <select id="${id}" data-product-size>
+              ${product.sizes.map(size => `<option value="${escapeHtml(size)}">${escapeHtml(size)}</option>`).join('')}
+            </select>
+          </div>
+  `;
+}
+
+function slugify(value) {
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
 function setupPersonalisationOptions() {
   document.querySelectorAll('.product-card').forEach((card, index) => {
     const button = card.querySelector('button[onclick^="addToCart"]');
+    if (card.dataset.personalisable !== 'true') return;
     if (!button || card.querySelector('.personalisation-options')) return;
 
     const actionRow = button.closest('.flex.items-center.justify-between');
@@ -238,6 +336,7 @@ function filterProducts(category) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+renderProductCards();
 setupPersonalisationOptions();
 setupProductVariants();
 updateCartUI();
