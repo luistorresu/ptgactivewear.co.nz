@@ -6,6 +6,7 @@ All notable changes to this website should be documented here.
 
 ### Changed
 
+* Set `info@Ptgactivewear.co.nz` as the main website contact email in the footer.
 * Updated the live product list to the five requested Patagonia FC products.
 * Added product image galleries and a zoom lightbox for product angles.
 * Merged duplicate product image angles into single product galleries and removed unapproved products from the visible catalogue.
