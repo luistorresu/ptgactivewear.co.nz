@@ -17,16 +17,16 @@ html { scroll-behavior: smooth; }
 }
 
 .site-logo-link {
-  margin-left: -0.35rem;
-  padding: 0.25rem 0.35rem;
+  margin-left: -0.2rem;
+  padding: 0.2rem;
   border-radius: 0.5rem;
 }
 
 .site-logo {
   display: block;
-  width: 6.25rem;
-  max-height: 2.75rem;
-  height: auto;
+  width: auto;
+  height: 2.15rem;
+  max-width: 8rem;
   object-fit: contain;
   filter: drop-shadow(0 3px 10px rgba(91, 184, 212, 0.08));
   transition: filter 0.2s ease, transform 0.2s ease;
@@ -83,7 +83,8 @@ html { scroll-behavior: smooth; }
 
 @media (min-width: 640px) {
   .site-logo {
-    width: 7.25rem;
+    height: 2.45rem;
+    max-width: 9.5rem;
   }
 }
 
@@ -154,6 +155,35 @@ html { scroll-behavior: smooth; }
     linear-gradient(180deg, rgba(0, 0, 0, 0.12) 0%, rgba(0, 0, 0, 0.56) 100%);
 }
 
+.about-hero-bg {
+  isolation: isolate;
+  background: #050505;
+}
+
+.about-hero-bg::before,
+.about-hero-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.about-hero-bg::before {
+  z-index: 0;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.76) 0%, rgba(0, 0, 0, 0.54) 48%, rgba(0, 0, 0, 0.7) 100%),
+    url("../photos/Luchito.png");
+  background-size: cover;
+  background-position: center 42%;
+  transform: scale(1.01);
+}
+
+.about-hero-bg::after {
+  z-index: 1;
+  background:
+    radial-gradient(ellipse at 50% 62%, rgba(91, 184, 212, 0.18) 0%, transparent 44%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.18) 0%, rgba(0, 0, 0, 0.58) 100%);
+}
+
 @keyframes luchitoHeroFadeIn {
   from {
     opacity: 0;
@@ -168,6 +198,8 @@ html { scroll-behavior: smooth; }
 
 /* ── Product cards ── */
 .product-card {
+  display: flex;
+  flex-direction: column;
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 .product-card:hover {
@@ -223,6 +255,61 @@ html { scroll-behavior: smooth; }
   font-weight: 700;
   padding: 0.35rem 0.6rem;
   backdrop-filter: blur(10px);
+}
+
+.product-card-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.product-actions {
+  margin-top: auto;
+  padding-top: 1rem;
+}
+
+/* Footer */
+.footer-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.footer-logo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  border-radius: 0.625rem;
+}
+
+.footer-logo {
+  display: block;
+  width: auto;
+  height: 2.25rem;
+  max-width: 9rem;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 18px rgba(91, 184, 212, 0.12));
+}
+
+.footer-brand-copy {
+  max-width: 22rem;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.footer-column {
+  text-align: center;
+}
+
+.footer-column ul {
+  display: grid;
+  justify-items: center;
+}
+
+.footer-bottom {
+  text-align: center;
 }
 
 .product-option {
@@ -498,6 +585,15 @@ html { scroll-behavior: smooth; }
 @media (max-width: 640px) {
   .home-hero-bg::before {
     background-position: center 38%;
+  }
+
+  .about-hero-bg::before {
+    background-position: center 38%;
+  }
+
+  .footer-logo {
+    height: 2rem;
+    max-width: 8rem;
   }
 
   .product-card-content {

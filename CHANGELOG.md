@@ -7,6 +7,9 @@ All notable changes to this website should be documented here.
 ### Changed
 
 * Set `info@Ptgactivewear.co.nz` as the main website contact email in the footer.
+* Polished header and footer logo presentation using the main PTG logo.
+* Centered and balanced footer content across pages.
+* Added the Luchito image background to the About page hero with dark overlays for readability.
 * Updated the live product list to the five requested Patagonia FC products.
 * Added product image galleries and a zoom lightbox for product angles.
 * Merged duplicate product image angles into single product galleries and removed unapproved products from the visible catalogue.
