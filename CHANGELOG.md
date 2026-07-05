@@ -10,6 +10,7 @@ All notable changes to this website should be documented here.
 * Polished header and footer logo presentation using the main PTG logo.
 * Centered and balanced footer content across pages.
 * Added the Luchito image background to the About page hero with dark overlays for readability.
+* Added a Contact page with a contact image hero, email CTA, and site navigation links.
 * Updated the live product list to the five requested Patagonia FC products.
 * Added product image galleries and a zoom lightbox for product angles.
 * Merged duplicate product image angles into single product galleries and removed unapproved products from the visible catalogue.

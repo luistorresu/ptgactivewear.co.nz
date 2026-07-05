@@ -184,7 +184,45 @@ html { scroll-behavior: smooth; }
     linear-gradient(180deg, rgba(0, 0, 0, 0.18) 0%, rgba(0, 0, 0, 0.58) 100%);
 }
 
+.contact-hero-bg {
+  background: #050505;
+  overflow: hidden;
+}
+
+.contact-hero-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.5) 46%, rgba(0, 0, 0, 0.68) 100%),
+    url("../photos/contact us.png");
+  background-size: cover;
+  background-position: center 44%;
+  opacity: 0;
+  transform: scale(1.025);
+  animation: contactHeroFadeIn 1.25s ease-out 0.08s forwards;
+  will-change: opacity, transform;
+}
+
+.contact-hero-overlay {
+  background:
+    radial-gradient(ellipse at 50% 66%, rgba(91, 184, 212, 0.18) 0%, transparent 45%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.14) 0%, rgba(0, 0, 0, 0.62) 100%);
+}
+
 @keyframes luchitoHeroFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(1.025);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes contactHeroFadeIn {
   from {
     opacity: 0;
     transform: scale(1.025);
@@ -591,6 +629,10 @@ html { scroll-behavior: smooth; }
     background-position: center 38%;
   }
 
+  .contact-hero-bg::before {
+    background-position: center 40%;
+  }
+
   .footer-logo {
     height: 2rem;
     max-width: 8rem;
@@ -664,6 +706,12 @@ html { scroll-behavior: smooth; }
 
 @media (prefers-reduced-motion: reduce) {
   .home-hero-bg::before {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .contact-hero-bg::before {
     animation: none;
     opacity: 1;
     transform: none;
