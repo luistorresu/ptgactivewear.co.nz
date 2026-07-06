@@ -7,7 +7,7 @@ All notable changes to this website should be documented here.
 ### Changed
 
 * Removed the homepage hero CTA buttons and centered the Our Story section after removing the statistics panel.
-* Connected the homepage newsletter form to a Cloudflare Pages Function using the existing Resend email environment variables.
+* Connected the homepage newsletter form to Cloudflare email endpoints using the existing Resend email environment variables.
 * Updated the Contact form to use one direct backend `Send Message` button with no form mailto fallback.
 * Polished the Shop page product grid with larger cards, larger images, premium spacing, and hover carousel image transitions.
 * Set `info@Ptgactivewear.co.nz` as the main website contact email in the footer.
