@@ -104,22 +104,24 @@
       <section class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
         <h2 class="text-2xl font-bold text-gray-900 mb-2 text-center">Send a Quick Message</h2>
         <p class="text-gray-500 text-sm leading-relaxed mb-7 text-center">
-          This opens your email app with the details ready to send.
+          Use this form to send us a message directly.
         </p>
-        <form action="mailto:info@Ptgactivewear.co.nz" method="post" enctype="text/plain" class="grid gap-4">
+        <form data-contact-form class="grid gap-4" novalidate>
+          <input type="text" name="website" tabindex="-1" autocomplete="off" class="hidden" aria-hidden="true">
           <label class="grid gap-2 text-sm font-semibold text-gray-700">
             Name
-            <input name="Name" type="text" class="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand/35" placeholder="Your name">
+            <input name="name" type="text" required class="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand/35" placeholder="Your name">
           </label>
           <label class="grid gap-2 text-sm font-semibold text-gray-700">
             Email
-            <input name="Email" type="email" class="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand/35" placeholder="you@example.com">
+            <input name="email" type="email" required class="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand/35" placeholder="you@example.com">
           </label>
           <label class="grid gap-2 text-sm font-semibold text-gray-700">
             Message
-            <textarea name="Message" rows="5" class="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand/35 resize-y" placeholder="How can we help?"></textarea>
+            <textarea name="message" rows="5" required class="px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand/35 resize-y" placeholder="How can we help?"></textarea>
           </label>
-          <button type="submit" class="btn-primary px-7 py-3.5 text-sm mt-2">Open Email</button>
+          <p data-contact-status class="hidden rounded-xl px-4 py-3 text-sm font-medium" role="status" aria-live="polite"></p>
+          <button type="submit" data-contact-submit class="btn-primary px-7 py-3.5 text-sm mt-2 w-full">Send Message</button>
         </form>
       </section>
     </div>

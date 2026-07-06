@@ -87,10 +87,6 @@
       <p class="text-lg sm:text-xl text-gray-300 max-w-2xl mx-auto mb-10 font-light leading-relaxed">
         Premium football apparel engineered for peak performance. Designed in New Zealand, built for champions everywhere.
       </p>
-      <div class="flex flex-col sm:flex-row gap-4 justify-center">
-        <a href="shop.html" class="btn-primary px-9 py-4 text-base">Shop Collection</a>
-        <a href="about.html" class="px-9 py-4 text-base font-semibold border-2 border-white/70 text-white hover:bg-white hover:text-gray-900 rounded-full transition-all duration-200">Our Story</a>
-      </div>
     </div>
 
     <div class="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/40 animate-bounce">
@@ -151,26 +147,18 @@
 
   <!-- ── BRAND STORY ── -->
   <section class="bg-gray-950 text-white py-24 px-4 sm:px-6 lg:px-8">
-    <div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-16 items-center">
-      <div>
-        <span class="text-brand text-xs font-semibold tracking-widest uppercase">Our Story</span>
-        <h2 class="text-4xl font-bold mt-3 mb-6 leading-tight">Built by Players,<br>for Players.</h2>
-        <p class="text-gray-400 leading-relaxed mb-5 text-sm">
+    <div class="max-w-3xl mx-auto text-center flex flex-col items-center justify-center">
+      <span class="text-brand text-xs font-semibold tracking-widest uppercase">Our Story</span>
+      <h2 class="text-4xl sm:text-5xl font-bold mt-3 mb-6 leading-tight">Built by Players,<br>for Players.</h2>
+      <div class="space-y-5">
+        <p class="text-gray-400 leading-relaxed text-sm sm:text-base">
           PTG Activewear was born on the training pitches of New Zealand, created by footballers who were tired of choosing between performance and style. We believe you shouldn't have to compromise.
         </p>
-        <p class="text-gray-400 leading-relaxed mb-8 text-sm">
+        <p class="text-gray-400 leading-relaxed text-sm sm:text-base">
           Every stitch, every panel, and every fabric choice is made with one goal: to help you play your best game while looking the part. Weekend warrior or competitive club player — PTG gear is made for you.
         </p>
-        <a href="about.html" class="btn-primary px-7 py-3 text-sm">Learn More</a>
       </div>
-      <div class="bg-brand/10 border border-brand/25 rounded-3xl p-10">
-        <div class="grid grid-cols-2 gap-10 text-center">
-          <div><div class="text-4xl font-black text-brand">500+</div><div class="text-gray-500 text-sm mt-1">Happy Customers</div></div>
-          <div><div class="text-4xl font-black text-brand">5</div><div class="text-gray-500 text-sm mt-1">Products</div></div>
-          <div><div class="text-4xl font-black text-brand">NZ</div><div class="text-gray-500 text-sm mt-1">Designed &amp; Shipped</div></div>
-          <div><div class="text-4xl font-black text-brand">4.9★</div><div class="text-gray-500 text-sm mt-1">Avg Rating</div></div>
-        </div>
-      </div>
+      <a href="about.html" class="btn-primary px-8 py-3 mt-9 text-sm">Learn More</a>
     </div>
   </section>
 
@@ -180,11 +168,13 @@
       <span class="text-brand text-xs font-semibold tracking-widest uppercase">Stay in the Game</span>
       <h2 class="text-3xl font-bold text-gray-900 mt-2 mb-3">Join the PTG Squad</h2>
       <p class="text-gray-500 mb-8 text-sm">Early access to new drops, exclusive deals, and training tips straight to your inbox.</p>
-      <form class="flex flex-col sm:flex-row gap-3" onsubmit="handleNewsletter(event)">
-        <input type="email" placeholder="Enter your email address" required
+      <form data-newsletter-form class="flex flex-col sm:flex-row gap-3" novalidate>
+        <input type="text" name="website" tabindex="-1" autocomplete="off" class="hidden" aria-hidden="true">
+        <input data-newsletter-email name="email" type="email" placeholder="Enter your email address" required
           class="flex-1 px-5 py-3 rounded-full border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand/40 text-sm bg-white">
-        <button type="submit" class="btn-primary px-6 py-3 text-sm whitespace-nowrap">Subscribe</button>
+        <button data-newsletter-submit type="submit" class="btn-primary px-6 py-3 text-sm whitespace-nowrap">Subscribe</button>
       </form>
+      <p data-newsletter-status class="hidden mt-4 rounded-xl px-4 py-3 text-sm font-medium" role="status" aria-live="polite"></p>
     </div>
   </section>
 

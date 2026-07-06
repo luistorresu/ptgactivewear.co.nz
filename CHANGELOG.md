@@ -6,11 +6,17 @@ All notable changes to this website should be documented here.
 
 ### Changed
 
+* Removed the homepage hero CTA buttons and centered the Our Story section after removing the statistics panel.
+* Connected the homepage newsletter form to a Cloudflare Pages Function using the existing Resend email environment variables.
+* Updated the Contact form to use one direct backend `Send Message` button with no form mailto fallback.
+* Polished the Shop page product grid with larger cards, larger images, premium spacing, and hover carousel image transitions.
 * Set `info@Ptgactivewear.co.nz` as the main website contact email in the footer.
 * Polished header and footer logo presentation using the main PTG logo.
 * Centered and balanced footer content across pages.
 * Added the Luchito image background to the About page hero with dark overlays for readability.
 * Added a Contact page with a contact image hero, email CTA, and site navigation links.
+* Added separate `Send` and `Open Email` actions to the Contact page message form.
+* Added a Cloudflare Pages contact form endpoint prepared for server-side email sending.
 * Updated the live product list to the five requested Patagonia FC products.
 * Added product image galleries and a zoom lightbox for product angles.
 * Merged duplicate product image angles into single product galleries and removed unapproved products from the visible catalogue.

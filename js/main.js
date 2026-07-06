@@ -187,10 +187,159 @@ function showToast(msg) {
 }
 
 // ── Newsletter ────────────────────────────────────────────────────────────────
-function handleNewsletter(e) {
-  e.preventDefault();
-  showToast('Welcome to the PTG squad!');
-  e.target.reset();
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function setInlineStatus(statusEl, type, message) {
+  if (!statusEl) return;
+
+  statusEl.textContent = message;
+  statusEl.classList.remove('hidden', 'bg-green-50', 'text-green-700', 'border', 'border-green-100', 'bg-red-50', 'text-red-700', 'border-red-100');
+  statusEl.classList.add('border');
+
+  if (type === 'success') {
+    statusEl.classList.add('bg-green-50', 'text-green-700', 'border-green-100');
+  } else {
+    statusEl.classList.add('bg-red-50', 'text-red-700', 'border-red-100');
+  }
+}
+
+function clearInlineStatus(statusEl) {
+  if (!statusEl) return;
+  statusEl.textContent = '';
+  statusEl.classList.add('hidden');
+}
+
+function setupNewsletterForm() {
+  const form = document.querySelector('[data-newsletter-form]');
+  if (!form) return;
+
+  const submitButton = form.querySelector('[data-newsletter-submit]');
+  const statusEl = form.querySelector('[data-newsletter-status]');
+  let isSending = false;
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (isSending) return;
+
+    const email = (form.elements.email?.value || '').trim();
+    const website = (form.elements.website?.value || '').trim();
+    if (!isValidEmail(email)) {
+      setInlineStatus(statusEl, 'error', 'Please enter a valid email address.');
+      return;
+    }
+
+    clearInlineStatus(statusEl);
+    isSending = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Subscribing...';
+      submitButton.classList.add('opacity-70', 'cursor-not-allowed');
+    }
+
+    try {
+      const response = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, website })
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Subscription could not be sent.');
+      }
+
+      form.reset();
+      setInlineStatus(statusEl, 'success', 'Thanks for joining the PTG squad. We have received your subscription.');
+    } catch (error) {
+      setInlineStatus(statusEl, 'error', 'Sorry, your subscription could not be sent. Please try again.');
+    } finally {
+      isSending = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Subscribe';
+        submitButton.classList.remove('opacity-70', 'cursor-not-allowed');
+      }
+    }
+  });
+}
+
+function setupContactForm() {
+  const form = document.querySelector('[data-contact-form]');
+  if (!form) return;
+
+  const submitButton = form.querySelector('[data-contact-submit]');
+  const statusEl = form.querySelector('[data-contact-status]');
+  let isSending = false;
+
+  const setStatus = (type, message) => {
+    setInlineStatus(statusEl, type, message);
+  };
+
+  const clearStatus = () => {
+    clearInlineStatus(statusEl);
+  };
+
+  const getFormData = () => ({
+    name: (form.elements.name?.value || '').trim().replace(/\s+/g, ' '),
+    email: (form.elements.email?.value || '').trim(),
+    message: (form.elements.message?.value || '').trim(),
+    website: (form.elements.website?.value || '').trim()
+  });
+
+  const validateContactData = data => {
+    if (!data.name) return 'Please enter your name.';
+    if (!isValidEmail(data.email)) return 'Please enter a valid email address.';
+    if (!data.message) return 'Please enter your message.';
+    return '';
+  };
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (isSending) return;
+
+    const data = getFormData();
+    const validationError = validateContactData(data);
+
+    if (validationError) {
+      setStatus('error', validationError);
+      return;
+    }
+
+    clearStatus();
+    isSending = true;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Sending...';
+      submitButton.classList.add('opacity-70', 'cursor-not-allowed');
+    }
+
+    try {
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || 'Message could not be sent.');
+      }
+
+      form.reset();
+      setStatus('success', "Thank you! Your message has been sent successfully. We'll get back to you as soon as possible.");
+    } catch (error) {
+      setStatus('error', "Sorry, your message couldn't be sent. Please try again in a moment.");
+    } finally {
+      isSending = false;
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Send Message';
+        submitButton.classList.remove('opacity-70', 'cursor-not-allowed');
+      }
+    }
+  });
 }
 
 function renderProductCards() {
@@ -211,15 +360,15 @@ function renderProductCards() {
 
 function renderProductCard(product, isShop) {
   const cardClasses = isShop
-    ? 'product-card product-item group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100'
+    ? 'product-card product-card-shop product-item group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100'
     : 'product-card group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100';
-  const imageHeight = isShop ? 'h-60' : 'h-72';
-  const bodyPadding = isShop ? 'p-4' : 'p-5';
-  const titleClass = isShop ? 'font-semibold text-gray-900 text-sm' : 'font-semibold text-gray-900';
-  const copyClass = isShop ? 'text-gray-400 text-xs mt-1 leading-relaxed' : 'text-gray-400 text-sm mt-1';
-  const priceClass = isShop ? 'font-bold text-gray-900' : 'text-xl font-bold';
-  const buttonClass = isShop ? 'btn-primary px-4 py-1.5 text-xs' : 'btn-primary px-5 py-2 text-sm';
-  const actionMargin = isShop ? 'mt-3' : 'mt-4';
+  const imageHeight = isShop ? 'h-80' : 'h-72';
+  const bodyPadding = isShop ? 'p-5 sm:p-6' : 'p-5';
+  const titleClass = isShop ? 'font-semibold text-gray-900 text-base leading-snug' : 'font-semibold text-gray-900';
+  const copyClass = isShop ? 'text-gray-400 text-sm mt-2 leading-relaxed' : 'text-gray-400 text-sm mt-1';
+  const priceClass = isShop ? 'text-lg font-bold text-gray-900' : 'text-xl font-bold';
+  const buttonClass = isShop ? 'btn-primary px-5 py-2.5 text-sm' : 'btn-primary px-5 py-2 text-sm';
+  const actionMargin = isShop ? 'mt-5' : 'mt-4';
   const badgeTextSize = isShop ? 'text-[10px] px-2.5' : 'text-[11px] px-3';
   const variantMarkup = renderVariantSelect(product, isShop);
   const sizeMarkup = renderSizeSelect(product, isShop);
@@ -227,10 +376,10 @@ function renderProductCard(product, isShop) {
   const galleryCount = gallery.length;
 
   return `
-      <div class="${cardClasses}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}">
+      <div class="${cardClasses}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}">
         <div class="product-image-wrap relative overflow-hidden ${imageHeight}">
           <button type="button" class="product-image-button" onclick='openProductLightbox(${escapeJsString(product.name)}, 0)' aria-label="View ${escapeHtml(product.name)} image gallery">
-            <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
+            <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
             ${galleryCount > 1 ? `<span class="product-gallery-count">${galleryCount} angles</span>` : ''}
           </button>
           ${product.badge ? `<span class="absolute top-3 left-3 bg-brand text-white ${badgeTextSize} py-1 rounded-full font-semibold">${escapeHtml(product.badge)}</span>` : ''}
@@ -290,6 +439,56 @@ let activeLightboxIndex = 0;
 function getProductGallery(product) {
   const gallery = Array.isArray(product.gallery) && product.gallery.length ? product.gallery : [product.image];
   return gallery.filter(Boolean);
+}
+
+function setupProductCardCarousels() {
+  const products = window.PTG_PRODUCTS || globalThis.PTG_PRODUCTS || [];
+
+  document.querySelectorAll('.product-card').forEach(card => {
+    const product = products.find(item => item.name === card.dataset.productName);
+    const image = card.querySelector('[data-product-image]');
+    const gallery = product ? getProductGallery(product) : [];
+
+    if (!product || !image || gallery.length < 2) return;
+
+    let activeIndex = gallery.findIndex(src => src === image.getAttribute('src'));
+    if (activeIndex < 0) activeIndex = 0;
+
+    let timer = null;
+    let isSwapping = false;
+
+    const swapImage = nextIndex => {
+      if (isSwapping) return;
+
+      activeIndex = (nextIndex + gallery.length) % gallery.length;
+      isSwapping = true;
+      image.classList.add('is-transitioning');
+
+      window.setTimeout(() => {
+        image.src = gallery[activeIndex];
+        image.alt = `${product.name} image ${activeIndex + 1}`;
+        image.classList.remove('is-transitioning');
+        isSwapping = false;
+      }, 180);
+    };
+
+    const startCarousel = () => {
+      if (timer || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      timer = window.setInterval(() => swapImage(activeIndex + 1), 1800);
+    };
+
+    const stopCarousel = () => {
+      if (!timer) return;
+      window.clearInterval(timer);
+      timer = null;
+    };
+
+    card.addEventListener('mouseenter', startCarousel);
+    card.addEventListener('mouseleave', stopCarousel);
+    card.addEventListener('focusin', startCarousel);
+    card.addEventListener('focusout', stopCarousel);
+    card.addEventListener('pointerdown', stopCarousel);
+  });
 }
 
 function setupProductLightbox() {
@@ -470,4 +669,7 @@ renderProductCards();
 setupProductLightbox();
 setupPersonalisationOptions();
 setupProductVariants();
+setupProductCardCarousels();
+setupNewsletterForm();
+setupContactForm();
 updateCartUI();
