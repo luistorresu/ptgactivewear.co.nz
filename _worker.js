@@ -204,11 +204,15 @@ export default {
       return handleEmailRequest(request, env, 'newsletter');
     }
 
-    const assetResponse = await env.ASSETS.fetch(request);
-    if (assetResponse.status === 500) {
+    try {
+      const assetResponse = await env.ASSETS.fetch(request);
+      if (assetResponse.status === 500) {
+        return new Response('Not found', { status: 404 });
+      }
+
+      return assetResponse;
+    } catch (error) {
       return new Response('Not found', { status: 404 });
     }
-
-    return assetResponse;
   }
 };
