@@ -6,6 +6,8 @@ All notable changes to this website should be documented here.
 
 ### Changed
 
+* Prepared Stripe-hosted Checkout in the Cloudflare Worker with server-side product validation, NZD pricing, customisation add-ons, shipping configuration, success/cancel pages, and verified webhook email handling.
+* Updated the homepage and About page story copy to reflect PTG Activewear's premium custom apparel services for clubs, schools, academies, businesses, and teams.
 * Removed the homepage hero CTA buttons and centered the Our Story section after removing the statistics panel.
 * Connected the homepage newsletter form to Cloudflare email endpoints using the existing Resend email environment variables.
 * Updated the Contact form to use one direct backend `Send Message` button with no form mailto fallback.

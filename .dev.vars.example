@@ -1,0 +1,14 @@
+# Copy this file to .dev.vars for local Wrangler testing.
+# Never commit real secret values.
+
+SITE_URL=https://ptgactivewear.co.nz
+
+# Stripe test-mode keys only while testing.
+STRIPE_SECRET_KEY=sk_test_replace_me
+STRIPE_WEBHOOK_SECRET=whsec_replace_me
+
+# Existing email provider.
+EMAIL_PROVIDER=resend
+EMAIL_API_KEY=re_replace_me
+CONTACT_TO_EMAIL=info@ptgactivewear.co.nz
+CONTACT_FROM_EMAIL=info@ptgactivewear.co.nz

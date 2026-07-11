@@ -1,0 +1,15 @@
+_worker.js
+_worker.js.map
+.wrangler/
+.wrangler/**
+.git/
+.git/**
+.claude/
+.claude/**
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+AGENTS.md
+PROJECT.md
+CHANGELOG.md

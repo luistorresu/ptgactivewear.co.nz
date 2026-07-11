@@ -24,6 +24,15 @@ function formatMoney(value) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function getProducts() {
+  return window.PTG_PRODUCTS || globalThis.PTG_PRODUCTS || [];
+}
+
+function findProductForCartItem(item) {
+  const products = getProducts();
+  return products.find(product => product.id === item.id) || products.find(product => product.name === item.name);
+}
+
 function samePersonalisation(a = {}, b = {}) {
   return (a.name || '') === (b.name || '') && (a.number || '') === (b.number || '');
 }
@@ -128,7 +137,7 @@ function getSelectedSize(trigger) {
   return sizeSelect ? sizeSelect.value : '';
 }
 
-function addToCart(name, price, trigger) {
+function addToCart(productId, name, price, trigger) {
   const personalisation = getPersonalisation(trigger);
   if (!personalisation) return;
 
@@ -139,9 +148,9 @@ function addToCart(name, price, trigger) {
     (personalisation.name ? PERSONALISATION_ADDON_PRICE : 0) +
     (personalisation.number ? PERSONALISATION_ADDON_PRICE : 0);
   const finalPrice = basePrice + addOnTotal;
-  const existing = cart.find(i => i.name === name && sameVariant(i.variant, variant) && sameSize(i.size, size) && samePersonalisation(i.personalisation, personalisation));
+  const existing = cart.find(i => (i.id === productId || i.name === name) && sameVariant(i.variant, variant) && sameSize(i.size, size) && samePersonalisation(i.personalisation, personalisation));
 
-  if (existing) { existing.qty++; } else { cart.push({ name, basePrice, price: finalPrice, qty: 1, variant, size, personalisation }); }
+  if (existing) { existing.qty++; } else { cart.push({ id: productId, name, basePrice, price: finalPrice, qty: 1, variant, size, personalisation }); }
   saveCart();
   updateCartUI();
   showToast(`✓  ${name} added to cart`);
@@ -168,6 +177,81 @@ function toggleCart() {
   const isOpen = sidebar.classList.toggle('open');
   overlay.classList.toggle('hidden', !isOpen);
   document.body.style.overflow = isOpen ? 'hidden' : '';
+}
+
+function buildCheckoutPayload() {
+  return {
+    items: cart.map(item => {
+      const product = findProductForCartItem(item);
+      return {
+        productId: product?.id || item.id,
+        quantity: item.qty,
+        size: item.size || '',
+        variant: item.variant || '',
+        personalisation: {
+          name: item.personalisation?.name || '',
+          number: item.personalisation?.number || ''
+        }
+      };
+    })
+  };
+}
+
+function setCheckoutLoading(isLoading) {
+  document.querySelectorAll('[data-checkout-button]').forEach(button => {
+    button.disabled = isLoading;
+    button.textContent = isLoading ? 'Starting secure checkout...' : 'Proceed to Checkout';
+    button.classList.toggle('opacity-70', isLoading);
+    button.classList.toggle('cursor-not-allowed', isLoading);
+  });
+}
+
+function setupCheckout() {
+  const checkoutButtons = document.querySelectorAll('[data-checkout-button]');
+  if (!checkoutButtons.length) return;
+
+  let isCheckingOut = false;
+  const statusEl = document.querySelector('[data-checkout-status]');
+
+  checkoutButtons.forEach(button => {
+    button.addEventListener('click', async () => {
+      if (isCheckingOut) return;
+
+      if (!cart.length) {
+        setInlineStatus(statusEl, 'error', 'Your cart is empty.');
+        return;
+      }
+
+      const payload = buildCheckoutPayload();
+      if (payload.items.some(item => !item.productId)) {
+        setInlineStatus(statusEl, 'error', 'One of the products in your cart is no longer available. Please remove it and try again.');
+        return;
+      }
+
+      clearInlineStatus(statusEl);
+      isCheckingOut = true;
+      setCheckoutLoading(true);
+
+      try {
+        const response = await fetch('/api/create-checkout-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || !result.ok || !result.url) {
+          throw new Error(result.error || 'Checkout could not be started.');
+        }
+
+        window.location.assign(result.url);
+      } catch (error) {
+        setInlineStatus(statusEl, 'error', error.message || 'Checkout could not be started. Please try again.');
+        isCheckingOut = false;
+        setCheckoutLoading(false);
+      }
+    });
+  });
 }
 
 // ── Mobile menu ──────────────────────────────────────────────────────────────
@@ -392,7 +476,7 @@ function renderProductCard(product, isShop) {
           ${sizeMarkup}
           <div class="product-actions flex items-center justify-between ${actionMargin}">
             <span class="${priceClass}">${formatMoney(product.price).replace('.00', '')}</span>
-            <button onclick='addToCart(${escapeJsString(product.name)}, ${Number(product.price)}, this)' class="${buttonClass}">Add to Cart</button>
+            <button onclick='addToCart(${escapeJsString(product.id)}, ${escapeJsString(product.name)}, ${Number(product.price)}, this)' class="${buttonClass}">Add to Cart</button>
           </div>
         </div>
       </div>
@@ -672,4 +756,5 @@ setupProductVariants();
 setupProductCardCarousels();
 setupNewsletterForm();
 setupContactForm();
+setupCheckout();
 updateCartUI();

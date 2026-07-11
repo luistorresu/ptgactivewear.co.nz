@@ -1,5 +1,6 @@
 window.PTG_PRODUCTS = [
   {
+    id: 'patagonia-fc-beanie',
     name: 'Patagonia FC Beanie',
     price: 35,
     category: 'accessories',
@@ -13,6 +14,7 @@ window.PTG_PRODUCTS = [
     featured: true
   },
   {
+    id: 'patagonia-fc-performance-tracksuit',
     name: 'Patagonia FC Performance Tracksuit',
     price: 115,
     category: 'tracksuits',
@@ -30,6 +32,7 @@ window.PTG_PRODUCTS = [
     featured: true
   },
   {
+    id: 'patagonia-fc-personalised-mug',
     name: 'Patagonia FC Personalised Mug',
     price: 15,
     category: 'accessories',
@@ -48,6 +51,7 @@ window.PTG_PRODUCTS = [
     featured: true
   },
   {
+    id: 'patagonia-fc-tournament-player-kit',
     name: 'Patagonia FC Tournament Player Kit',
     price: 95,
     category: 'kits',
@@ -66,6 +70,7 @@ window.PTG_PRODUCTS = [
     featured: true
   },
   {
+    id: 'patagonia-fc-waterproof-rain-suit',
     name: 'Patagonia FC Waterproof Rain Suit',
     price: 50,
     category: 'rain-suits',

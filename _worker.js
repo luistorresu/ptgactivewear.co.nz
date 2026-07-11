@@ -4,6 +4,66 @@ const MAX_FIELD_LENGTHS = {
   message: 3000
 };
 
+const STRIPE_API_VERSION = '2025-06-30.basil';
+const PERSONALISATION_ADDON_NZD_CENTS = 2000;
+const MAX_CART_ITEMS = 30;
+const MAX_ITEM_QUANTITY = 20;
+const SITE_ORIGIN = 'https://ptgactivewear.co.nz';
+
+// Temporary test-mode shipping setup. Change this amount when final NZ shipping is approved.
+const NZ_SHIPPING_RATE = {
+  displayName: 'New Zealand shipping (test)',
+  amountNzdCents: 0
+};
+
+const SERVER_PRODUCTS = {
+  'patagonia-fc-beanie': {
+    id: 'patagonia-fc-beanie',
+    name: 'Patagonia FC Beanie',
+    unitAmountNzdCents: 3500,
+    sizes: ['One Size'],
+    variants: [],
+    personalisable: false,
+    available: true
+  },
+  'patagonia-fc-performance-tracksuit': {
+    id: 'patagonia-fc-performance-tracksuit',
+    name: 'Patagonia FC Performance Tracksuit',
+    unitAmountNzdCents: 11500,
+    sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
+    variants: [],
+    personalisable: false,
+    available: true
+  },
+  'patagonia-fc-personalised-mug': {
+    id: 'patagonia-fc-personalised-mug',
+    name: 'Patagonia FC Personalised Mug',
+    unitAmountNzdCents: 1500,
+    sizes: ['One Size'],
+    variants: [],
+    personalisable: false,
+    available: true
+  },
+  'patagonia-fc-tournament-player-kit': {
+    id: 'patagonia-fc-tournament-player-kit',
+    name: 'Patagonia FC Tournament Player Kit',
+    unitAmountNzdCents: 9500,
+    sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
+    variants: [],
+    personalisable: true,
+    available: true
+  },
+  'patagonia-fc-waterproof-rain-suit': {
+    id: 'patagonia-fc-waterproof-rain-suit',
+    name: 'Patagonia FC Waterproof Rain Suit',
+    unitAmountNzdCents: 5000,
+    sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
+    variants: [],
+    personalisable: false,
+    available: true
+  }
+};
+
 const jsonHeaders = {
   'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store'
@@ -45,6 +105,10 @@ function escapeHtml(value) {
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function formatMoneyFromCents(cents, currency = 'NZD') {
+  return `${currency.toUpperCase()} $${(Number(cents || 0) / 100).toFixed(2)}`;
 }
 
 function validateContactPayload(payload) {
@@ -114,6 +178,7 @@ function buildNewsletterEmail({ email }, toEmail) {
 }
 
 async function sendWithResend(env, emailData) {
+  const recipients = Array.isArray(emailData.to) ? emailData.to : [emailData.to];
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -122,7 +187,7 @@ async function sendWithResend(env, emailData) {
     },
     body: JSON.stringify({
       from: env.CONTACT_FROM_EMAIL,
-      to: [emailData.to],
+      to: recipients,
       reply_to: emailData.replyTo,
       subject: emailData.subject,
       text: emailData.text,
@@ -185,11 +250,595 @@ async function handleEmailRequest(request, env, type) {
       return jsonResponse({ ok: false, error: `Unsupported email provider: ${provider}` }, 503);
     }
   } catch (error) {
-    console.error(`${type} email send failed`, error);
+    console.error(`${type} email send failed`, error.message);
     return jsonResponse({ ok: false, error: 'Email could not be sent.' }, 502);
   }
 
   return jsonResponse({ ok: true });
+}
+
+function requireJsonRequest(request) {
+  const contentType = request.headers.get('content-type') || '';
+  return contentType.toLowerCase().includes('application/json');
+}
+
+function getApprovedSiteUrl(request, env) {
+  const configured = cleanText(env.SITE_URL, 200) || SITE_ORIGIN;
+  const requestUrl = new URL(request.url);
+
+  if (requestUrl.hostname === 'localhost' || requestUrl.hostname === '127.0.0.1') {
+    return requestUrl.origin;
+  }
+
+  if (configured === SITE_ORIGIN) return SITE_ORIGIN;
+
+  try {
+    const parsed = new URL(configured);
+    return parsed.origin;
+  } catch (error) {
+    return SITE_ORIGIN;
+  }
+}
+
+function normaliseCheckoutItem(rawItem) {
+  const productId = cleanText(rawItem.productId || rawItem.id, 120).toLowerCase();
+  const quantity = Number(rawItem.quantity || rawItem.qty);
+  const size = cleanText(rawItem.size, 40);
+  const variant = cleanText(rawItem.variant || rawItem.colour || rawItem.color, 80);
+  const personalisation = rawItem.personalisation || {};
+  const playerName = cleanText(personalisation.name || rawItem.playerName, 20);
+  const playerNumber = cleanText(personalisation.number || rawItem.playerNumber, 2);
+
+  return { productId, quantity, size, variant, playerName, playerNumber };
+}
+
+function validateCheckoutPayload(payload) {
+  if (!payload || !Array.isArray(payload.items)) {
+    return { error: 'Cart items are required.' };
+  }
+
+  if (payload.items.length === 0) {
+    return { error: 'Your cart is empty.' };
+  }
+
+  if (payload.items.length > MAX_CART_ITEMS) {
+    return { error: 'Too many cart items.' };
+  }
+
+  const checkedItems = [];
+
+  for (const rawItem of payload.items) {
+    const item = normaliseCheckoutItem(rawItem || {});
+    const product = SERVER_PRODUCTS[item.productId];
+
+    if (!product || !product.available) {
+      return { error: 'One of the products in your cart is no longer available.' };
+    }
+
+    if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > MAX_ITEM_QUANTITY) {
+      return { error: `Invalid quantity for ${product.name}.` };
+    }
+
+    if (product.sizes.length && !product.sizes.includes(item.size)) {
+      return { error: `Please choose a valid size for ${product.name}.` };
+    }
+
+    if (product.variants.length) {
+      if (!product.variants.includes(item.variant)) {
+        return { error: `Please choose a valid colour or style for ${product.name}.` };
+      }
+    } else if (item.variant) {
+      return { error: `${product.name} does not support that colour or style option.` };
+    }
+
+    if (!product.personalisable && (item.playerName || item.playerNumber)) {
+      return { error: `${product.name} does not support player personalisation.` };
+    }
+
+    if (item.playerName && !/^[A-Za-z0-9 .'-]{1,20}$/.test(item.playerName)) {
+      return { error: `Please use letters, numbers, spaces, apostrophes, hyphens, or full stops for the player name on ${product.name}.` };
+    }
+
+    if (item.playerNumber && !/^(?:0|00|[1-9][0-9]?)$/.test(item.playerNumber)) {
+      return { error: `Please enter a player number from 0 to 99 for ${product.name}.` };
+    }
+
+    const nameAddOn = product.personalisable && item.playerName ? PERSONALISATION_ADDON_NZD_CENTS : 0;
+    const numberAddOn = product.personalisable && item.playerNumber ? PERSONALISATION_ADDON_NZD_CENTS : 0;
+
+    checkedItems.push({
+      ...item,
+      product,
+      nameAddOn,
+      numberAddOn
+    });
+  }
+
+  return { items: checkedItems };
+}
+
+function buildOptionDescription(item) {
+  const details = [];
+  if (item.size) details.push(`Size: ${item.size}`);
+  if (item.variant) details.push(`Colour/style: ${item.variant}`);
+  if (item.playerName) details.push(`Player name: ${item.playerName}`);
+  if (item.playerNumber) details.push(`Player number: ${item.playerNumber}`);
+  return details.length ? details.join(' | ') : 'Standard item';
+}
+
+function appendStripeLineItem(params, index, line) {
+  params.append(`line_items[${index}][price_data][currency]`, 'nzd');
+  params.append(`line_items[${index}][price_data][unit_amount]`, String(line.unitAmount));
+  params.append(`line_items[${index}][price_data][product_data][name]`, line.name);
+  params.append(`line_items[${index}][price_data][product_data][description]`, line.description);
+  params.append(`line_items[${index}][quantity]`, String(line.quantity));
+
+  Object.entries(line.metadata || {}).forEach(([key, value]) => {
+    params.append(`line_items[${index}][price_data][product_data][metadata][${key}]`, String(value || ''));
+  });
+}
+
+function buildStripeLineItems(validatedItems) {
+  const lines = [];
+
+  validatedItems.forEach(item => {
+    const optionDescription = buildOptionDescription(item);
+    const baseMetadata = {
+      product_id: item.product.id,
+      size: item.size,
+      colour_style: item.variant,
+      player_name: item.playerName,
+      player_number: item.playerNumber,
+      item_kind: 'base_product'
+    };
+
+    lines.push({
+      name: item.product.name,
+      description: optionDescription,
+      unitAmount: item.product.unitAmountNzdCents,
+      quantity: item.quantity,
+      metadata: baseMetadata
+    });
+
+    if (item.nameAddOn) {
+      lines.push({
+        name: `${item.product.name} - Player Name Add-on`,
+        description: `Player name: ${item.playerName}`,
+        unitAmount: item.nameAddOn,
+        quantity: item.quantity,
+        metadata: { ...baseMetadata, item_kind: 'player_name_addon' }
+      });
+    }
+
+    if (item.numberAddOn) {
+      lines.push({
+        name: `${item.product.name} - Player Number Add-on`,
+        description: `Player number: ${item.playerNumber}`,
+        unitAmount: item.numberAddOn,
+        quantity: item.quantity,
+        metadata: { ...baseMetadata, item_kind: 'player_number_addon' }
+      });
+    }
+  });
+
+  return lines;
+}
+
+async function createStripeCheckoutSession(env, sessionParams) {
+  const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Stripe-Version': STRIPE_API_VERSION
+    },
+    body: sessionParams
+  });
+
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.error('Stripe Checkout Session creation failed', {
+      status: response.status,
+      type: body?.error?.type,
+      code: body?.error?.code
+    });
+    throw new Error('Stripe session creation failed.');
+  }
+
+  return body;
+}
+
+async function handleCreateCheckoutSession(request, env) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: jsonHeaders });
+  }
+
+  if (request.method !== 'POST') {
+    return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  }
+
+  if (!requireJsonRequest(request)) {
+    return jsonResponse({ ok: false, error: 'JSON content type is required.' }, 415);
+  }
+
+  const payload = await readJson(request);
+  const validation = validateCheckoutPayload(payload);
+
+  if (validation.error) {
+    return jsonResponse({ ok: false, error: validation.error }, 400);
+  }
+
+  if (!env.STRIPE_SECRET_KEY) {
+    return jsonResponse({ ok: false, error: 'Checkout is not configured yet.' }, 503);
+  }
+
+  const siteUrl = getApprovedSiteUrl(request, env);
+  const lineItems = buildStripeLineItems(validation.items);
+  const params = new URLSearchParams();
+
+  params.append('mode', 'payment');
+  params.append('automatic_payment_methods[enabled]', 'true');
+  params.append('success_url', `${siteUrl}/order-success?session_id={CHECKOUT_SESSION_ID}`);
+  params.append('cancel_url', `${siteUrl}/cart?checkout=cancelled`);
+  params.append('billing_address_collection', 'required');
+  params.append('customer_creation', 'if_required');
+  params.append('phone_number_collection[enabled]', 'true');
+  params.append('shipping_address_collection[allowed_countries][0]', 'NZ');
+  params.append('shipping_options[0][shipping_rate_data][type]', 'fixed_amount');
+  params.append('shipping_options[0][shipping_rate_data][fixed_amount][amount]', String(NZ_SHIPPING_RATE.amountNzdCents));
+  params.append('shipping_options[0][shipping_rate_data][fixed_amount][currency]', 'nzd');
+  params.append('shipping_options[0][shipping_rate_data][display_name]', NZ_SHIPPING_RATE.displayName);
+  params.append('metadata[source]', 'ptgactivewear.co.nz');
+  params.append('metadata[shipping_setup]', `${NZ_SHIPPING_RATE.displayName}: ${NZ_SHIPPING_RATE.amountNzdCents}`);
+
+  lineItems.forEach((line, index) => appendStripeLineItem(params, index, line));
+
+  try {
+    const session = await createStripeCheckoutSession(env, params);
+    return jsonResponse({ ok: true, url: session.url });
+  } catch (error) {
+    return jsonResponse({ ok: false, error: 'Checkout could not be started. Please try again.' }, 502);
+  }
+}
+
+function parseStripeSignatureHeader(header) {
+  const parts = String(header || '').split(',').map(part => part.trim());
+  const timestamp = parts.find(part => part.startsWith('t='))?.slice(2);
+  const signatures = parts
+    .filter(part => part.startsWith('v1='))
+    .map(part => part.slice(3));
+
+  return { timestamp, signatures };
+}
+
+function bufferToHex(buffer) {
+  return [...new Uint8Array(buffer)]
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function timingSafeEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+
+  let mismatch = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    mismatch |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+
+  return mismatch === 0;
+}
+
+async function verifyStripeWebhookSignature(rawBody, signatureHeader, secret) {
+  const { timestamp, signatures } = parseStripeSignatureHeader(signatureHeader);
+
+  if (!timestamp || signatures.length === 0) return false;
+
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isFinite(timestampSeconds)) return false;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - timestampSeconds) > 300) return false;
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const digest = await crypto.subtle.sign('HMAC', key, encoder.encode(`${timestamp}.${rawBody}`));
+  const expected = bufferToHex(digest);
+
+  return signatures.some(signature => timingSafeEqual(signature, expected));
+}
+
+async function reserveWebhookEvent(env, eventId) {
+  if (!env.ORDER_EVENT_STORE) {
+    throw new Error('ORDER_EVENT_STORE KV binding is required for webhook idempotency.');
+  }
+
+  const existing = await env.ORDER_EVENT_STORE.get(eventId);
+  if (existing) return false;
+
+  await env.ORDER_EVENT_STORE.put(eventId, 'processing', { expirationTtl: 60 * 60 * 24 * 90 });
+  return true;
+}
+
+async function markWebhookEventProcessed(env, eventId) {
+  await env.ORDER_EVENT_STORE.put(eventId, 'processed', { expirationTtl: 60 * 60 * 24 * 90 });
+}
+
+async function releaseWebhookEvent(env, eventId) {
+  await env.ORDER_EVENT_STORE.delete(eventId);
+}
+
+async function fetchStripeLineItems(env, sessionId) {
+  const params = new URLSearchParams();
+  params.append('limit', '100');
+  params.append('expand[]', 'data.price.product');
+
+  const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}/line_items?${params}`, {
+    headers: {
+      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      'Stripe-Version': STRIPE_API_VERSION
+    }
+  });
+
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.error('Stripe line item fetch failed', { status: response.status, code: body?.error?.code });
+    throw new Error('Could not fetch Stripe line items.');
+  }
+
+  return Array.isArray(body.data) ? body.data : [];
+}
+
+function formatStripeAddress(address = {}) {
+  return [
+    address.line1,
+    address.line2,
+    address.city,
+    address.state,
+    address.postal_code,
+    address.country
+  ].filter(Boolean).join(', ');
+}
+
+function describeStripeLineItem(item) {
+  const product = item.price?.product || {};
+  const metadata = product.metadata || {};
+  const details = [];
+
+  if (metadata.size) details.push(`Size: ${metadata.size}`);
+  if (metadata.colour_style) details.push(`Colour/style: ${metadata.colour_style}`);
+  if (metadata.player_name) details.push(`Player name: ${metadata.player_name}`);
+  if (metadata.player_number) details.push(`Player number: ${metadata.player_number}`);
+  if (metadata.item_kind && metadata.item_kind !== 'base_product') details.push(`Charge: ${metadata.item_kind.replace(/_/g, ' ')}`);
+
+  return {
+    name: item.description || product.name || 'PTG Activewear item',
+    quantity: item.quantity || 1,
+    amountTotal: item.amount_total || 0,
+    details
+  };
+}
+
+function buildOrderEmailData(session, lineItems) {
+  const customer = session.customer_details || {};
+  const shipping = session.shipping_details || {};
+  const shippingAddress = shipping.address || customer.address || {};
+  const items = lineItems.map(describeStripeLineItem);
+
+  return {
+    sessionId: session.id,
+    paymentStatus: session.payment_status,
+    customerName: customer.name || shipping.name || 'Not provided',
+    customerEmail: customer.email || session.customer_email || '',
+    phone: customer.phone || '',
+    shippingAddress: formatStripeAddress(shippingAddress),
+    items,
+    shippingAmount: session.total_details?.amount_shipping || 0,
+    totalPaid: session.amount_total || 0,
+    currency: session.currency || 'nzd'
+  };
+}
+
+function buildBusinessOrderEmail(order) {
+  const itemLines = order.items.map(item => [
+    `${item.quantity} x ${item.name} - ${formatMoneyFromCents(item.amountTotal, order.currency)}`,
+    ...item.details.map(detail => `  - ${detail}`)
+  ].join('\n')).join('\n\n');
+
+  const text = [
+    'New paid PTG Activewear order',
+    '',
+    `Stripe Checkout Session ID: ${order.sessionId}`,
+    `Payment status: ${order.paymentStatus}`,
+    `Customer name: ${order.customerName}`,
+    `Customer email: ${order.customerEmail}`,
+    `Phone: ${order.phone || 'Not provided'}`,
+    `Shipping address: ${order.shippingAddress || 'Not provided'}`,
+    '',
+    'Items:',
+    itemLines,
+    '',
+    `Shipping: ${formatMoneyFromCents(order.shippingAmount, order.currency)}`,
+    `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)}`
+  ].join('\n');
+
+  const htmlItems = order.items.map(item => `
+    <li>
+      <strong>${escapeHtml(String(item.quantity))} x ${escapeHtml(item.name)}</strong>
+      <span>${escapeHtml(formatMoneyFromCents(item.amountTotal, order.currency))}</span>
+      ${item.details.length ? `<ul>${item.details.map(detail => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>` : ''}
+    </li>
+  `).join('');
+
+  const html = `
+    <h2>New paid PTG Activewear order</h2>
+    <p><strong>Stripe Checkout Session ID:</strong> ${escapeHtml(order.sessionId)}</p>
+    <p><strong>Payment status:</strong> ${escapeHtml(order.paymentStatus)}</p>
+    <p><strong>Customer name:</strong> ${escapeHtml(order.customerName)}</p>
+    <p><strong>Customer email:</strong> ${escapeHtml(order.customerEmail)}</p>
+    <p><strong>Phone:</strong> ${escapeHtml(order.phone || 'Not provided')}</p>
+    <p><strong>Shipping address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}</p>
+    <h3>Items</h3>
+    <ul>${htmlItems}</ul>
+    <p><strong>Shipping:</strong> ${escapeHtml(formatMoneyFromCents(order.shippingAmount, order.currency))}</p>
+    <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))}</p>
+  `;
+
+  return {
+    subject: `New paid PTG Activewear order ${order.sessionId}`,
+    text,
+    html
+  };
+}
+
+function buildCustomerOrderEmail(order) {
+  const itemLines = order.items.map(item => [
+    `${item.quantity} x ${item.name}`,
+    ...item.details.map(detail => `  - ${detail}`)
+  ].join('\n')).join('\n\n');
+
+  const text = [
+    'Thanks for your PTG Activewear order.',
+    '',
+    `Order reference: ${order.sessionId}`,
+    `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)}`,
+    '',
+    'Items:',
+    itemLines,
+    '',
+    'We have received your payment and will be in touch with any order updates.'
+  ].join('\n');
+
+  const html = `
+    <h2>Thanks for your PTG Activewear order</h2>
+    <p>We have received your payment.</p>
+    <p><strong>Order reference:</strong> ${escapeHtml(order.sessionId)}</p>
+    <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))}</p>
+    <p>We will be in touch with any order updates.</p>
+  `;
+
+  return {
+    subject: `PTG Activewear order confirmation ${order.sessionId}`,
+    text,
+    html
+  };
+}
+
+async function sendOrderEmails(env, session) {
+  const toEmail = cleanText(env.CONTACT_TO_EMAIL, MAX_FIELD_LENGTHS.email);
+  const fromEmail = cleanText(env.CONTACT_FROM_EMAIL, MAX_FIELD_LENGTHS.email);
+
+  if (!toEmail || !fromEmail || !env.EMAIL_API_KEY) {
+    throw new Error('Order email service is not configured.');
+  }
+
+  const lineItems = await fetchStripeLineItems(env, session.id);
+  const order = buildOrderEmailData(session, lineItems);
+  const businessEmail = buildBusinessOrderEmail(order);
+
+  await sendWithResend(
+    { ...env, CONTACT_FROM_EMAIL: fromEmail },
+    { ...businessEmail, to: toEmail, replyTo: order.customerEmail || undefined }
+  );
+
+  if (order.customerEmail) {
+    const customerEmail = buildCustomerOrderEmail(order);
+    await sendWithResend(
+      { ...env, CONTACT_FROM_EMAIL: fromEmail },
+      { ...customerEmail, to: order.customerEmail, replyTo: toEmail }
+    );
+  }
+}
+
+async function handleSuccessfulCheckoutEvent(env, event) {
+  const session = event.data?.object;
+
+  if (!session?.id) {
+    throw new Error('Webhook session is missing.');
+  }
+
+  if (session.payment_status && session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+    return;
+  }
+
+  const reserved = await reserveWebhookEvent(env, event.id);
+  if (!reserved) return;
+
+  try {
+    await sendOrderEmails(env, session);
+    await markWebhookEventProcessed(env, event.id);
+  } catch (error) {
+    await releaseWebhookEvent(env, event.id);
+    throw error;
+  }
+}
+
+async function handleStripeWebhook(request, env) {
+  if (request.method !== 'POST') {
+    return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  }
+
+  if (!env.STRIPE_WEBHOOK_SECRET) {
+    return jsonResponse({ ok: false, error: 'Webhook is not configured.' }, 503);
+  }
+
+  const rawBody = await request.text();
+  const signatureHeader = request.headers.get('stripe-signature') || '';
+  const isValid = await verifyStripeWebhookSignature(rawBody, signatureHeader, env.STRIPE_WEBHOOK_SECRET);
+
+  if (!isValid) {
+    return jsonResponse({ ok: false, error: 'Invalid webhook signature.' }, 400);
+  }
+
+  let event;
+  try {
+    event = JSON.parse(rawBody);
+  } catch (error) {
+    return jsonResponse({ ok: false, error: 'Invalid webhook payload.' }, 400);
+  }
+
+  try {
+    if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+      await handleSuccessfulCheckoutEvent(env, event);
+    } else if (event.type === 'checkout.session.async_payment_failed') {
+      console.log('Stripe async payment failed', event.id);
+    }
+  } catch (error) {
+    console.error('Stripe webhook handling failed', event?.type, event?.id, error.message);
+    return jsonResponse({ ok: false, error: 'Webhook handling failed.' }, 503);
+  }
+
+  return jsonResponse({ received: true });
+}
+
+async function serveAsset(request, env) {
+  const url = new URL(request.url);
+
+  if (url.pathname === '/order-success') {
+    url.pathname = '/order-success.html';
+    request = new Request(url.toString(), request);
+  } else if (url.pathname === '/cart') {
+    url.pathname = '/cart.html';
+    request = new Request(url.toString(), request);
+  }
+
+  try {
+    const assetResponse = await env.ASSETS.fetch(request);
+    if (assetResponse.status === 500) {
+      return new Response('Not found', { status: 404 });
+    }
+
+    return assetResponse;
+  } catch (error) {
+    return new Response('Not found', { status: 404 });
+  }
 }
 
 export default {
@@ -204,15 +853,14 @@ export default {
       return handleEmailRequest(request, env, 'newsletter');
     }
 
-    try {
-      const assetResponse = await env.ASSETS.fetch(request);
-      if (assetResponse.status === 500) {
-        return new Response('Not found', { status: 404 });
-      }
-
-      return assetResponse;
-    } catch (error) {
-      return new Response('Not found', { status: 404 });
+    if (url.pathname === '/api/create-checkout-session') {
+      return handleCreateCheckoutSession(request, env);
     }
+
+    if (url.pathname === '/api/stripe-webhook') {
+      return handleStripeWebhook(request, env);
+    }
+
+    return serveAsset(request, env);
   }
 };

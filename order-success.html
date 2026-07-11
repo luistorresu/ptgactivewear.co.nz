@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shop | PTG Activewear</title>
+  <title>Order Success | PTG Activewear</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -27,16 +27,15 @@
 </head>
 <body class="font-sans text-gray-900 bg-white">
 
-  <!-- ── HEADER ── -->
   <header class="site-header sticky top-0 z-50 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
       <a href="index.html" class="site-logo-link flex items-center shrink-0" aria-label="PTG Activewear home">
         <img src="photos/logo-header-dark.png" alt="PTG Activewear" class="site-logo" width="818" height="279">
       </a>
       <nav class="hidden md:flex items-center gap-8">
-        <a href="index.html"  class="site-nav-link">Home</a>
-        <a href="shop.html"   class="site-nav-link active">Shop</a>
-        <a href="about.html"  class="site-nav-link">About</a>
+        <a href="index.html" class="site-nav-link">Home</a>
+        <a href="shop.html" class="site-nav-link">Shop</a>
+        <a href="about.html" class="site-nav-link">About</a>
         <a href="contact.html" class="site-nav-link">Contact</a>
       </nav>
       <div class="flex items-center gap-4">
@@ -56,81 +55,42 @@
     <div id="mobile-menu" class="site-mobile-menu hidden md:hidden px-4 py-5">
       <nav class="flex flex-col gap-4">
         <a href="index.html" class="site-mobile-link">Home</a>
-        <a href="shop.html"  class="site-mobile-link active">Shop</a>
+        <a href="shop.html" class="site-mobile-link">Shop</a>
         <a href="about.html" class="site-mobile-link">About</a>
         <a href="contact.html" class="site-mobile-link">Contact</a>
       </nav>
     </div>
   </header>
 
-  <!-- ── PAGE HERO ── -->
-  <section class="bg-brand-light border-b border-brand/20 py-14 px-4 sm:px-6 lg:px-8 text-center">
-    <span class="text-brand text-xs font-semibold tracking-widest uppercase">PTG Collection</span>
-    <h1 class="text-4xl font-black text-gray-900 mt-2">Shop All Products</h1>
-    <p class="text-gray-500 mt-3 max-w-md mx-auto text-sm">Premium Patagonia FC gear engineered for the beautiful game.</p>
-  </section>
-
-  <!-- ── FILTERS ── -->
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-wrap gap-3 items-center">
-    <span class="text-sm text-gray-500 font-medium mr-2">Filter:</span>
-    <button class="filter-pill active" data-filter="all" onclick="filterProducts('all')">All</button>
-    <button class="filter-pill" data-filter="tracksuits" onclick="filterProducts('tracksuits')">Tracksuits</button>
-    <button class="filter-pill" data-filter="kits" onclick="filterProducts('kits')">Kits</button>
-    <button class="filter-pill" data-filter="rain-suits" onclick="filterProducts('rain-suits')">Rain Suits</button>
-    <button class="filter-pill" data-filter="accessories" onclick="filterProducts('accessories')">Accessories</button>
-  </div>
-
-  <!-- ── PRODUCT GRID ── -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-24">
-    <div data-product-grid="shop" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 lg:gap-10"></div>
+  <main class="min-h-[70vh] bg-brand-light px-4 sm:px-6 lg:px-8 py-20">
+    <section class="max-w-2xl mx-auto bg-white rounded-2xl border border-brand/20 shadow-sm p-8 sm:p-10 text-center">
+      <span class="text-brand text-xs font-semibold tracking-widest uppercase">Payment Received</span>
+      <h1 class="text-3xl sm:text-4xl font-black text-gray-900 mt-3 mb-4">Thank you for your order.</h1>
+      <p class="text-gray-500 text-sm sm:text-base leading-relaxed mb-6">
+        Stripe has redirected you back to PTG Activewear after payment. A verified payment webhook will confirm the order and send the order emails.
+      </p>
+      <div class="bg-gray-50 rounded-xl border border-gray-100 p-4 mb-8">
+        <p class="text-xs uppercase tracking-widest text-gray-400 font-semibold mb-1">Order reference</p>
+        <p id="session-reference" class="text-sm font-semibold text-gray-800 break-all">Checking reference...</p>
+      </div>
+      <p class="text-xs text-gray-400 leading-relaxed mb-8">
+        This page is not used to fulfil orders by itself. Fulfilment starts only after Stripe confirms payment through the verified webhook.
+      </p>
+      <a href="shop.html" class="btn-primary px-8 py-3 text-sm">Continue Shopping</a>
+    </section>
   </main>
 
-  <!-- ── FOOTER ── -->
   <footer class="bg-gray-950 text-gray-500 pt-16 pb-8 px-4 sm:px-6 lg:px-8">
     <div class="max-w-7xl mx-auto text-center">
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
-        <div class="md:col-span-2 footer-brand">
-          <a href="index.html" class="footer-logo-link" aria-label="PTG Activewear home">
-            <img src="photos/logo-header-dark.png" alt="PTG Activewear" class="footer-logo" width="818" height="279">
-          </a>
-          <p class="footer-brand-copy text-sm leading-relaxed">Premium football apparel designed and shipped from New Zealand. Built for performance, made to last.</p>
-        </div>
-        <div class="footer-column">
-          <h4 class="text-white font-semibold text-xs mb-5 uppercase tracking-wider">Quick Links</h4>
-          <ul class="space-y-3 text-sm">
-            <li><a href="index.html" class="hover:text-brand transition-colors">Home</a></li>
-            <li><a href="shop.html"  class="hover:text-brand transition-colors">Shop</a></li>
-            <li><a href="about.html" class="hover:text-brand transition-colors">About Us</a></li>
-            <li><a href="contact.html" class="hover:text-brand transition-colors">Contact Us</a></li>
-            <li><a href="mailto:info@Ptgactivewear.co.nz" class="hover:text-brand transition-colors">info@Ptgactivewear.co.nz</a></li>
-          </ul>
-        </div>
-        <div class="footer-column">
-          <h4 class="text-white font-semibold text-xs mb-5 uppercase tracking-wider">Support</h4>
-          <ul class="space-y-3 text-sm">
-            <li><a href="#" class="hover:text-brand transition-colors">Shipping Info</a></li>
-            <li><a href="#" class="hover:text-brand transition-colors">Returns Policy</a></li>
-            <li><a href="#" class="hover:text-brand transition-colors">Size Guide</a></li>
-            <li><a href="#" class="hover:text-brand transition-colors">FAQ</a></li>
-          </ul>
-        </div>
-      </div>
-      <div class="footer-bottom border-t border-gray-800 pt-8 flex flex-col items-center justify-center gap-4 text-xs">
-        <p>&copy; 2025 PTG Activewear. All rights reserved.</p>
-        <div class="flex flex-wrap justify-center gap-6">
-          <a href="#" class="hover:text-brand transition-colors">Privacy Policy</a>
-          <a href="#" class="hover:text-brand transition-colors">Terms of Service</a>
-        </div>
-      </div>
+      <p class="text-xs">&copy; 2025 PTG Activewear. All rights reserved.</p>
     </div>
   </footer>
 
-  <!-- ── CART SIDEBAR ── -->
   <div id="cart-overlay" onclick="toggleCart()" class="fixed inset-0 bg-black/50 z-40 hidden"></div>
   <aside id="cart-sidebar" class="fixed right-0 top-0 h-full w-full sm:w-96 bg-white z-50 shadow-2xl flex flex-col">
     <div class="flex items-center justify-between px-6 py-5 border-b">
       <h2 class="text-base font-bold">Your Cart</h2>
-      <button onclick="toggleCart()" class="text-gray-400 hover:text-gray-900 transition-colors">
+      <button onclick="toggleCart()" class="text-gray-400 hover:text-gray-900 transition-colors" aria-label="Close cart">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
         </svg>
@@ -150,6 +110,10 @@
 
   <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full text-sm font-medium z-[60] whitespace-nowrap shadow-lg"></div>
 
+  <script>
+    const sessionId = new URLSearchParams(window.location.search).get('session_id');
+    document.getElementById('session-reference').textContent = sessionId || 'Not provided';
+  </script>
   <script src="js/products.js"></script>
   <script src="js/main.js"></script>
 </body>
