@@ -71,7 +71,7 @@
             <p class="eyebrow">Payments and fulfilment</p>
             <h1>Orders</h1>
           </div>
-          <div class="heading-actions"><a class="button button-secondary" href="/api/admin/exports/orders">Export CSV</a><button type="button" class="button button-secondary" data-refresh="orders">Refresh</button></div>
+          <div class="heading-actions"><a class="button button-secondary" href="/api/admin/exports/orders" data-export-orders>Export CSV</a><button type="button" class="button button-secondary" data-refresh="orders">Refresh</button></div>
         </div>
         <form id="order-filters" class="filter-bar">
           <label class="field"><span>Search</span><input name="search" type="search" placeholder="Order, customer or email"></label>
@@ -91,8 +91,14 @@
             <p class="eyebrow">Inventory audit trail</p>
             <h1>Stock history</h1>
           </div>
-          <div class="heading-actions"><a class="button button-secondary" href="/api/admin/exports/stock-movements">Export CSV</a><a class="button button-secondary" href="/api/admin/exports/inventory">Inventory CSV</a><button type="button" class="button button-secondary" data-refresh="movements">Refresh</button></div>
+          <div class="heading-actions"><a class="button button-secondary" href="/api/admin/exports/stock-movements" data-export-movements>Export CSV</a><a class="button button-secondary" href="/api/admin/exports/inventory" data-export-inventory>Inventory CSV</a><button type="button" class="button button-secondary" data-refresh="movements">Refresh</button></div>
         </div>
+        <form id="movement-filters" class="filter-bar filter-bar-compact">
+          <label class="field"><span>From</span><input name="from" type="date"></label>
+          <label class="field"><span>To</span><input name="to" type="date"></label>
+          <button type="submit" class="button button-primary">Apply</button>
+          <button type="reset" class="button button-secondary">Clear</button>
+        </form>
         <div id="movements-table" class="table-wrap"></div>
       </section>
     </main>

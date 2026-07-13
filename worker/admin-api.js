@@ -463,13 +463,21 @@ async function ensureInvoice(db, orderId, identity) {
 
 async function listMovements(db, url) {
   const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') || 100)));
+  const clauses = [];
+  const values = [];
+  const from = cleanText(url.searchParams.get('from'), 10);
+  const to = cleanText(url.searchParams.get('to'), 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) { clauses.push('date(sm.created_at) >= date(?)'); values.push(from); }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) { clauses.push('date(sm.created_at) <= date(?)'); values.push(to); }
+  values.push(limit);
   const result = await db.prepare(`
     SELECT sm.*, pv.sku, pv.size, pv.colour, pv.style, p.name AS product_name
     FROM stock_movements sm
     JOIN product_variants pv ON pv.id = sm.product_variant_id
     JOIN products p ON p.id = pv.product_id
+    ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
     ORDER BY sm.created_at DESC, sm.id DESC LIMIT ?
-  `).bind(limit).all();
+  `).bind(...values).all();
   return result.results || [];
 }
 
@@ -485,8 +493,12 @@ async function exportOrders(db, url, identity) {
   return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name','Customer email','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Number','Unit price NZD','Personalisation NZD','Shipping NZD','Total NZD','Payment status','Fulfilment status'], rows);
 }
 
-async function exportInventory(db, identity) {
-  const result = await db.prepare(`SELECT p.name, pv.sku, pv.size, pv.colour, pv.style, pv.stock_quantity, pv.active, pv.updated_at FROM product_variants pv JOIN products p ON p.id=pv.product_id ORDER BY p.name, pv.id`).all();
+async function exportInventory(db, url, identity) {
+  const clauses = []; const values = [];
+  const from = cleanText(url.searchParams.get('from'), 10); const to = cleanText(url.searchParams.get('to'), 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) { clauses.push('date(pv.updated_at) >= date(?)'); values.push(from); }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) { clauses.push('date(pv.updated_at) <= date(?)'); values.push(to); }
+  const result = await db.prepare(`SELECT p.name, pv.sku, pv.size, pv.colour, pv.style, pv.stock_quantity, pv.active, pv.updated_at FROM product_variants pv JOIN products p ON p.id=pv.product_id ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''} ORDER BY p.name, pv.id`).bind(...values).all();
   const rows = (result.results || []).map(row => [row.name, [row.size,row.colour,row.style].filter(Boolean).join(' / '), row.sku, row.size, [row.colour,row.style].filter(Boolean).join(' / '), row.stock_quantity, row.active ? 'Active' : 'Inactive', row.updated_at]);
   await audit(db, identity, 'export_csv', 'inventory', exportDate(), `Exported ${rows.length} variants`);
   return csvResponse(`ptg-inventory-${exportDate()}.csv`, ['Product','Variant','SKU','Size','Colour/style','Current stock','Active status','Last updated'], rows);
@@ -556,7 +568,7 @@ export async function handleAdminApi(request, env, identity) {
       return json({ ok: true, movements: await listMovements(env.DB, url) });
     }
     if (method === 'GET' && segments[0] === 'exports' && segments[1] === 'orders') return exportOrders(env.DB, url, identity);
-    if (method === 'GET' && segments[0] === 'exports' && segments[1] === 'inventory') return exportInventory(env.DB, identity);
+    if (method === 'GET' && segments[0] === 'exports' && segments[1] === 'inventory') return exportInventory(env.DB, url, identity);
     if (method === 'GET' && segments[0] === 'exports' && segments[1] === 'stock-movements') return exportMovements(env.DB, url, identity);
     if (method === 'GET' && segments[0] === 'me' && segments.length === 1) {
       return json({ ok: true, identity: { email: identity.email, local: Boolean(identity.local) } });

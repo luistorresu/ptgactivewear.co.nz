@@ -134,6 +134,7 @@ async function loadOrders() {
   const form = document.getElementById('order-filters');
   const params = new URLSearchParams(new FormData(form));
   for (const [key, value] of [...params]) if (!value) params.delete(key);
+  document.querySelector('[data-export-orders]').href = `/api/admin/exports/orders?${params}`;
   const result = await api(`/orders?${params}`);
   container.innerHTML = orderRows(result.orders);
 }
@@ -141,7 +142,12 @@ async function loadOrders() {
 async function loadMovements() {
   const container = document.getElementById('movements-table');
   container.innerHTML = empty('Loading stock history...');
-  const result = await api('/stock-movements');
+  const form = document.getElementById('movement-filters');
+  const params = new URLSearchParams(new FormData(form));
+  for (const [key, value] of [...params]) if (!value) params.delete(key);
+  document.querySelector('[data-export-movements]').href = `/api/admin/exports/stock-movements?${params}`;
+  document.querySelector('[data-export-inventory]').href = `/api/admin/exports/inventory?${params}`;
+  const result = await api(`/stock-movements?${params}`);
   if (!result.movements.length) { container.innerHTML = empty('No stock adjustments have been recorded.'); return; }
   container.innerHTML = `<table><thead><tr><th>Date</th><th>Product</th><th>SKU / option</th><th>Change</th><th>Before</th><th>After</th><th>Reason</th><th>Changed by</th></tr></thead><tbody>${result.movements.map(item => `
     <tr>
@@ -373,6 +379,7 @@ document.addEventListener('submit', async event => {
     if (event.target.id === 'add-variant-form') return await addVariant(event);
     if (event.target.id === 'fulfilment-form') { event.preventDefault(); return await saveFulfilment(event.target); }
     if (event.target.id === 'order-filters') { event.preventDefault(); return await loadOrders(); }
+    if (event.target.id === 'movement-filters') { event.preventDefault(); return await loadMovements(); }
     if (event.target.matches('[data-variant-form]')) { event.preventDefault(); return await saveVariant(event.target); }
     if (event.target.matches('[data-stock-form]')) { event.preventDefault(); return await adjustStock(event.target); }
   } catch (error) {
@@ -382,6 +389,7 @@ document.addEventListener('submit', async event => {
 });
 
 document.getElementById('order-filters').addEventListener('reset', () => setTimeout(loadOrders, 0));
+document.getElementById('movement-filters').addEventListener('reset', () => setTimeout(loadMovements, 0));
 
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') { modal('product', false); modal('order', false); }
