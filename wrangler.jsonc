@@ -25,6 +25,9 @@
   ],
   "vars": {
     "SITE_URL": "https://ptgactivewear.co.nz",
+    "EMAIL_PROVIDER": "resend",
+    "CONTACT_TO_EMAIL": "info@ptgactivewear.co.nz",
+    "CONTACT_FROM_EMAIL": "info@ptgactivewear.co.nz",
     "CATALOG_SOURCE": "d1",
     "INVENTORY_ENFORCEMENT": "d1",
     "CHECKOUT_ENABLED": "true",

@@ -24,6 +24,7 @@ All notable changes to this website should be documented here.
 
 * Allowed the admin sign-in page to load its dedicated stylesheet and login script while keeping dashboard assets and admin APIs protected.
 * Improved dark-theme contrast across admin tables, forms, badges, dialogs, navigation, and responsive layouts.
+* Declared non-secret Resend routing variables in Wrangler configuration so GitHub-connected deployments preserve contact and admin-code email delivery.
 
 ### Notes
 
