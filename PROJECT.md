@@ -163,6 +163,6 @@ Operational, migration, rollback, authentication, and local-development instruct
 
 The production admin is a D1-backed operational tool for catalogue, inventory, paid Stripe order records, fulfilment history, invoices, CSV exports, and audit history. Invoice numbers use `PTG-YYYY-000001`; printable invoices use an authenticated A4 HTML view and browser Save as PDF. The admin theme preference is local browser state only and never affects the storefront.
 
-Paid orders are created only from verified Stripe webhooks. `STRIPE_WEBHOOK_SECRET` is therefore required in production in addition to `STRIPE_SECRET_KEY`. Refund event ingestion and automatic idempotent restocking are not yet enabled.
+Paid orders are created only from verified Stripe webhooks. Both encrypted production secrets, `STRIPE_WEBHOOK_SECRET` and `STRIPE_SECRET_KEY`, are configured. Refund event ingestion and automatic idempotent restocking are not yet enabled.
 
 This admin system is an operational order and stock-management tool. It is not a replacement for professional accounting software or statutory tax advice.

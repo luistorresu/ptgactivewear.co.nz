@@ -129,7 +129,7 @@ Checkout loads the product and variant from D1, validates activity, stock, quant
 
 Stock is not reserved when Checkout is created. It is deducted only after a verified successful webhook. D1 constraints prevent negative stock, and the order, items, deductions, and stock movements are committed atomically. Duplicate webhook delivery is protected by both KV and unique D1 constraints.
 
-`STRIPE_WEBHOOK_SECRET` must be configured and Stripe must send `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and `checkout.session.async_payment_failed` to `/api/stripe-webhook`. Production Checkout can operate without it, but paid orders, stock deductions, order emails, and admin order records cannot be finalised without the verified webhook.
+`STRIPE_WEBHOOK_SECRET` is configured as an encrypted production Worker secret. Stripe sends `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and `checkout.session.async_payment_failed` to `/api/stripe-webhook`. Paid orders, stock deductions, order emails, and admin order records are finalised only after signature verification.
 
 There remains a small overselling risk when two customers pay for the final unit at nearly the same time. A reservation system is the recommended later enhancement.
 

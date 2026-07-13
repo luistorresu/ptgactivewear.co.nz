@@ -15,6 +15,7 @@ All notable changes to this website should be documented here.
 * Added approved-email admin sign-in using Resend one-time codes and secure, expiring `HttpOnly` sessions.
 * Added a persisted optional dark theme for the admin portal without changing the public storefront.
 * Added additive order/invoice schema fields, transaction-safe invoice sequencing, fulfilment history, order search/filters, internal notes, richer dashboard metrics, protected A4 invoice printing, and authenticated CSV exports.
+* Configured the production Stripe webhook and encrypted signing secret for verified paid-order ingestion.
 
 ### Security
 
