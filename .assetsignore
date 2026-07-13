@@ -2,6 +2,7 @@ _worker.js
 _worker.js.map
 .wrangler/
 .wrangler/**
+.git
 .git/
 .git/**
 .claude/
