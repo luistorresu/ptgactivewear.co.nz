@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>PTG Activewear Admin</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <script>document.documentElement.dataset.theme = localStorage.getItem('ptg-admin-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');</script>
+  <link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <header class="admin-header">
+    <a class="admin-brand" href="/admin" aria-label="PTG Activewear admin dashboard">
+      <img src="/photos/logo-header-dark.png" alt="PTG Activewear">
+      <span>Admin</span>
+    </a>
+    <div class="admin-account">
+      <span id="admin-email">Authenticated user</span>
+      <button type="button" class="button button-secondary theme-toggle" data-theme-toggle aria-pressed="false" title="Switch admin colour theme"><span class="theme-icon" aria-hidden="true">&#9790;</span><span data-theme-label>Dark theme</span></button>
+      <a href="/api/admin-auth/logout" class="button button-secondary">Log out</a>
+    </div>
+  </header>
+
+  <div class="admin-shell">
+    <nav class="admin-nav" aria-label="Admin sections">
+      <button type="button" class="nav-button is-active" data-view-button="dashboard">Dashboard</button>
+      <button type="button" class="nav-button" data-view-button="products">Products</button>
+      <button type="button" class="nav-button" data-view-button="orders">Orders</button>
+      <button type="button" class="nav-button" data-view-button="movements">Stock history</button>
+    </nav>
+
+    <main class="admin-main">
+      <div id="global-status" class="status is-hidden" role="status" aria-live="polite"></div>
+
+      <section data-view="dashboard">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Store overview</p>
+            <h1>Dashboard</h1>
+          </div>
+          <button type="button" class="button button-secondary" data-refresh="dashboard">Refresh</button>
+        </div>
+        <div id="dashboard-metrics" class="metrics-grid" aria-live="polite"></div>
+        <div class="dashboard-grid">
+          <section class="data-section">
+            <div class="section-heading"><h2>Recent paid orders</h2></div>
+            <div id="dashboard-orders" class="table-wrap"></div>
+          </section>
+          <section class="data-section">
+            <div class="section-heading"><h2>Recent stock changes</h2></div>
+            <div id="dashboard-movements" class="activity-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section data-view="products" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Catalogue and inventory</p>
+            <h1>Products</h1>
+          </div>
+          <button type="button" class="button button-secondary" data-refresh="products">Refresh</button>
+        </div>
+        <div id="products-table" class="table-wrap"></div>
+      </section>
+
+      <section data-view="orders" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Payments and fulfilment</p>
+            <h1>Orders</h1>
+          </div>
+          <div class="heading-actions"><a class="button button-secondary" href="/api/admin/exports/orders">Export CSV</a><button type="button" class="button button-secondary" data-refresh="orders">Refresh</button></div>
+        </div>
+        <form id="order-filters" class="filter-bar">
+          <label class="field"><span>Search</span><input name="search" type="search" placeholder="Order, customer or email"></label>
+          <label class="field"><span>From</span><input name="from" type="date"></label>
+          <label class="field"><span>To</span><input name="to" type="date"></label>
+          <label class="field"><span>Payment</span><select name="payment"><option value="">All</option><option value="paid">Paid</option><option value="unpaid">Unpaid</option><option value="refunded">Refunded</option></select></label>
+          <label class="field"><span>Fulfilment</span><select name="fulfilment"><option value="">All</option><option value="paid">Paid</option><option value="processing">Processing</option><option value="ready_for_collection">Ready for collection</option><option value="shipped">Shipped</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="refunded">Refunded</option></select></label>
+          <button type="submit" class="button button-primary">Apply</button>
+          <button type="reset" class="button button-secondary">Clear</button>
+        </form>
+        <div id="orders-table" class="table-wrap"></div>
+      </section>
+
+      <section data-view="movements" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Inventory audit trail</p>
+            <h1>Stock history</h1>
+          </div>
+          <div class="heading-actions"><a class="button button-secondary" href="/api/admin/exports/stock-movements">Export CSV</a><a class="button button-secondary" href="/api/admin/exports/inventory">Inventory CSV</a><button type="button" class="button button-secondary" data-refresh="movements">Refresh</button></div>
+        </div>
+        <div id="movements-table" class="table-wrap"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="product-modal" class="modal" hidden>
+    <button type="button" class="modal-backdrop" data-close-modal="product" aria-label="Close product editor"></button>
+    <section class="modal-panel modal-panel-wide" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
+      <header class="modal-header">
+        <div><p class="eyebrow">Catalogue item</p><h2 id="product-modal-title">Edit product</h2></div>
+        <button type="button" class="icon-button" data-close-modal="product" aria-label="Close product editor">&times;</button>
+      </header>
+      <div id="product-modal-status" class="status is-hidden" role="status" aria-live="polite"></div>
+      <form id="product-form" class="modal-content">
+        <input type="hidden" name="id">
+        <input type="hidden" name="version">
+        <div class="form-grid">
+          <label class="field field-wide"><span>Product name</span><input name="name" maxlength="140" required></label>
+          <label class="field"><span>Price (NZD)</span><input name="price" type="number" min="0" step="0.01" required></label>
+          <label class="field"><span>Category</span><input name="category" maxlength="80"></label>
+          <label class="field"><span>Product type</span><input name="productType" maxlength="80"></label>
+          <label class="field"><span>Badge</span><input name="badge" maxlength="60"></label>
+          <label class="field field-wide"><span>Description</span><textarea name="description" rows="4" maxlength="4000"></textarea></label>
+        </div>
+        <div class="toggle-grid">
+          <label class="toggle"><input name="active" type="checkbox"><span>Visible on website</span></label>
+          <label class="toggle"><input name="availableForSale" type="checkbox"><span>Available for sale</span></label>
+          <label class="toggle"><input name="featured" type="checkbox"><span>Featured product</span></label>
+          <label class="toggle"><input name="trackInventory" type="checkbox"><span>Track inventory</span></label>
+          <label class="toggle"><input name="allowPlayerName" type="checkbox"><span>Allow player name</span></label>
+          <label class="toggle"><input name="allowPlayerNumber" type="checkbox"><span>Allow player number</span></label>
+        </div>
+        <div class="form-grid">
+          <label class="field"><span>Player name price (NZD)</span><input name="playerNamePrice" type="number" min="0" step="0.01"></label>
+          <label class="field"><span>Player number price (NZD)</span><input name="playerNumberPrice" type="number" min="0" step="0.01"></label>
+          <label class="field field-wide"><span>Image paths, primary first</span><textarea name="images" rows="5" spellcheck="false"></textarea><small>Existing files under /photos only. One path per line.</small></label>
+        </div>
+        <div id="product-image-preview" class="image-preview"></div>
+        <div class="form-actions"><button type="submit" class="button button-primary">Save product</button></div>
+      </form>
+
+      <section class="modal-content variants-section">
+        <div class="section-heading"><div><h3>Variants and stock</h3><p>Stock changes require a reason and are recorded permanently.</p></div></div>
+        <div id="variant-list"></div>
+        <details class="add-variant">
+          <summary>Add variant</summary>
+          <form id="add-variant-form" class="variant-create-form">
+            <label class="field"><span>SKU</span><input name="sku" maxlength="80" required></label>
+            <label class="field"><span>Size</span><input name="size" maxlength="50"></label>
+            <label class="field"><span>Colour</span><input name="colour" maxlength="80"></label>
+            <label class="field"><span>Style</span><input name="style" maxlength="80"></label>
+            <label class="toggle"><input name="active" type="checkbox" checked><span>Active</span></label>
+            <button type="submit" class="button button-secondary">Add variant</button>
+          </form>
+        </details>
+      </section>
+    </section>
+  </div>
+
+  <div id="order-modal" class="modal" hidden>
+    <button type="button" class="modal-backdrop" data-close-modal="order" aria-label="Close order details"></button>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="order-modal-title">
+      <header class="modal-header">
+        <div><p class="eyebrow">Paid order</p><h2 id="order-modal-title">Order details</h2></div>
+        <button type="button" class="icon-button" data-close-modal="order" aria-label="Close order details">&times;</button>
+      </header>
+      <div id="order-modal-content" class="modal-content"></div>
+    </section>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

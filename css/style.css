@@ -105,6 +105,14 @@ html { scroll-behavior: smooth; }
   box-shadow: 0 6px 20px rgba(91,184,212,0.35);
 }
 
+.btn-primary:disabled,
+.btn-primary[aria-disabled="true"] {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btn-outline {
   border: 2px solid var(--brand);
   color: var(--brand);
@@ -398,6 +406,34 @@ html { scroll-behavior: smooth; }
   border-color: var(--brand);
   box-shadow: 0 0 0 3px rgba(91, 184, 212, 0.16);
   outline: none;
+}
+
+.product-option select option:disabled {
+  color: #9ca3af;
+}
+
+.stock-status {
+  width: fit-content;
+  margin-top: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.stock-in_stock {
+  color: #166534;
+  background: #ecfdf3;
+}
+
+.stock-low_stock {
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.stock-out_of_stock {
+  color: #991b1b;
+  background: #fef2f2;
 }
 
 .personalisation-options {

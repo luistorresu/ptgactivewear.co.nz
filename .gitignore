@@ -6,3 +6,6 @@
 !.env.example
 .wrangler/
 node_modules/
+*.sqlite
+*.sqlite3
+*.db

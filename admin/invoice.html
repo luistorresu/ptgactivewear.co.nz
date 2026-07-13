@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Invoice | PTG Activewear</title>
+  <script>document.documentElement.dataset.theme = localStorage.getItem('ptg-admin-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');</script>
+  <link rel="stylesheet" href="/admin/invoice.css">
+</head>
+<body>
+  <div class="invoice-toolbar">
+    <a href="/admin" class="toolbar-button">Back to admin</a>
+    <button type="button" class="toolbar-button toolbar-primary" data-print>Print / Save PDF</button>
+  </div>
+  <main id="invoice" class="invoice-sheet" aria-live="polite">
+    <p class="invoice-loading">Preparing invoice...</p>
+  </main>
+  <script src="/admin/invoice.js"></script>
+</body>
+</html>

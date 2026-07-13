@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ptgactivewear",
+  "main": "_worker.js",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ptgactivewear-catalog",
+      "database_id": "08bbd130-3988-47e6-a3e8-e2bcb4442740",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "ORDER_EVENT_STORE",
+      "id": "63cdbab293594e0abf53a34c0d9e29ba"
+    }
+  ],
+  "vars": {
+    "SITE_URL": "https://ptgactivewear.co.nz",
+    "CATALOG_SOURCE": "d1",
+    "INVENTORY_ENFORCEMENT": "d1",
+    "CHECKOUT_ENABLED": "true",
+    "LOW_STOCK_THRESHOLD": "5",
+    "ENVIRONMENT": "production",
+    "ADMIN_ALLOWED_EMAILS": "nicosupremetech@gmail.com,info@ptgactivewear.co.nz,luis.torres.u@gmail.com"
+  }
+}

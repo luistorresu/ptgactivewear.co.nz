@@ -3,6 +3,19 @@
 
 SITE_URL=https://ptgactivewear.co.nz
 
+# Local catalogue and admin settings. Production stays static until the D1 cutover is approved.
+CATALOG_SOURCE=d1
+INVENTORY_ENFORCEMENT=d1
+CHECKOUT_ENABLED=true
+LOW_STOCK_THRESHOLD=5
+ENVIRONMENT=development
+LOCAL_ADMIN_EMAIL=info@ptgactivewear.co.nz
+
+# Required in staging/production for Cloudflare Access JWT validation.
+ADMIN_ALLOWED_EMAILS=info@ptgactivewear.co.nz
+ACCESS_TEAM_DOMAIN=your-team.cloudflareaccess.com
+ACCESS_AUD=replace_with_access_application_audience
+
 # Stripe test-mode keys only while testing.
 STRIPE_SECRET_KEY=sk_test_replace_me
 STRIPE_WEBHOOK_SECRET=whsec_replace_me

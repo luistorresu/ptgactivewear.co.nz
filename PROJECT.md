@@ -137,3 +137,32 @@ Stripe test payment setup:
 1. Add `STRIPE_SECRET_KEY` to the `ptgactivewear` Worker as an encrypted secret using a Stripe test-mode secret key.
 2. Do not use live-mode Stripe keys until testing is complete and approved.
 3. Use test card `4242 4242 4242 4242` with any future expiry date and any CVC.
+
+## Admin And D1 Inventory
+
+The local Phase 2 implementation adds a protected admin portal at `/admin`, D1 migrations and seed data, public D1 catalogue endpoints, admin APIs, checkout inventory validation, paid-order storage, atomic stock deduction, and stock audit history.
+
+Production remains unchanged until the D1 database, KV binding, Cloudflare Access applications, remote migration, staging tests, and deployment are separately approved.
+
+Required new configuration:
+
+* D1 binding `DB`
+* KV binding `ORDER_EVENT_STORE`
+* `CATALOG_SOURCE`
+* `INVENTORY_ENFORCEMENT`
+* `CHECKOUT_ENABLED`
+* `LOW_STOCK_THRESHOLD`
+* `ENVIRONMENT`
+* `ACCESS_TEAM_DOMAIN`
+* `ACCESS_AUD`
+* `ADMIN_ALLOWED_EMAILS`
+
+Operational, migration, rollback, authentication, and local-development instructions are in `ADMIN.md`.
+
+## Operational Admin
+
+The production admin is a D1-backed operational tool for catalogue, inventory, paid Stripe order records, fulfilment history, invoices, CSV exports, and audit history. Invoice numbers use `PTG-YYYY-000001`; printable invoices use an authenticated A4 HTML view and browser Save as PDF. The admin theme preference is local browser state only and never affects the storefront.
+
+Paid orders are created only from verified Stripe webhooks. `STRIPE_WEBHOOK_SECRET` is therefore required in production in addition to `STRIPE_SECRET_KEY`. Refund event ingestion and automatic idempotent restocking are not yet enabled.
+
+This admin system is an operational order and stock-management tool. It is not a replacement for professional accounting software or statutory tax advice.

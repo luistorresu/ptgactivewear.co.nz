@@ -2,6 +2,41 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-13
+
+### Added
+
+* Added a local Cloudflare D1 schema and safe seed for products, variants, image galleries, inventory, orders, order items, stock movements, Stripe events, and admin audit history.
+* Added a Cloudflare Access JWT-protected admin portal and API for catalogue editing, variant management, stock adjustments, paid orders, fulfilment, dashboard metrics, and stock history.
+* Added public D1 product endpoints with low-stock and out-of-stock states while preserving the existing static catalogue fallback.
+* Added D1 checkout stock validation and atomic paid-order/inventory processing with durable webhook idempotency.
+* Added local-development tooling, automated security/checkout tests, and admin migration/rollback documentation.
+* Created and seeded the production D1 catalogue and bound the production KV event/session store.
+* Added approved-email admin sign-in using Resend one-time codes and secure, expiring `HttpOnly` sessions.
+* Added a persisted optional dark theme for the admin portal without changing the public storefront.
+* Added additive order/invoice schema fields, transaction-safe invoice sequencing, fulfilment history, order search/filters, internal notes, richer dashboard metrics, protected A4 invoice printing, and authenticated CSV exports.
+
+### Security
+
+* Added server-side Access audience/email validation, approved-email session validation, same-origin admin mutation checks, parameterised SQL, input allowlists, optimistic update guards, non-negative stock constraints, and protected backend assets.
+
+### Fixed
+
+* Allowed the admin sign-in page to load its dedicated stylesheet and login script while keeping dashboard assets and admin APIs protected.
+* Improved dark-theme contrast across admin tables, forms, badges, dialogs, navigation, and responsive layouts.
+
+### Notes
+
+* Deployed the D1-backed catalogue and editable admin portal to the live Worker after explicit approval. Cloudflare Access remains optional; the live portal currently uses Resend one-time-code authentication.
+
+## 2026-07-12
+
+### Fixed
+
+* Removed an unsupported Stripe Checkout parameter that prevented sessions from being created.
+* Added safer Stripe error diagnostics and omitted empty product metadata from Checkout requests.
+* Enabled live Stripe Checkout after explicit approval while keeping server-side product validation.
+
 ## 2026-07-05
 
 ### Changed

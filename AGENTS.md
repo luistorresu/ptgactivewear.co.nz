@@ -55,3 +55,12 @@ This repository is for the website ptgactivewear.co.nz.
   * npm run build
   * npm run lint, if configured
 * Do not install new dependencies unless necessary and approved.
+
+## Admin And Inventory
+
+* Cloudflare D1 is the source of truth for products, variants, stock, orders, and stock movements after the approved cutover.
+* Keep `js/products.js` as the documented migration fallback until D1 has been tested and production removal is explicitly approved.
+* Never expose exact stock, admin identity configuration, customer data, or order data through public APIs.
+* Protect `/admin*` and `/api/admin/*` with Cloudflare Access and server-side JWT/email validation.
+* Use Stripe test keys for local and staging admin/inventory work. Do not change production payment mode without explicit approval.
+* Do not apply remote D1 migrations, seed production, create Cloudflare resources, or deploy the admin system without explicit approval.

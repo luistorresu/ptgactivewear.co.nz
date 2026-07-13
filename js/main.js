@@ -1,5 +1,11 @@
 // ── Cart state (persisted to localStorage) ──────────────────────────────────
-let cart = JSON.parse(localStorage.getItem('ptg-cart') || '[]');
+let cart = [];
+try {
+  const savedCart = JSON.parse(localStorage.getItem('ptg-cart') || '[]');
+  cart = Array.isArray(savedCart) ? savedCart : [];
+} catch (error) {
+  cart = [];
+}
 const PERSONALISATION_ADDON_PRICE = 20;
 
 function saveCart() {
@@ -17,7 +23,11 @@ function escapeHtml(value) {
 }
 
 function escapeJsString(value) {
-  return JSON.stringify(String(value ?? ''));
+  return JSON.stringify(String(value ?? ''))
+    .replace(/&/g, '\\u0026')
+    .replace(/'/g, '\\u0027')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e');
 }
 
 function formatMoney(value) {
@@ -41,6 +51,10 @@ function sameVariant(a = '', b = '') {
   return (a || '') === (b || '');
 }
 
+function sameVariantId(a, b) {
+  return Number(a || 0) === Number(b || 0);
+}
+
 function sameSize(a = '', b = '') {
   return (a || '') === (b || '');
 }
@@ -51,8 +65,10 @@ function renderPersonalisationDetails(item) {
 
   if (item.variant) details.push(`Colour: ${escapeHtml(item.variant)}`);
   if (item.size) details.push(`Size: ${escapeHtml(item.size)}`);
-  if (personalisation.name) details.push(`Name: ${escapeHtml(personalisation.name)} (+${formatMoney(PERSONALISATION_ADDON_PRICE)})`);
-  if (personalisation.number) details.push(`Number: ${escapeHtml(personalisation.number)} (+${formatMoney(PERSONALISATION_ADDON_PRICE)})`);
+  const namePrice = Number(item.personalisationPrices?.name ?? PERSONALISATION_ADDON_PRICE);
+  const numberPrice = Number(item.personalisationPrices?.number ?? PERSONALISATION_ADDON_PRICE);
+  if (personalisation.name) details.push(`Name: ${escapeHtml(personalisation.name)} (+${formatMoney(namePrice)})`);
+  if (personalisation.number) details.push(`Number: ${escapeHtml(personalisation.number)} (+${formatMoney(numberPrice)})`);
 
   return details.length
     ? `<ul class="mt-2 space-y-0.5 text-[11px] text-gray-500">${details.map(detail => `<li>${detail}</li>`).join('')}</ul>`
@@ -137,27 +153,53 @@ function getSelectedSize(trigger) {
   return sizeSelect ? sizeSelect.value : '';
 }
 
+function getSelectedInventoryVariant(trigger) {
+  const card = trigger ? trigger.closest('.product-card') : null;
+  const select = card ? card.querySelector('[data-inventory-variant]') : null;
+  if (!select) return null;
+  const option = select.options[select.selectedIndex];
+  return {
+    id: Number(option?.value || 0),
+    size: option?.dataset.size || '',
+    variant: [option?.dataset.colour, option?.dataset.style].filter(Boolean).join(' / ')
+  };
+}
+
 function addToCart(productId, name, price, trigger) {
   const personalisation = getPersonalisation(trigger);
   if (!personalisation) return;
 
-  const variant = getSelectedVariant(trigger);
-  const size = getSelectedSize(trigger);
+  const product = getProducts().find(item => item.id === productId);
+  const inventoryVariant = getSelectedInventoryVariant(trigger);
+  if (Array.isArray(product?.inventoryVariants) && !inventoryVariant?.id) {
+    showToast('Choose an available product option');
+    return;
+  }
+  const variant = inventoryVariant?.variant ?? getSelectedVariant(trigger);
+  const size = inventoryVariant?.size ?? getSelectedSize(trigger);
+  const variantId = inventoryVariant?.id || null;
   const basePrice = Number(price);
+  const namePrice = Number(product?.playerNamePrice ?? PERSONALISATION_ADDON_PRICE);
+  const numberPrice = Number(product?.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE);
   const addOnTotal =
-    (personalisation.name ? PERSONALISATION_ADDON_PRICE : 0) +
-    (personalisation.number ? PERSONALISATION_ADDON_PRICE : 0);
+    (personalisation.name ? namePrice : 0) +
+    (personalisation.number ? numberPrice : 0);
   const finalPrice = basePrice + addOnTotal;
-  const existing = cart.find(i => (i.id === productId || i.name === name) && sameVariant(i.variant, variant) && sameSize(i.size, size) && samePersonalisation(i.personalisation, personalisation));
+  const existing = cart.find(i => (i.id === productId || i.name === name) && sameVariantId(i.variantId, variantId) && sameVariant(i.variant, variant) && sameSize(i.size, size) && samePersonalisation(i.personalisation, personalisation));
 
-  if (existing) { existing.qty++; } else { cart.push({ id: productId, name, basePrice, price: finalPrice, qty: 1, variant, size, personalisation }); }
+  if (existing) {
+    if (existing.qty >= 20) { showToast('Maximum quantity is 20 per option'); return; }
+    existing.qty++;
+  } else {
+    cart.push({ id: productId, name, basePrice, price: finalPrice, qty: 1, variantId, variant, size, personalisation, personalisationPrices: { name: namePrice, number: numberPrice } });
+  }
   saveCart();
   updateCartUI();
   showToast(`✓  ${name} added to cart`);
 }
 
 function changeQty(index, delta) {
-  cart[index].qty += delta;
+  cart[index].qty = Math.min(20, cart[index].qty + delta);
   if (cart[index].qty <= 0) cart.splice(index, 1);
   saveCart();
   updateCartUI();
@@ -185,6 +227,7 @@ function buildCheckoutPayload() {
       const product = findProductForCartItem(item);
       return {
         productId: product?.id || item.id,
+        variantId: Number(item.variantId || 0) || null,
         quantity: item.qty,
         size: item.size || '',
         variant: item.variant || '',
@@ -454,13 +497,14 @@ function renderProductCard(product, isShop) {
   const buttonClass = isShop ? 'btn-primary px-5 py-2.5 text-sm' : 'btn-primary px-5 py-2 text-sm';
   const actionMargin = isShop ? 'mt-5' : 'mt-4';
   const badgeTextSize = isShop ? 'text-[10px] px-2.5' : 'text-[11px] px-3';
-  const variantMarkup = renderVariantSelect(product, isShop);
-  const sizeMarkup = renderSizeSelect(product, isShop);
+  const hasInventoryVariants = Array.isArray(product.inventoryVariants);
+  const variantMarkup = hasInventoryVariants ? renderInventoryVariantSelect(product, isShop) : renderVariantSelect(product, isShop);
+  const sizeMarkup = hasInventoryVariants ? '' : renderSizeSelect(product, isShop);
   const gallery = getProductGallery(product);
   const galleryCount = gallery.length;
 
   return `
-      <div class="${cardClasses}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}">
+      <div class="${cardClasses}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}" data-allow-player-name="${product.allowPlayerName ?? product.personalisable ? 'true' : 'false'}" data-allow-player-number="${product.allowPlayerNumber ?? product.personalisable ? 'true' : 'false'}" data-name-price="${Number(product.playerNamePrice ?? PERSONALISATION_ADDON_PRICE)}" data-number-price="${Number(product.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE)}">
         <div class="product-image-wrap relative overflow-hidden ${imageHeight}">
           <button type="button" class="product-image-button" onclick='openProductLightbox(${escapeJsString(product.name)}, 0)' aria-label="View ${escapeHtml(product.name)} image gallery">
             <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
@@ -472,15 +516,36 @@ function renderProductCard(product, isShop) {
           <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">${escapeHtml(product.type)}</p>
           <h3 class="${titleClass}">${escapeHtml(product.name)}</h3>
           <p class="${copyClass}">${escapeHtml(product.description)}</p>
+          ${renderStockStatus(product)}
           ${variantMarkup}
           ${sizeMarkup}
           <div class="product-actions flex items-center justify-between ${actionMargin}">
             <span class="${priceClass}">${formatMoney(product.price).replace('.00', '')}</span>
-            <button onclick='addToCart(${escapeJsString(product.id)}, ${escapeJsString(product.name)}, ${Number(product.price)}, this)' class="${buttonClass}">Add to Cart</button>
+            <button onclick='addToCart(${escapeJsString(product.id)}, ${escapeJsString(product.name)}, ${Number(product.price)}, this)' class="${buttonClass}" ${product.available === false ? 'disabled aria-disabled="true"' : ''}>${product.available === false ? 'Out of Stock' : 'Add to Cart'}</button>
           </div>
         </div>
       </div>
   `;
+}
+
+function renderStockStatus(product) {
+  if (!product.stockStatus) return '';
+  const labels = { in_stock: 'In Stock', low_stock: 'Low Stock', out_of_stock: 'Out of Stock' };
+  return `<p class="stock-status stock-${escapeHtml(product.stockStatus)}">${labels[product.stockStatus] || 'Availability unavailable'}</p>`;
+}
+
+function renderInventoryVariantSelect(product, isShop) {
+  const variants = product.inventoryVariants || [];
+  if (!variants.length) return '';
+  const id = `${isShop ? 'shop' : 'home'}-${slugify(product.name)}-inventory-option`;
+  const hasMoreThanSize = variants.some(variant => variant.colour || variant.style);
+  return `
+          <div class="product-option">
+            <label for="${id}">${hasMoreThanSize ? 'Size / Option' : 'Size'}</label>
+            <select id="${id}" data-inventory-variant>
+              ${variants.map(variant => `<option value="${Number(variant.id)}" data-size="${escapeHtml(variant.size)}" data-colour="${escapeHtml(variant.colour)}" data-style="${escapeHtml(variant.style)}" ${variant.available ? '' : 'disabled'}>${escapeHtml(variant.label)}${variant.available ? variant.stockStatus === 'low_stock' ? ' - Low Stock' : '' : ' - Out of Stock'}</option>`).join('')}
+            </select>
+          </div>`;
 }
 
 function renderVariantSelect(product, isShop) {
@@ -696,26 +761,32 @@ function setupPersonalisationOptions() {
     if (!actionRow) return;
 
     const idBase = `personalisation-${index}`;
+    const namePrice = Number(card.dataset.namePrice || PERSONALISATION_ADDON_PRICE);
+    const numberPrice = Number(card.dataset.numberPrice || PERSONALISATION_ADDON_PRICE);
+    const allowName = card.dataset.allowPlayerName === 'true';
+    const allowNumber = card.dataset.allowPlayerNumber === 'true';
     const options = document.createElement('div');
     options.className = 'personalisation-options';
     options.innerHTML = `
-      <label class="personalisation-field" for="${idBase}-name">
-        <span>Player Name <strong>(+${formatMoney(PERSONALISATION_ADDON_PRICE)})</strong></span>
+      ${allowName ? `<label class="personalisation-field" for="${idBase}-name">
+        <span>Player Name <strong>(+${formatMoney(namePrice)})</strong></span>
         <input id="${idBase}-name" data-personalisation="name" type="text" maxlength="20" autocomplete="off" placeholder="Optional player name">
-      </label>
-      <label class="personalisation-field" for="${idBase}-number">
-        <span>Player Number <strong>(+${formatMoney(PERSONALISATION_ADDON_PRICE)})</strong></span>
+      </label>` : ''}
+      ${allowNumber ? `<label class="personalisation-field" for="${idBase}-number">
+        <span>Player Number <strong>(+${formatMoney(numberPrice)})</strong></span>
         <input id="${idBase}-number" data-personalisation="number" type="text" inputmode="numeric" maxlength="2" pattern="(?:0|00|[1-9][0-9]?)" title="Enter a jersey number from 0 to 99" placeholder="Optional number">
-      </label>
+      </label>` : ''}
     `;
 
     actionRow.before(options);
 
     const numberInput = options.querySelector('[data-personalisation="number"]');
-    numberInput.addEventListener('input', () => {
-      numberInput.value = numberInput.value.replace(/[^\d]/g, '').slice(0, 2);
-      numberInput.setCustomValidity('');
-    });
+    if (numberInput) {
+      numberInput.addEventListener('input', () => {
+        numberInput.value = numberInput.value.replace(/[^\d]/g, '').slice(0, 2);
+        numberInput.setCustomValidity('');
+      });
+    }
   });
 }
 
@@ -749,12 +820,56 @@ function filterProducts(category) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-renderProductCards();
-setupProductLightbox();
-setupPersonalisationOptions();
-setupProductVariants();
-setupProductCardCarousels();
+function initialiseProductExperience() {
+  renderProductCards();
+  setupProductLightbox();
+  setupPersonalisationOptions();
+  setupProductVariants();
+  setupProductCardCarousels();
+}
+
+function refreshCartFromDatabaseProducts() {
+  let changed = false;
+  cart.forEach(item => {
+    const product = getProducts().find(candidate => candidate.id === item.id);
+    if (!product) return;
+
+    const namePrice = Number(product.playerNamePrice ?? PERSONALISATION_ADDON_PRICE);
+    const numberPrice = Number(product.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE);
+    const addOnTotal = (item.personalisation?.name ? namePrice : 0) + (item.personalisation?.number ? numberPrice : 0);
+    item.basePrice = Number(product.price);
+    item.price = item.basePrice + addOnTotal;
+    item.personalisationPrices = { name: namePrice, number: numberPrice };
+
+    if (!item.variantId && Array.isArray(product.inventoryVariants)) {
+      const match = product.inventoryVariants.find(variant => {
+        const option = [variant.colour, variant.style].filter(Boolean).join(' / ');
+        return variant.size === (item.size || '') && option === (item.variant || '');
+      });
+      if (match) item.variantId = match.id;
+    }
+    changed = true;
+  });
+  if (changed) saveCart();
+}
+
+async function loadDatabaseProducts() {
+  try {
+    const response = await fetch('/api/products', { headers: { Accept: 'application/json' } });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ok || !Array.isArray(result.products)) return;
+    window.PTG_PRODUCTS = result.products;
+    refreshCartFromDatabaseProducts();
+    initialiseProductExperience();
+    updateCartUI();
+  } catch (error) {
+    // The checked-in catalogue remains available during migration or an API outage.
+  }
+}
+
+initialiseProductExperience();
 setupNewsletterForm();
 setupContactForm();
 setupCheckout();
 updateCartUI();
+loadDatabaseProducts();

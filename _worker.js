@@ -1,3 +1,8 @@
+import { getAdminIdentity, handleAdminAuth, isAdminMutationAllowed } from './worker/auth.js';
+import { handleAdminApi } from './worker/admin-api.js';
+import { getPublicProductBySlug, getPublicProducts, isD1CatalogueEnabled } from './worker/catalog.js';
+import { commitPaidOrder, markOrderEmailResult, validateD1CheckoutPayload } from './worker/inventory.js';
+
 const MAX_FIELD_LENGTHS = {
   name: 100,
   email: 254,
@@ -66,7 +71,8 @@ const SERVER_PRODUCTS = {
 
 const jsonHeaders = {
   'Content-Type': 'application/json; charset=utf-8',
-  'Cache-Control': 'no-store'
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff'
 };
 
 function jsonResponse(body, status = 200) {
@@ -289,7 +295,7 @@ function normaliseCheckoutItem(rawItem) {
   const playerName = cleanText(personalisation.name || rawItem.playerName, 20);
   const playerNumber = cleanText(personalisation.number || rawItem.playerNumber, 2);
 
-  return { productId, quantity, size, variant, playerName, playerNumber };
+  return { productId, quantity, size, variant, playerName, playerNumber, variantId: null, cartItemKey: '' };
 }
 
 function validateCheckoutPayload(payload) {
@@ -374,7 +380,9 @@ function appendStripeLineItem(params, index, line) {
   params.append(`line_items[${index}][quantity]`, String(line.quantity));
 
   Object.entries(line.metadata || {}).forEach(([key, value]) => {
-    params.append(`line_items[${index}][price_data][product_data][metadata][${key}]`, String(value || ''));
+    if (value !== undefined && value !== null && String(value).trim()) {
+      params.append(`line_items[${index}][price_data][product_data][metadata][${key}]`, String(value));
+    }
   });
 }
 
@@ -385,6 +393,9 @@ function buildStripeLineItems(validatedItems) {
     const optionDescription = buildOptionDescription(item);
     const baseMetadata = {
       product_id: item.product.id,
+      variant_id: item.variantId,
+      sku: item.sku,
+      cart_item_key: item.cartItemKey,
       size: item.size,
       colour_style: item.variant,
       player_name: item.playerName,
@@ -438,10 +449,16 @@ async function createStripeCheckoutSession(env, sessionParams) {
   const body = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    console.error('Stripe Checkout Session creation failed', {
+    const stripeError = {
       status: response.status,
       type: body?.error?.type,
-      code: body?.error?.code
+      code: body?.error?.code,
+      message: body?.error?.message,
+      parameter: body?.error?.param,
+      requestId: response.headers.get('request-id')
+    };
+    console.error('Stripe Checkout Session creation failed', {
+      ...stripeError
     });
     throw new Error('Stripe session creation failed.');
   }
@@ -462,8 +479,15 @@ async function handleCreateCheckoutSession(request, env) {
     return jsonResponse({ ok: false, error: 'JSON content type is required.' }, 415);
   }
 
+  if (String(env.CHECKOUT_ENABLED || 'true').toLowerCase() !== 'true') {
+    return jsonResponse({ ok: false, error: 'Checkout is temporarily unavailable.' }, 503);
+  }
+
   const payload = await readJson(request);
-  const validation = validateCheckoutPayload(payload);
+  const useD1Inventory = Boolean(env.DB) && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1';
+  const validation = useD1Inventory
+    ? await validateD1CheckoutPayload(payload, env)
+    : validateCheckoutPayload(payload);
 
   if (validation.error) {
     return jsonResponse({ ok: false, error: validation.error }, 400);
@@ -478,7 +502,6 @@ async function handleCreateCheckoutSession(request, env) {
   const params = new URLSearchParams();
 
   params.append('mode', 'payment');
-  params.append('automatic_payment_methods[enabled]', 'true');
   params.append('success_url', `${siteUrl}/order-success?session_id={CHECKOUT_SESSION_ID}`);
   params.append('cancel_url', `${siteUrl}/cart?checkout=cancelled`);
   params.append('billing_address_collection', 'required');
@@ -731,7 +754,7 @@ function buildCustomerOrderEmail(order) {
   };
 }
 
-async function sendOrderEmails(env, session) {
+async function sendOrderEmails(env, session, providedLineItems = null) {
   const toEmail = cleanText(env.CONTACT_TO_EMAIL, MAX_FIELD_LENGTHS.email);
   const fromEmail = cleanText(env.CONTACT_FROM_EMAIL, MAX_FIELD_LENGTHS.email);
 
@@ -739,7 +762,7 @@ async function sendOrderEmails(env, session) {
     throw new Error('Order email service is not configured.');
   }
 
-  const lineItems = await fetchStripeLineItems(env, session.id);
+  const lineItems = providedLineItems || await fetchStripeLineItems(env, session.id);
   const order = buildOrderEmailData(session, lineItems);
   const businessEmail = buildBusinessOrderEmail(order);
 
@@ -765,6 +788,35 @@ async function handleSuccessfulCheckoutEvent(env, event) {
   }
 
   if (session.payment_status && session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+    return;
+  }
+
+  const useD1Inventory = Boolean(env.DB) && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1';
+
+  if (useD1Inventory) {
+    if (!env.ORDER_EVENT_STORE) {
+      throw new Error('ORDER_EVENT_STORE KV binding is required for webhook idempotency.');
+    }
+
+    const kvState = await env.ORDER_EVENT_STORE.get(event.id);
+    if (kvState === 'processed') return;
+
+    await env.ORDER_EVENT_STORE.put(event.id, 'processing', { expirationTtl: 60 * 60 * 24 * 90 });
+    const lineItems = await fetchStripeLineItems(env, session.id);
+    const result = await commitPaidOrder(env, event, session, lineItems);
+    await env.ORDER_EVENT_STORE.put(event.id, 'inventory_committed', { expirationTtl: 60 * 60 * 24 * 90 });
+
+    if (result.emailStatus !== 'sent') {
+      try {
+        await sendOrderEmails(env, session, lineItems);
+        await markOrderEmailResult(env, result.orderId, event.id, true);
+      } catch (error) {
+        await markOrderEmailResult(env, result.orderId, event.id, false, error.message);
+        throw error;
+      }
+    }
+
+    await markWebhookEventProcessed(env, event.id);
     return;
   }
 
@@ -841,9 +893,96 @@ async function serveAsset(request, env) {
   }
 }
 
+async function handlePublicProducts(request, env, slug = '') {
+  if (request.method !== 'GET') {
+    return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  }
+  if (!isD1CatalogueEnabled(env)) {
+    return jsonResponse({ ok: false, error: 'Database catalogue is not active.' }, 503);
+  }
+
+  try {
+    if (slug) {
+      const product = await getPublicProductBySlug(env, slug);
+      return product
+        ? jsonResponse({ ok: true, product })
+        : jsonResponse({ ok: false, error: 'Product not found.' }, 404);
+    }
+    return jsonResponse({ ok: true, products: await getPublicProducts(env) });
+  } catch (error) {
+    console.error('Public catalogue request failed', { message: error.message });
+    return jsonResponse({ ok: false, error: 'Products are temporarily unavailable.' }, 503);
+  }
+}
+
+function unauthorisedAdminResponse(isApi) {
+  if (isApi) return jsonResponse({ ok: false, error: 'Authentication is required.' }, 401);
+  return new Response('Admin authentication is required.', {
+    status: 401,
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff'
+    }
+  });
+}
+
+async function serveAdminAsset(request, env) {
+  const url = new URL(request.url);
+  if (url.pathname === '/admin') {
+    url.pathname = '/admin/';
+    request = new Request(url.toString(), request);
+  }
+  const response = await env.ASSETS.fetch(request);
+  const headers = new Headers(response.headers);
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Referrer-Policy', 'same-origin');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname.startsWith('/api/admin-auth/')) {
+      return handleAdminAuth(request, env);
+    }
+
+    const publicAdminAssets = new Set([
+      '/admin/login',
+      '/admin/login.html',
+      '/admin/login.js',
+      '/admin/admin.css'
+    ]);
+    if (publicAdminAssets.has(url.pathname)) {
+      return serveAdminAsset(request, env);
+    }
+
+    if (url.pathname === '/api/products') {
+      return handlePublicProducts(request, env);
+    }
+
+    if (url.pathname.startsWith('/api/products/')) {
+      return handlePublicProducts(request, env, decodeURIComponent(url.pathname.slice('/api/products/'.length)));
+    }
+
+    if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
+      let identity = null;
+      try { identity = await getAdminIdentity(request, env); } catch (error) { console.error('Admin authentication failed', { message: error.message }); }
+      return identity ? serveAdminAsset(request, env) : Response.redirect(new URL('/admin/login', request.url), 302);
+    }
+
+    if (url.pathname === '/api/admin' || url.pathname.startsWith('/api/admin/')) {
+      let identity = null;
+      try { identity = await getAdminIdentity(request, env); } catch (error) { console.error('Admin authentication failed', { message: error.message }); }
+      if (!identity) return unauthorisedAdminResponse(true);
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !isAdminMutationAllowed(request)) {
+        return jsonResponse({ ok: false, error: 'Admin request verification failed.' }, 403);
+      }
+      return handleAdminApi(request, env, identity);
+    }
 
     if (url.pathname === '/api/contact') {
       return handleEmailRequest(request, env, 'contact');
