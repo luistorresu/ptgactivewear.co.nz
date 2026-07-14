@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>PTG Activewear Admin</title>
-  <link rel="icon" type="image/png" href="/favicon-ptg.png">
+  <link rel="icon" type="image/png" href="/favicon.png">
   <script>document.documentElement.dataset.theme = localStorage.getItem('ptg-admin-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');</script>
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
 <body>
   <header class="admin-header">
     <a class="admin-brand" href="/admin" aria-label="PTG Activewear admin dashboard">
-      <img src="/photos/ptg-logo-light-transparent.webp" alt="PTG Activewear">
+      <img src="/photos/logo-header-dark.png" alt="PTG Activewear">
       <span>Admin</span>
     </a>
     <div class="admin-account">
@@ -26,7 +26,6 @@
     <nav class="admin-nav" aria-label="Admin sections">
       <button type="button" class="nav-button is-active" data-view-button="dashboard">Dashboard</button>
       <button type="button" class="nav-button" data-view-button="products">Products</button>
-      <button type="button" class="nav-button" data-view-button="pictures">Pictures</button>
       <button type="button" class="nav-button" data-view-button="orders">Orders</button>
       <button type="button" class="nav-button" data-view-button="movements">Stock history</button>
     </nav>
@@ -64,15 +63,6 @@
           <button type="button" class="button button-secondary" data-refresh="products">Refresh</button>
         </div>
         <div id="products-table" class="table-wrap"></div>
-      </section>
-
-      <section data-view="pictures" hidden>
-        <div class="page-heading">
-          <div><p class="eyebrow">Product media</p><h1>Pictures</h1></div>
-          <button type="button" class="button button-secondary" data-refresh="pictures">Refresh</button>
-        </div>
-        <div id="pictures-storage-status" class="status is-hidden" role="status"></div>
-        <div id="pictures-grid" class="pictures-grid" aria-live="polite"></div>
       </section>
 
       <section data-view="orders" hidden>
@@ -144,6 +134,7 @@
         <div class="form-grid">
           <label class="field"><span>Player name price (NZD)</span><input name="playerNamePrice" type="number" min="0" step="0.01"></label>
           <label class="field"><span>Player number price (NZD)</span><input name="playerNumberPrice" type="number" min="0" step="0.01"></label>
+          <label class="field field-wide"><span>Image paths, primary first</span><textarea name="images" rows="5" spellcheck="false"></textarea><small>Existing files under /photos only. One path per line.</small></label>
         </div>
         <div id="product-image-preview" class="image-preview"></div>
         <div class="form-actions"><button type="submit" class="button button-primary">Save product</button></div>
@@ -159,36 +150,11 @@
             <label class="field"><span>Size</span><input name="size" maxlength="50"></label>
             <label class="field"><span>Colour</span><input name="colour" maxlength="80"></label>
             <label class="field"><span>Style</span><input name="style" maxlength="80"></label>
-            <label class="field"><span>Player name</span><select name="allowPlayerName"><option value="">Inherit product</option><option value="true">Allow</option><option value="false">Disallow</option></select></label>
-            <label class="field"><span>Player number</span><select name="allowPlayerNumber"><option value="">Inherit product</option><option value="true">Allow</option><option value="false">Disallow</option></select></label>
             <label class="toggle"><input name="active" type="checkbox" checked><span>Active</span></label>
             <button type="submit" class="button button-secondary">Add variant</button>
           </form>
         </details>
       </section>
-    </section>
-  </div>
-
-  <div id="pictures-modal" class="modal" hidden>
-    <button type="button" class="modal-backdrop" data-close-modal="pictures" aria-label="Close picture manager"></button>
-    <section class="modal-panel modal-panel-wide" role="dialog" aria-modal="true" aria-labelledby="pictures-modal-title">
-      <header class="modal-header">
-        <div><p class="eyebrow">Product media</p><h2 id="pictures-modal-title">Manage Pictures</h2></div>
-        <button type="button" class="icon-button" data-close-modal="pictures" aria-label="Close picture manager">&times;</button>
-      </header>
-      <div id="pictures-modal-status" class="status is-hidden" role="status" aria-live="polite"></div>
-      <div class="modal-content">
-        <form id="picture-upload-form" class="picture-upload-form">
-          <label class="field field-wide"><span>New picture</span><input name="file" type="file" accept="image/jpeg,image/png,image/webp" required><small>JPEG, PNG or WebP, up to 8 MB.</small></label>
-          <div id="picture-upload-preview" class="picture-upload-preview" hidden></div>
-          <label class="field"><span>Alt text</span><input name="altText" maxlength="200" required></label>
-          <label class="field"><span>Gallery style</span><input name="variantStyle" maxlength="80" placeholder="Optional, e.g. Style 2"></label>
-          <input name="replacePictureId" type="hidden">
-          <div class="upload-progress" hidden><span></span></div>
-          <div class="form-actions"><button type="submit" class="button button-primary">Upload Picture</button><button type="button" class="button button-secondary" data-cancel-replace hidden>Cancel replace</button></div>
-        </form>
-        <div id="picture-manager-list" class="picture-manager-list"></div>
-      </div>
     </section>
   </div>
 

@@ -47,19 +47,13 @@ export async function validateD1CheckoutPayload(payload, env) {
     if (product.track_inventory && variant.stock_quantity <= 0) {
       return { error: `${product.name} is out of stock.` };
     }
-    const allowPlayerName = variant.allow_player_name === null || variant.allow_player_name === undefined
-      ? Boolean(product.allow_player_name)
-      : Boolean(variant.allow_player_name);
-    const allowPlayerNumber = variant.allow_player_number === null || variant.allow_player_number === undefined
-      ? Boolean(product.allow_player_number)
-      : Boolean(variant.allow_player_number);
-    if (!allowPlayerName && playerName) return { error: `${product.name} ${variant.style || 'option'} does not support player names.` };
-    if (!allowPlayerNumber && playerNumber) return { error: `${product.name} ${variant.style || 'option'} does not support player numbers.` };
+    if (!product.allow_player_name && playerName) return { error: `${product.name} does not support player names.` };
+    if (!product.allow_player_number && playerNumber) return { error: `${product.name} does not support player numbers.` };
     if (!playerNameIsValid(playerName)) return { error: `The player name for ${product.name} contains unsupported characters.` };
     if (!playerNumberIsValid(playerNumber)) return { error: `Please enter a player number from 0 to 99 for ${product.name}.` };
 
-    const nameAddOn = allowPlayerName && playerName ? product.player_name_price_cents : 0;
-    const numberAddOn = allowPlayerNumber && playerNumber ? product.player_number_price_cents : 0;
+    const nameAddOn = product.allow_player_name && playerName ? product.player_name_price_cents : 0;
+    const numberAddOn = product.allow_player_number && playerNumber ? product.player_number_price_cents : 0;
     checkedItems.push({
       productId,
       variantId,
@@ -75,7 +69,7 @@ export async function validateD1CheckoutPayload(payload, env) {
         id: product.id,
         name: product.name,
         unitAmountNzdCents: product.price_cents,
-        personalisable: allowPlayerName || allowPlayerNumber
+        personalisable: Boolean(product.allow_player_name || product.allow_player_number)
       },
       sku: variant.sku,
       stockStatus: product.track_inventory && variant.stock_quantity <= threshold ? 'low_stock' : 'in_stock'

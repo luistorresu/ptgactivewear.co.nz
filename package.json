@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check _worker.js && node --check js/main.js && node --check admin/admin.js && node --check admin/invoice.js && node --check worker/auth.js && node --check worker/catalog.js && node --check worker/admin-api.js && node --check worker/inventory.js && node --check worker/pictures.js",
+    "check": "node --check _worker.js && node --check js/main.js && node --check admin/admin.js && node --check admin/invoice.js && node --check worker/auth.js && node --check worker/catalog.js && node --check worker/admin-api.js && node --check worker/inventory.js",
     "dev": "wrangler dev"
   }
 }

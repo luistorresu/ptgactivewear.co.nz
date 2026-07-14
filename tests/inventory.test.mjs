@@ -83,27 +83,13 @@ test('D1 checkout rejects personalisation for products that disallow it', async 
   assert.match(result.error, /does not support player names/i);
 });
 
-test('D1 checkout applies variant-specific mug personalisation rules', async () => {
-  const styleOne = await validateD1CheckoutPayload(checkoutPayload(), {
-    DB: mockDatabase({ variant: { allow_player_name: 0, allow_player_number: 0, style: 'Style 1' } })
-  });
-  assert.match(styleOne.error, /Style 1 does not support player names/i);
-
-  const styleTwo = await validateD1CheckoutPayload(checkoutPayload(), {
-    DB: mockDatabase({ product: { player_name_price_cents: 0, player_number_price_cents: 0 }, variant: { allow_player_name: 1, allow_player_number: 1, style: 'Style 2' } })
-  });
-  assert.equal(styleTwo.error, undefined);
-  assert.equal(styleTwo.items[0].nameAddOn, 0);
-  assert.equal(styleTwo.items[0].numberAddOn, 0);
-});
-
 test('local admin identity only activates for localhost development', async () => {
   const env = { ENVIRONMENT: 'development', LOCAL_ADMIN_EMAIL: 'admin@example.com' };
   assert.equal((await getAdminIdentity(new Request('http://localhost:8787/api/admin/me'), env)).email, 'admin@example.com');
   assert.equal(await getAdminIdentity(new Request('https://ptgactivewear.co.nz/api/admin/me'), env), null);
 });
 
-test('admin mutations require exact same origin, safe content type and custom header', () => {
+test('admin mutations require exact same origin, JSON and custom header', () => {
   const valid = new Request('http://localhost:8787/api/admin/products/test', {
     method: 'PUT',
     headers: { Origin: 'http://localhost:8787', 'Content-Type': 'application/json', 'X-PTG-Admin-Request': '1' },
@@ -116,8 +102,4 @@ test('admin mutations require exact same origin, safe content type and custom he
   });
   assert.equal(isAdminMutationAllowed(valid), true);
   assert.equal(isAdminMutationAllowed(invalid), false);
-  const upload = new Request('http://localhost:8787/api/admin/products/test/pictures', {
-    method: 'POST', headers: { Origin: 'http://localhost:8787', 'Content-Type': 'multipart/form-data; boundary=test', 'X-PTG-Admin-Request': '1' }, body: '--test--'
-  });
-  assert.equal(isAdminMutationAllowed(upload), true);
 });

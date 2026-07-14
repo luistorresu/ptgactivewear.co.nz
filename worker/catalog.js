@@ -21,12 +21,6 @@ function stockStatus(product, variant, threshold) {
 function publicProduct(product, images, variants, threshold) {
   const publicVariants = variants.map(variant => {
     const status = stockStatus(product, variant, threshold);
-    const allowPlayerName = variant.allow_player_name === null || variant.allow_player_name === undefined
-      ? asBoolean(product.allow_player_name)
-      : asBoolean(variant.allow_player_name);
-    const allowPlayerNumber = variant.allow_player_number === null || variant.allow_player_number === undefined
-      ? asBoolean(product.allow_player_number)
-      : asBoolean(variant.allow_player_number);
     return {
       id: variant.id,
       sku: variant.sku,
@@ -34,21 +28,12 @@ function publicProduct(product, images, variants, threshold) {
       colour: variant.colour,
       style: variant.style,
       label: variantLabel(variant),
-      allowPlayerName,
-      allowPlayerNumber,
       available: status !== 'out_of_stock',
       stockStatus: status
     };
   });
   const availableVariants = publicVariants.filter(variant => variant.available);
-  const publicImages = images.map(image => ({
-    id: image.id,
-    src: image.delivery_url || image.path,
-    alt: image.alt_text || product.name,
-    style: image.variant_style || '',
-    isPrimary: asBoolean(image.is_primary)
-  }));
-  const gallery = publicImages.map(image => image.src);
+  const gallery = images.map(image => image.path);
   const overallStatus = !product.active || !product.available_for_sale || !availableVariants.length
     ? 'out_of_stock'
     : availableVariants.some(variant => variant.stockStatus === 'in_stock')
@@ -74,7 +59,6 @@ function publicProduct(product, images, variants, threshold) {
     playerNumberPrice: product.player_number_price_cents / 100,
     image: gallery[0] || '',
     gallery,
-    galleryImages: publicImages,
     sizes: unique(publicVariants.map(variant => variant.size)),
     inventoryVariants: publicVariants,
     stockStatus: overallStatus,
@@ -86,7 +70,7 @@ async function loadRelatedRows(db, productIds) {
   if (!productIds.length) return { images: [], variants: [] };
   const placeholders = productIds.map(() => '?').join(', ');
   const [imageResult, variantResult] = await Promise.all([
-    db.prepare(`SELECT * FROM product_images WHERE product_id IN (${placeholders}) AND active = 1 ORDER BY product_id, is_primary DESC, sort_order, id`).bind(...productIds).all(),
+    db.prepare(`SELECT * FROM product_images WHERE product_id IN (${placeholders}) ORDER BY product_id, is_primary DESC, sort_order, id`).bind(...productIds).all(),
     db.prepare(`SELECT * FROM product_variants WHERE product_id IN (${placeholders}) AND active = 1 ORDER BY product_id, id`).bind(...productIds).all()
   ]);
   return { images: imageResult.results || [], variants: variantResult.results || [] };

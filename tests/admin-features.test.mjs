@@ -32,31 +32,3 @@ test('invoice and CSV routes remain under authenticated admin API paths', async 
   assert.match(api, /segments\[0\] === 'exports'/);
   assert.match(api, /if \(\/\^\[=\+\\-@\\t\\r\]\//);
 });
-
-test('ordinary product updates reject raw image paths', async () => {
-  const [html, script, api] = await Promise.all([
-    readFile(new URL('admin/index.html', root), 'utf8'),
-    readFile(new URL('admin/admin.js', root), 'utf8'),
-    readFile(new URL('worker/admin-api.js', root), 'utf8')
-  ]);
-  assert.doesNotMatch(html, /Image paths|name="images"/i);
-  assert.doesNotMatch(script, /form\.elements\.images/);
-  assert.doesNotMatch(api, /'version', 'images'/);
-});
-
-test('pictures API validates uploads and never accepts browser object keys', async () => {
-  const pictures = await readFile(new URL('worker/pictures.js', root), 'utf8');
-  assert.match(pictures, /MAX_UPLOAD_BYTES = 8 \* 1024 \* 1024/);
-  assert.match(pictures, /signatureMatches/);
-  assert.match(pictures, /crypto\.randomUUID\(\)/);
-  assert.doesNotMatch(pictures, /form\.get\(['"]objectKey/);
-});
-
-test('customer order email uses friendly order number without technical references', async () => {
-  const worker = await readFile(new URL('_worker.js', root), 'utf8');
-  const start = worker.indexOf('function buildCustomerOrderEmail');
-  const end = worker.indexOf('async function sendOrderEmails', start);
-  const customerTemplate = worker.slice(start, end);
-  assert.match(customerTemplate, /order\.orderNumber/);
-  assert.doesNotMatch(customerTemplate, /order\.sessionId|paymentIntentId|eventId/);
-});

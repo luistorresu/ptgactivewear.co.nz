@@ -57,7 +57,7 @@ Preferred workflow:
 
 ## Stripe Checkout
 
-Stripe Checkout is configured in the existing production mode. Never switch Stripe modes or replace payment secrets during routine website work.
+Stripe must start in test mode. Do not switch to live keys or accept real payments until testing is approved.
 
 Required Cloudflare Worker variables/secrets:
 
@@ -166,13 +166,3 @@ The production admin is a D1-backed operational tool for catalogue, inventory, p
 Paid orders are created only from verified Stripe webhooks. Both encrypted production secrets, `STRIPE_WEBHOOK_SECRET` and `STRIPE_SECRET_KEY`, are configured. Refund event ingestion and automatic idempotent restocking are not yet enabled.
 
 This admin system is an operational order and stock-management tool. It is not a replacement for professional accounting software or statutory tax advice.
-
-## Product Pictures
-
-Product image metadata is stored in D1. Existing checked-in `/photos` files remain the production fallback. Admin uploads use the optional `PRODUCT_IMAGES` R2 binding and are served through `/product-images/{id}`; the browser never supplies an object key or raw public path.
-
-The R2 bucket name is `ptgactivewear-product-images`. Until R2 is enabled for the Cloudflare account and the binding is added, the Pictures tab remains read-only for existing static images and upload requests return `503` without altering data.
-
-The Patagonia FC Personalised Mug remains one product with Style 1 and Style 2 variants. Style 1 disallows Player Name and Player Number. Style 2 permits both options at the existing product prices, currently zero dollars; no new fee is inferred.
-
-Public stock labels are `In Stock`, `Only a few left`, and `Out of Stock`. Exact quantities remain admin-only. D1 validates stock at checkout and the verified Stripe webhook performs idempotent deductions.

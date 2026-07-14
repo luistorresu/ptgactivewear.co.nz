@@ -240,42 +240,6 @@ tbody tr:hover { background: #fbfdfe; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }
-
-.pictures-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 18px; }
-.picture-product-card { display: grid; grid-template-columns: 92px 1fr; gap: 14px; align-items: center; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
-.picture-product-card > .button { grid-column: 1 / -1; justify-content: center; }
-.picture-product-main { width: 92px; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 12px; }
-.picture-product-main img { width: 100%; height: 100%; object-fit: contain; }
-.picture-product-copy h2 { margin: 0; font-size: 16px; }
-.picture-product-copy p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-.picture-upload-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
-.picture-upload-form .field-wide, .picture-upload-form .form-actions, .picture-upload-form .upload-progress, .picture-upload-preview { grid-column: 1 / -1; }
-.picture-upload-preview { min-height: 180px; padding: 12px; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
-.picture-upload-preview img { width: 100%; height: 240px; object-fit: contain; }
-.upload-progress { height: 8px; overflow: hidden; background: var(--surface); border-radius: 999px; }
-.upload-progress span { display: block; width: 0; height: 100%; background: var(--brand); transition: width .2s ease; }
-.picture-manager-list { display: grid; gap: 14px; margin-top: 22px; }
-.picture-row { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
-.picture-row > img { width: 150px; height: 150px; object-fit: contain; background: var(--surface); border-radius: 6px; }
-.picture-meta-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
-.picture-badges, .picture-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.invoice-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 170px; }
-.technical-details { margin: 18px 0; border: 1px solid var(--line); border-radius: 8px; }
-.technical-details summary { padding: 14px 16px; cursor: pointer; font-weight: 700; }
-.technical-details-content { display: grid; gap: 12px; padding: 0 16px 16px; }
-.technical-reference { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
-.technical-reference > span { color: var(--muted); font-size: 12px; font-weight: 700; }
-.technical-reference code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.technical-reference > div { display: flex; flex-wrap: wrap; gap: 6px; }
-.status-warning { color: #7a4b00; background: #fff7e5; border-color: #f1cf8f; }
-:root[data-theme="dark"] .status-warning { color: #ffd785; background: #3d3019; border-color: #6b542a; }
-
-@media (max-width: 700px) {
-  .picture-upload-form, .picture-row, .picture-meta-form { grid-template-columns: 1fr; }
-  .picture-upload-form .field-wide, .picture-upload-form .form-actions, .picture-upload-form .upload-progress, .picture-upload-preview, .picture-badges, .picture-actions { grid-column: auto; }
-  .picture-row > img { width: 100%; height: 220px; }
-  .technical-reference { grid-template-columns: 1fr; }
-}
 /* Secure admin sign-in */
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #0a0a0a; }
 .login-panel { width: min(100%, 440px); padding: 36px; background: #fff; border-radius: 8px; box-shadow: 0 18px 55px rgba(0,0,0,.28); }
@@ -283,5 +247,5 @@ tbody tr:hover { background: #fbfdfe; }
 .login-panel > p { margin: 0 0 24px; color: #5f6670; text-align: center; line-height: 1.6; }
 .login-panel form { display: grid; gap: 18px; }
 .login-panel .button { width: 100%; justify-content: center; }
-.login-logo { display: block; width: min(210px, 70%); max-height: 72px; object-fit: contain; margin: 0 auto 24px; }
+.login-logo { display: block; width: min(210px, 70%); max-height: 72px; object-fit: contain; margin: 0 auto 24px; filter: invert(1); }
 @media (max-width: 520px) { .login-panel { padding: 28px 20px; } }
