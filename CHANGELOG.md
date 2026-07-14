@@ -6,6 +6,7 @@ All notable changes to this website should be documented here.
 
 ### Added
 
+* Added the production R2 binding declaration required by admin product-picture uploads.
 * Added an admin workflow for creating safe inactive draft products, with server-generated IDs and direct access to variants, stock, and picture management.
 * Added an additive D1 migration for R2 image metadata, active/static fallbacks, style galleries, and variant-level personalisation rules.
 * Added an authenticated Admin Pictures workspace and validated R2 upload API with controlled image delivery, previews, upload progress, alt text, primary selection, ordering, replacement, removal, and audit records.
@@ -23,6 +24,7 @@ All notable changes to this website should be documented here.
 
 ### Fixed
 
+* Fixed admin picture requests falling through to the general API router and made mobile draft creation show progress and visible validation errors.
 * Removed redundant Worker asset rewrites that caused redirect loops on the clean `/cart` and `/order-success` routes.
 
 ### Notes

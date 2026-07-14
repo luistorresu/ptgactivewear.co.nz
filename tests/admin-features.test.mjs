@@ -58,11 +58,19 @@ test('admin can create an inactive draft product before adding variants and pict
 });
 
 test('pictures API validates uploads and never accepts browser object keys', async () => {
-  const pictures = await readFile(new URL('worker/pictures.js', root), 'utf8');
+  const [pictures, worker, configText] = await Promise.all([
+    readFile(new URL('worker/pictures.js', root), 'utf8'),
+    readFile(new URL('_worker.js', root), 'utf8'),
+    readFile(new URL('wrangler.jsonc', root), 'utf8')
+  ]);
+  const config = JSON.parse(configText);
   assert.match(pictures, /MAX_UPLOAD_BYTES = 8 \* 1024 \* 1024/);
   assert.match(pictures, /signatureMatches/);
   assert.match(pictures, /crypto\.randomUUID\(\)/);
   assert.doesNotMatch(pictures, /form\.get\(['"]objectKey/);
+  assert.match(worker, /function isAdminPicturesPath/);
+  assert.match(worker, /segments\[0\] === 'products'.*segments\[2\] === 'pictures'/s);
+  assert.deepEqual(config.r2_buckets, [{ binding: 'PRODUCT_IMAGES', bucket_name: 'ptgactivewear-product-images' }]);
 });
 
 test('customer order email uses friendly order number without technical references', async () => {

@@ -23,6 +23,12 @@
       "id": "63cdbab293594e0abf53a34c0d9e29ba"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "PRODUCT_IMAGES",
+      "bucket_name": "ptgactivewear-product-images"
+    }
+  ],
   "vars": {
     "SITE_URL": "https://ptgactivewear.co.nz",
     "EMAIL_PROVIDER": "resend",

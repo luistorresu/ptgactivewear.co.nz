@@ -102,6 +102,7 @@ The Worker validates the JWT signature, audience, expiry, and email. Admin mutat
 
 * Products: create inactive draft products, then edit name, description, price, category, type, badge, visibility, sale availability, featured state, inventory tracking, and personalisation. Add variants, stock, and pictures before publishing. Raw image paths are not accepted by the form or product-update API.
 * Pictures: view safe previews, edit alt text, assign a style gallery, reorder, select the main image, replace, and remove after confirmation. R2 upload supports JPEG, PNG, and WebP up to 8 MB and validates the actual file signature.
+  The Worker requires the `PRODUCT_IMAGES` R2 binding configured in `wrangler.jsonc`, backed by the `ptgactivewear-product-images` bucket.
 * Variants: edit SKU, size, colour, style, and active state; add new variants with zero starting stock.
 * Stock: set exact, increase, or decrease. Every change requires a reason and writes `stock_movements` plus an admin audit entry.
 * Orders: search by order/customer/email, filter by date/payment/fulfilment, inspect immutable purchase snapshots, addresses, Stripe references, refund state, stock movements, internal notes, and fulfilment history.

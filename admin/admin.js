@@ -401,6 +401,9 @@ async function refreshCurrentProduct(message = '') {
 async function saveProduct(event) {
   event.preventDefault();
   const form = event.currentTarget;
+  if (!form.reportValidity()) return;
+  const submitButton = form.querySelector('[data-product-submit]');
+  const originalLabel = submitButton.textContent;
   const becomesUnavailable = state.currentProduct && ((state.currentProduct.active && !form.elements.active.checked) || (state.currentProduct.availableForSale && !form.elements.availableForSale.checked));
   if (becomesUnavailable && !window.confirm('This will remove the product from sale. Continue?')) return;
   const body = {
@@ -420,6 +423,8 @@ async function saveProduct(event) {
     playerNumberPriceCents: Math.round(Number(form.elements.playerNumberPrice.value || 0) * 100)
   };
   if (state.currentProduct) body.version = Number(form.elements.version.value);
+  submitButton.disabled = true;
+  submitButton.textContent = state.currentProduct ? 'Saving...' : 'Creating Draft...';
   try {
     const isCreating = !state.currentProduct;
     const result = await api(isCreating ? '/products' : `/products/${encodeURIComponent(state.currentProduct.id)}`, { method: isCreating ? 'POST' : 'PUT', body: JSON.stringify(body) });
@@ -427,7 +432,14 @@ async function saveProduct(event) {
     fillProductForm(result.product);
     setStatus(document.getElementById('product-modal-status'), 'success', isCreating ? 'Draft product created. Add variants, stock and pictures before making it visible.' : 'Product saved successfully.');
     await loadProducts();
-  } catch (error) { setStatus(document.getElementById('product-modal-status'), 'error', error.message); }
+  } catch (error) {
+    const status = document.getElementById('product-modal-status');
+    setStatus(status, 'error', error.message);
+    status.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+  } finally {
+    submitButton.disabled = false;
+    submitButton.textContent = state.currentProduct ? 'Save Product' : originalLabel;
+  }
 }
 
 async function saveVariant(form) {

@@ -960,6 +960,13 @@ async function serveAdminAsset(request, env) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+function isAdminPicturesPath(pathname) {
+  const path = String(pathname || '').replace(/^\/api\/admin\/?/, '');
+  const segments = path.split('/').filter(Boolean);
+  return segments[0] === 'pictures'
+    || (segments[0] === 'products' && segments.length >= 3 && segments[2] === 'pictures');
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -1003,7 +1010,7 @@ export default {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !isAdminMutationAllowed(request)) {
         return jsonResponse({ ok: false, error: 'Admin request verification failed.' }, 403);
       }
-      if (url.pathname === '/api/admin/pictures' || /\/pictures(?:\/|$)/.test(url.pathname.replace('/api/admin/', ''))) {
+      if (isAdminPicturesPath(url.pathname)) {
         return handlePicturesApi(request, env, identity);
       }
       return handleAdminApi(request, env, identity);
