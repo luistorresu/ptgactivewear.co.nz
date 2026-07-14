@@ -61,7 +61,7 @@
             <p class="eyebrow">Catalogue and inventory</p>
             <h1>Products</h1>
           </div>
-          <button type="button" class="button button-secondary" data-refresh="products">Refresh</button>
+          <div class="heading-actions"><button type="button" class="button button-primary" data-new-product><span aria-hidden="true">+</span> New Product</button><button type="button" class="button button-secondary" data-refresh="products">Refresh</button></div>
         </div>
         <div id="products-table" class="table-wrap"></div>
       </section>
@@ -146,10 +146,10 @@
           <label class="field"><span>Player number price (NZD)</span><input name="playerNumberPrice" type="number" min="0" step="0.01"></label>
         </div>
         <div id="product-image-preview" class="image-preview"></div>
-        <div class="form-actions"><button type="submit" class="button button-primary">Save product</button></div>
+        <div class="form-actions"><button type="button" class="button button-secondary" data-manage-current-pictures hidden>Manage Pictures</button><button type="submit" class="button button-primary" data-product-submit>Save Product</button></div>
       </form>
 
-      <section class="modal-content variants-section">
+      <section id="product-variants-section" class="modal-content variants-section">
         <div class="section-heading"><div><h3>Variants and stock</h3><p>Stock changes require a reason and are recorded permanently.</p></div></div>
         <div id="variant-list"></div>
         <details class="add-variant">

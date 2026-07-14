@@ -128,7 +128,7 @@ async function loadProducts() {
       <td>${product.trackInventory ? badge('Tracked', 'neutral') : badge('Not tracked', 'warning')}</td>
       <td><strong>${Number(product.totalStock)}</strong></td>
       <td>${Number(product.variantCount)}</td>
-      <td><button type="button" class="button button-secondary button-small" data-product-id="${escapeHtml(product.id)}">Edit</button></td>
+      <td><div class="table-actions"><button type="button" class="button button-secondary button-small" data-product-id="${escapeHtml(product.id)}">Edit</button><button type="button" class="button button-secondary button-small" data-product-pictures="${escapeHtml(product.id)}">Pictures</button></div></td>
     </tr>`).join('')}</tbody></table>`;
 }
 
@@ -338,9 +338,44 @@ function fillProductForm(product) {
   form.elements.playerNamePrice.value = (product.playerNamePriceCents / 100).toFixed(2);
   form.elements.playerNumberPrice.value = (product.playerNumberPriceCents / 100).toFixed(2);
   document.getElementById('product-modal-title').textContent = product.name;
+  document.querySelector('[data-product-submit]').textContent = 'Save Product';
+  document.querySelector('[data-manage-current-pictures]').hidden = false;
+  document.getElementById('product-variants-section').hidden = false;
   const preview = document.getElementById('product-image-preview');
   preview.innerHTML = product.images[0] ? `<img src="${escapeHtml(product.images[0].path)}" alt="${escapeHtml(product.name)} preview">` : '';
   renderVariantList(product);
+}
+
+function newProduct() {
+  state.currentProduct = null;
+  clearStatus(document.getElementById('product-modal-status'));
+  const form = document.getElementById('product-form');
+  form.reset();
+  form.elements.id.value = '';
+  form.elements.version.value = '';
+  form.elements.price.value = '0.00';
+  form.elements.playerNamePrice.value = '0.00';
+  form.elements.playerNumberPrice.value = '0.00';
+  form.elements.active.checked = false;
+  form.elements.availableForSale.checked = false;
+  form.elements.featured.checked = false;
+  document.getElementById('product-modal-title').textContent = 'New Product';
+  document.getElementById('product-image-preview').innerHTML = '';
+  document.getElementById('variant-list').innerHTML = empty('Create the draft product before adding variants and stock.');
+  document.getElementById('product-variants-section').hidden = true;
+  document.querySelector('[data-manage-current-pictures]').hidden = true;
+  document.querySelector('[data-product-submit]').textContent = 'Create Draft Product';
+  modal('product', true);
+  form.elements.name.focus();
+}
+
+async function manageProductPictures(productId) {
+  if (!state.pictureProducts.length || !state.pictureProducts.find(product => product.id === productId)) {
+    const result = await api('/pictures');
+    state.pictureProducts = result.products;
+  }
+  modal('product', false);
+  openPicturesManager(productId);
 }
 
 async function openProduct(productId) {
@@ -369,7 +404,6 @@ async function saveProduct(event) {
   const becomesUnavailable = state.currentProduct && ((state.currentProduct.active && !form.elements.active.checked) || (state.currentProduct.availableForSale && !form.elements.availableForSale.checked));
   if (becomesUnavailable && !window.confirm('This will remove the product from sale. Continue?')) return;
   const body = {
-    version: Number(form.elements.version.value),
     name: form.elements.name.value,
     description: form.elements.description.value,
     category: form.elements.category.value,
@@ -385,11 +419,13 @@ async function saveProduct(event) {
     playerNamePriceCents: Math.round(Number(form.elements.playerNamePrice.value || 0) * 100),
     playerNumberPriceCents: Math.round(Number(form.elements.playerNumberPrice.value || 0) * 100)
   };
+  if (state.currentProduct) body.version = Number(form.elements.version.value);
   try {
-    const result = await api(`/products/${encodeURIComponent(body.id || state.currentProduct.id)}`, { method: 'PUT', body: JSON.stringify(body) });
+    const isCreating = !state.currentProduct;
+    const result = await api(isCreating ? '/products' : `/products/${encodeURIComponent(state.currentProduct.id)}`, { method: isCreating ? 'POST' : 'PUT', body: JSON.stringify(body) });
     state.currentProduct = result.product;
     fillProductForm(result.product);
-    setStatus(document.getElementById('product-modal-status'), 'success', 'Product saved successfully.');
+    setStatus(document.getElementById('product-modal-status'), 'success', isCreating ? 'Draft product created. Add variants, stock and pictures before making it visible.' : 'Product saved successfully.');
     await loadProducts();
   } catch (error) { setStatus(document.getElementById('product-modal-status'), 'error', error.message); }
 }
@@ -506,6 +542,12 @@ document.addEventListener('click', event => {
   if (refreshButton) showView(refreshButton.dataset.refresh);
   const productButton = event.target.closest('[data-product-id]');
   if (productButton) openProduct(productButton.dataset.productId);
+  const newProductButton = event.target.closest('[data-new-product]');
+  if (newProductButton) newProduct();
+  const productPictures = event.target.closest('[data-product-pictures]');
+  if (productPictures) manageProductPictures(productPictures.dataset.productPictures).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
+  const currentPictures = event.target.closest('[data-manage-current-pictures]');
+  if (currentPictures && state.currentProduct) manageProductPictures(state.currentProduct.id).catch(error => setStatus(document.getElementById('product-modal-status'), 'error', error.message));
   const orderButton = event.target.closest('[data-order-id]');
   if (orderButton) openOrder(Number(orderButton.dataset.orderId));
   const invoiceButton = event.target.closest('[data-generate-invoice]');

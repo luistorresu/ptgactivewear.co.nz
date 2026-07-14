@@ -44,6 +44,19 @@ test('ordinary product updates reject raw image paths', async () => {
   assert.doesNotMatch(api, /'version', 'images'/);
 });
 
+test('admin can create an inactive draft product before adding variants and pictures', async () => {
+  const [html, script, api] = await Promise.all([
+    readFile(new URL('admin/index.html', root), 'utf8'),
+    readFile(new URL('admin/admin.js', root), 'utf8'),
+    readFile(new URL('worker/admin-api.js', root), 'utf8')
+  ]);
+  assert.match(html, /data-new-product/);
+  assert.match(script, /method: isCreating \? 'POST' : 'PUT'/);
+  assert.match(api, /INSERT INTO products/);
+  assert.match(api, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, 'NZD', 0, 0, 0/);
+  assert.match(api, /method === 'POST'.*segments\[0\] === 'products'/s);
+});
+
 test('pictures API validates uploads and never accepts browser object keys', async () => {
   const pictures = await readFile(new URL('worker/pictures.js', root), 'utf8');
   assert.match(pictures, /MAX_UPLOAD_BYTES = 8 \* 1024 \* 1024/);

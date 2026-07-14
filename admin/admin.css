@@ -260,6 +260,7 @@ tbody tr:hover { background: #fbfdfe; }
 .picture-meta-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
 .picture-badges, .picture-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .invoice-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 170px; }
+.table-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .technical-details { margin: 18px 0; border: 1px solid var(--line); border-radius: 8px; }
 .technical-details summary { padding: 14px 16px; cursor: pointer; font-weight: 700; }
 .technical-details-content { display: grid; gap: 12px; padding: 0 16px 16px; }

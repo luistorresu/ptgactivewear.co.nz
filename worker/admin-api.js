@@ -195,12 +195,12 @@ async function dashboard(db, threshold) {
   };
 }
 
-function validateProduct(body) {
+function validateProduct(body, requireVersion = true) {
   const unknown = rejectUnknownFields(body, PRODUCT_FIELDS);
   if (unknown) return { error: `Unknown field: ${unknown}.` };
   const version = Number(body.version);
   const priceCents = Number(body.priceCents);
-  if (!Number.isInteger(version) || version < 1) return { error: 'A valid product version is required.' };
+  if (requireVersion && (!Number.isInteger(version) || version < 1)) return { error: 'A valid product version is required.' };
   if (!cleanText(body.name, 140)) return { error: 'Product name is required.' };
   if (!Number.isInteger(priceCents) || priceCents < 0 || priceCents > 100000000) return { error: 'Price must be a valid amount in cents.' };
 
@@ -225,12 +225,64 @@ function validateProduct(body) {
       productType: cleanText(body.productType, 80),
       badge: cleanText(body.badge, 60),
       priceCents,
-      version,
+      version: requireVersion ? version : 1,
       playerNamePriceCents: namePrice,
       playerNumberPriceCents: numberPrice,
       ...mappedBooleans
     }
   };
+}
+
+function productSlug(value) {
+  const slug = cleanText(value, 140)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100)
+    .replace(/-+$/g, '');
+  return slug || `product-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+async function availableProductId(db, name) {
+  const base = productSlug(name);
+  for (let suffix = 1; suffix <= 50; suffix += 1) {
+    const candidate = suffix === 1 ? base : `${base}-${suffix}`;
+    const existing = await db.prepare('SELECT id FROM products WHERE id = ? OR slug = ?').bind(candidate, candidate).first();
+    if (!existing) return candidate;
+  }
+  return `${base}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+async function createProduct(db, body, identity) {
+  const validation = validateProduct(body, false);
+  if (validation.error) return json({ ok: false, error: validation.error }, 400);
+  const value = validation.value;
+  const productId = await availableProductId(db, value.name);
+
+  try {
+    await db.batch([
+      db.prepare(`
+        INSERT INTO products (
+          id, slug, name, description, category, product_type, badge, price_cents, currency,
+          active, available_for_sale, featured, track_inventory,
+          allow_player_name, allow_player_number, player_name_price_cents, player_number_price_cents
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NZD', 0, 0, 0, ?, ?, ?, ?, ?)
+      `).bind(
+        productId, productId, value.name, value.description, value.category, value.productType,
+        value.badge, value.priceCents, value.trackInventory, value.allowPlayerName,
+        value.allowPlayerNumber, value.playerNamePriceCents, value.playerNumberPriceCents
+      ),
+      db.prepare(`
+        INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+        VALUES (?, 'create', 'product', ?, ?)
+      `).bind(identity.email, productId, `Created draft product: ${value.name}`)
+    ]);
+    return json({ ok: true, product: await getProduct(db, productId) }, 201);
+  } catch (error) {
+    return json({ ok: false, error: 'A product with that name or URL already exists. Try a more specific name.' }, 409);
+  }
 }
 
 async function updateProduct(db, productId, body, identity) {
@@ -510,6 +562,10 @@ export async function handleAdminApi(request, env, identity) {
     }
     if (method === 'GET' && segments[0] === 'products' && segments.length === 1) {
       return json({ ok: true, products: await listProducts(env.DB) });
+    }
+    if (method === 'POST' && segments[0] === 'products' && segments.length === 1) {
+      const parsed = await readBody(request);
+      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : createProduct(env.DB, parsed.body, identity);
     }
     if (method === 'GET' && segments[0] === 'products' && segments.length === 2) {
       const product = await getProduct(env.DB, segments[1]);
