@@ -2,6 +2,7 @@ import { getAdminIdentity, handleAdminAuth, isAdminMutationAllowed } from './wor
 import { handleAdminApi } from './worker/admin-api.js';
 import { getPublicProductBySlug, getPublicProducts, isD1CatalogueEnabled } from './worker/catalog.js';
 import { commitPaidOrder, markOrderEmailResult, validateD1CheckoutPayload } from './worker/inventory.js';
+import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
 
 const MAX_FIELD_LENGTHS = {
   name: 100,
@@ -657,6 +658,7 @@ function buildOrderEmailData(session, lineItems) {
 
   return {
     sessionId: session.id,
+    paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || '',
     paymentStatus: session.payment_status,
     customerName: customer.name || shipping.name || 'Not provided',
     customerEmail: customer.email || session.customer_email || '',
@@ -678,7 +680,7 @@ function buildBusinessOrderEmail(order) {
   const text = [
     'New paid PTG Activewear order',
     '',
-    `Stripe Checkout Session ID: ${order.sessionId}`,
+    `Order number: ${order.orderNumber}`,
     `Payment status: ${order.paymentStatus}`,
     `Customer name: ${order.customerName}`,
     `Customer email: ${order.customerEmail}`,
@@ -689,7 +691,12 @@ function buildBusinessOrderEmail(order) {
     itemLines,
     '',
     `Shipping: ${formatMoneyFromCents(order.shippingAmount, order.currency)}`,
-    `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)}`
+    `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)}`,
+    '',
+    'Internal Payment References',
+    `Checkout Session: ${order.sessionId}`,
+    `Payment Intent: ${order.paymentIntentId || 'Not provided'}`,
+    `Stripe Event: ${order.eventId || 'Not provided'}`
   ].join('\n');
 
   const htmlItems = order.items.map(item => `
@@ -702,7 +709,7 @@ function buildBusinessOrderEmail(order) {
 
   const html = `
     <h2>New paid PTG Activewear order</h2>
-    <p><strong>Stripe Checkout Session ID:</strong> ${escapeHtml(order.sessionId)}</p>
+    <p style="font-size:20px"><strong>Order number:</strong> ${escapeHtml(order.orderNumber)}</p>
     <p><strong>Payment status:</strong> ${escapeHtml(order.paymentStatus)}</p>
     <p><strong>Customer name:</strong> ${escapeHtml(order.customerName)}</p>
     <p><strong>Customer email:</strong> ${escapeHtml(order.customerEmail)}</p>
@@ -712,10 +719,14 @@ function buildBusinessOrderEmail(order) {
     <ul>${htmlItems}</ul>
     <p><strong>Shipping:</strong> ${escapeHtml(formatMoneyFromCents(order.shippingAmount, order.currency))}</p>
     <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))}</p>
+    <div style="margin-top:28px;padding-top:16px;border-top:1px solid #ddd;color:#555;font-size:12px">
+      <h3>Internal Payment References</h3>
+      <p>Checkout Session: ${escapeHtml(order.sessionId)}<br>Payment Intent: ${escapeHtml(order.paymentIntentId || 'Not provided')}<br>Stripe Event: ${escapeHtml(order.eventId || 'Not provided')}</p>
+    </div>
   `;
 
   return {
-    subject: `New paid PTG Activewear order ${order.sessionId}`,
+    subject: `New paid PTG Activewear order ${order.orderNumber}`,
     text,
     html
   };
@@ -728,33 +739,45 @@ function buildCustomerOrderEmail(order) {
   ].join('\n')).join('\n\n');
 
   const text = [
-    'Thanks for your PTG Activewear order.',
+    `Thank you for your order${order.customerName && order.customerName !== 'Not provided' ? `, ${order.customerName}` : ''}.`,
     '',
-    `Order reference: ${order.sessionId}`,
+    'Your order number is:',
+    order.orderNumber,
+    'Please keep this order number in case you need to contact us.',
+    `Order date: ${order.orderDate}`,
+    `Payment status: Paid`,
     `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)}`,
     '',
     'Items:',
     itemLines,
     '',
-    'We have received your payment and will be in touch with any order updates.'
+    `Shipping: ${formatMoneyFromCents(order.shippingAmount, order.currency)}`,
+    `Shipping address: ${order.shippingAddress || 'Not provided'}`,
+    '',
+    'We have received your payment and will be in touch with any order updates.',
+    'Support: info@ptgactivewear.co.nz'
   ].join('\n');
 
   const html = `
-    <h2>Thanks for your PTG Activewear order</h2>
+    <h2>Thank you for your order</h2>
     <p>We have received your payment.</p>
-    <p><strong>Order reference:</strong> ${escapeHtml(order.sessionId)}</p>
+    <p><strong>Your order number is:</strong><br><span style="font-size:20px">${escapeHtml(order.orderNumber)}</span></p>
+    <p>Please keep this order number in case you need to contact us.</p>
+    <p><strong>Order date:</strong> ${escapeHtml(order.orderDate)}<br><strong>Payment status:</strong> Paid</p>
+    <h3>Items</h3><ul>${order.items.map(item => `<li><strong>${escapeHtml(String(item.quantity))} x ${escapeHtml(item.name)}</strong>${item.details.length ? `<ul>${item.details.map(detail => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ul>
+    <p><strong>Shipping:</strong> ${escapeHtml(formatMoneyFromCents(order.shippingAmount, order.currency))}<br><strong>Shipping address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}</p>
     <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))}</p>
-    <p>We will be in touch with any order updates.</p>
+    <p>We will be in touch with any order updates.</p><p>Questions? Contact <a href="mailto:info@ptgactivewear.co.nz">info@ptgactivewear.co.nz</a>.</p>
   `;
 
   return {
-    subject: `PTG Activewear order confirmation ${order.sessionId}`,
+    subject: `PTG Activewear order confirmation ${order.orderNumber}`,
     text,
     html
   };
 }
 
-async function sendOrderEmails(env, session, providedLineItems = null) {
+async function sendOrderEmails(env, session, providedLineItems = null, event = null) {
   const toEmail = cleanText(env.CONTACT_TO_EMAIL, MAX_FIELD_LENGTHS.email);
   const fromEmail = cleanText(env.CONTACT_FROM_EMAIL, MAX_FIELD_LENGTHS.email);
 
@@ -764,6 +787,11 @@ async function sendOrderEmails(env, session, providedLineItems = null) {
 
   const lineItems = providedLineItems || await fetchStripeLineItems(env, session.id);
   const order = buildOrderEmailData(session, lineItems);
+  const storedOrder = env.DB ? await env.DB.prepare('SELECT order_number, created_at, stripe_event_id, stripe_payment_intent_id FROM orders WHERE stripe_checkout_session_id = ?').bind(session.id).first() : null;
+  order.orderNumber = storedOrder?.order_number || 'PTG order pending';
+  order.orderDate = new Date(storedOrder?.created_at || Date.now()).toLocaleDateString('en-NZ', { dateStyle: 'long', timeZone: 'Pacific/Auckland' });
+  order.eventId = storedOrder?.stripe_event_id || event?.id || '';
+  order.paymentIntentId = storedOrder?.stripe_payment_intent_id || order.paymentIntentId;
   const businessEmail = buildBusinessOrderEmail(order);
 
   await sendWithResend(
@@ -808,7 +836,7 @@ async function handleSuccessfulCheckoutEvent(env, event) {
 
     if (result.emailStatus !== 'sent') {
       try {
-        await sendOrderEmails(env, session, lineItems);
+        await sendOrderEmails(env, session, lineItems, event);
         await markOrderEmailResult(env, result.orderId, event.id, true);
       } catch (error) {
         await markOrderEmailResult(env, result.orderId, event.id, false, error.message);
@@ -929,7 +957,7 @@ function unauthorisedAdminResponse(isApi) {
 
 async function serveAdminAsset(request, env) {
   const url = new URL(request.url);
-  if (url.pathname === '/admin') {
+  if (url.pathname === '/admin' || url.pathname === '/admin/pictures') {
     url.pathname = '/admin/';
     request = new Request(url.toString(), request);
   }
@@ -968,6 +996,10 @@ export default {
       return handlePublicProducts(request, env, decodeURIComponent(url.pathname.slice('/api/products/'.length)));
     }
 
+    if (/^\/product-images\/\d+$/.test(url.pathname) && ['GET', 'HEAD'].includes(request.method.toUpperCase())) {
+      return serveProductPicture(request, env, Number(url.pathname.split('/').pop()));
+    }
+
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
       let identity = null;
       try { identity = await getAdminIdentity(request, env); } catch (error) { console.error('Admin authentication failed', { message: error.message }); }
@@ -980,6 +1012,9 @@ export default {
       if (!identity) return unauthorisedAdminResponse(true);
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !isAdminMutationAllowed(request)) {
         return jsonResponse({ ok: false, error: 'Admin request verification failed.' }, 403);
+      }
+      if (url.pathname === '/api/admin/pictures' || /\/pictures(?:\/|$)/.test(url.pathname.replace('/api/admin/', ''))) {
+        return handlePicturesApi(request, env, identity);
       }
       return handleAdminApi(request, env, identity);
     }

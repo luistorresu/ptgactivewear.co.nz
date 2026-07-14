@@ -19,7 +19,8 @@ INSERT OR IGNORE INTO product_variants (product_id, sku, size, colour, style, st
   ('patagonia-fc-performance-tracksuit', 'PTG-PFC-TRACKSUIT-L', 'L', '', '', 0, 1),
   ('patagonia-fc-performance-tracksuit', 'PTG-PFC-TRACKSUIT-XL', 'XL', '', '', 0, 1),
   ('patagonia-fc-performance-tracksuit', 'PTG-PFC-TRACKSUIT-2XL', '2XL', '', '', 0, 1),
-  ('patagonia-fc-personalised-mug', 'PTG-PFC-MUG-OS', 'One Size', '', '', 0, 1),
+  ('patagonia-fc-personalised-mug', 'PTG-PFC-MUG-OS', 'One Size', '', 'Style 1', 0, 1),
+  ('patagonia-fc-personalised-mug', 'PTG-PFC-MUG-STYLE-2', 'One Size', '', 'Style 2', 0, 1),
   ('patagonia-fc-tournament-player-kit', 'PTG-PFC-KIT-XS', 'XS', '', '', 0, 1),
   ('patagonia-fc-tournament-player-kit', 'PTG-PFC-KIT-S', 'S', '', '', 0, 1),
   ('patagonia-fc-tournament-player-kit', 'PTG-PFC-KIT-M', 'M', '', '', 0, 1),
@@ -34,19 +35,24 @@ INSERT OR IGNORE INTO product_variants (product_id, sku, size, colour, style, st
   ('patagonia-fc-waterproof-rain-suit', 'PTG-PFC-RAIN-2XL', '2XL', '', '', 0, 1);
 
 INSERT OR IGNORE INTO product_images (product_id, path, alt_text, sort_order, is_primary) VALUES
-  ('patagonia-fc-beanie', '/photos/clouth/Patagonia FC Beanie - $35 - image 01.png', 'Patagonia FC Beanie', 1, 1),
-  ('patagonia-fc-performance-tracksuit', '/photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 03.png', 'Patagonia FC Performance Tracksuit front view', 1, 1),
-  ('patagonia-fc-performance-tracksuit', '/photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 01.png', 'Patagonia FC Performance Tracksuit alternate view 1', 2, 0),
-  ('patagonia-fc-performance-tracksuit', '/photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 02.png', 'Patagonia FC Performance Tracksuit alternate view 2', 3, 0),
-  ('patagonia-fc-performance-tracksuit', '/photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 04.png', 'Patagonia FC Performance Tracksuit alternate view 3', 4, 0),
-  ('patagonia-fc-personalised-mug', '/photos/clouth/Patagonia FC Personalised Mug - $15 - image 01.png', 'Patagonia FC Personalised Mug', 1, 1),
-  ('patagonia-fc-personalised-mug', '/photos/clouth/Patagonia FC Personalised Mug - $15 - image 02.png', 'Patagonia FC Personalised Mug alternate view 1', 2, 0),
-  ('patagonia-fc-personalised-mug', '/photos/clouth/Patagonia FC Personalised Mug - $15 - image 03.png', 'Patagonia FC Personalised Mug alternate view 2', 3, 0),
-  ('patagonia-fc-personalised-mug', '/photos/clouth/Patagonia FC Personalised Mug - $15 - image 04.png', 'Patagonia FC Personalised Mug alternate view 3', 4, 0),
-  ('patagonia-fc-personalised-mug', '/photos/clouth/Patagonia FC Personalised Mug - $15 - image 05.png', 'Patagonia FC Personalised Mug alternate view 4', 5, 0),
-  ('patagonia-fc-personalised-mug', '/photos/clouth/Patagonia FC Personalised Mug - $15 - image 06.png', 'Patagonia FC Personalised Mug alternate view 5', 6, 0),
+  ('patagonia-fc-beanie', '/photos/clouth/Patagonia FC Beanie - $35 - image 01 .jpeg', 'Patagonia FC Beanie in navy club design', 1, 1),
+  ('patagonia-fc-performance-tracksuit', '/photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 01.png', 'Patagonia FC Performance Tracksuit front and back', 1, 1),
+  ('patagonia-fc-performance-tracksuit', '/photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 03.png', 'Patagonia FC Performance Tracksuit alternate view', 2, 0),
+  ('patagonia-fc-performance-tracksuit', '/photos/clouth/Tracksuit .jpeg', 'Patagonia FC Performance Tracksuit detail view', 3, 0),
+  ('patagonia-fc-personalised-mug', '/photos/clouth/Mug Style 1.png', 'Patagonia FC Mug Style 1 front view', 1, 1),
+  ('patagonia-fc-personalised-mug', '/photos/clouth/Mug style 1 .1.png', 'Patagonia FC Mug Style 1 alternate view', 2, 0),
+  ('patagonia-fc-personalised-mug', '/photos/clouth/Mug Style 1 .2.png', 'Patagonia FC Mug Style 1 detail view', 3, 0),
+  ('patagonia-fc-personalised-mug', '/photos/clouth/Mug style 2.png', 'Patagonia FC Mug Style 2 personalised design', 4, 0),
+  ('patagonia-fc-personalised-mug', '/photos/clouth/Mug Style 2.1.png', 'Patagonia FC Mug Style 2 alternate view', 5, 0),
+  ('patagonia-fc-personalised-mug', '/photos/clouth/Mug Style 2 - Copy.png', 'Patagonia FC Mug Style 2 detail view', 6, 0),
   ('patagonia-fc-tournament-player-kit', '/photos/clouth/Patagonia FC Tournament Player Kit - $95 - image 01.png', 'Patagonia FC Tournament Player Kit', 1, 1),
   ('patagonia-fc-tournament-player-kit', '/photos/clouth/Patagonia FC Tournament Player Kit - $95 - image 02.png', 'Patagonia FC Tournament Player Kit alternate view 1', 2, 0),
-  ('patagonia-fc-tournament-player-kit', '/photos/clouth/Patagonia FC Tournament Player Kit - $95 - image 03.png', 'Patagonia FC Tournament Player Kit alternate view 2', 3, 0),
+  ('patagonia-fc-tournament-player-kit', '/photos/clouth/Shorts $95 - image 03.png', 'Patagonia FC Tournament Player Kit shorts', 3, 0),
   ('patagonia-fc-tournament-player-kit', '/photos/clouth/Patagonia FC Tournament Player Kit - $95 - image 04.png', 'Patagonia FC Tournament Player Kit alternate view 3', 4, 0),
-  ('patagonia-fc-waterproof-rain-suit', '/photos/clouth/Patagonia FC Waterproof Rain Suit - $50 - image 01.png', 'Patagonia FC Waterproof Rain Suit', 1, 1);
+  ('patagonia-fc-waterproof-rain-suit', '/photos/clouth/Patagonia FC Waterproof Rain Suit - $50 - image 01.png', 'Patagonia FC Waterproof Rain Suit', 1, 1),
+  ('patagonia-fc-waterproof-rain-suit', '/photos/clouth/Patagonia FC Waterproof Rain Suit - $50 - image 011.jpeg', 'Patagonia FC Waterproof Rain Suit alternate view', 2, 0);
+
+UPDATE product_variants SET allow_player_name = 0, allow_player_number = 0
+WHERE product_id = 'patagonia-fc-personalised-mug' AND style = 'Style 1';
+UPDATE product_variants SET allow_player_name = 1, allow_player_number = 1
+WHERE product_id = 'patagonia-fc-personalised-mug' AND style = 'Style 2';

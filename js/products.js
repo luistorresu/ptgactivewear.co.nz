@@ -5,9 +5,9 @@ window.PTG_PRODUCTS = [
     price: 35,
     category: 'accessories',
     type: 'Beanie',
-    image: 'photos/clouth/Patagonia FC Beanie - $35 - image 01.png',
+    image: 'photos/clouth/Patagonia FC Beanie - $35 - image 01 .jpeg',
     gallery: [
-      'photos/clouth/Patagonia FC Beanie - $35 - image 01.png'
+      'photos/clouth/Patagonia FC Beanie - $35 - image 01 .jpeg'
     ],
     description: 'Soft knitted beanie with the Patagonia FC crest and bold club branding for training, match days and everyday wear. Two styles available.',
     sizes: ['One Size'],
@@ -19,12 +19,11 @@ window.PTG_PRODUCTS = [
     price: 115,
     category: 'tracksuits',
     type: 'Tracksuit',
-    image: 'photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 03.png',
+    image: 'photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 01.png',
     gallery: [
-      'photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 03.png',
       'photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 01.png',
-      'photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 02.png',
-      'photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 04.png'
+      'photos/clouth/Patagonia FC Performance Tracksuit - $115 - image 03.png',
+      'photos/clouth/Tracksuit .jpeg'
     ],
     description: 'Premium soft-touch performance tracksuit for training, travel and everyday wear, with a full-zip jacket and tapered pants.',
     sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
@@ -37,17 +36,34 @@ window.PTG_PRODUCTS = [
     price: 15,
     category: 'accessories',
     type: 'Mug',
-    image: 'photos/clouth/Patagonia FC Personalised Mug - $15 - image 01.png',
+    image: 'photos/clouth/Mug Style 1.png',
     gallery: [
-      'photos/clouth/Patagonia FC Personalised Mug - $15 - image 01.png',
-      'photos/clouth/Patagonia FC Personalised Mug - $15 - image 02.png',
-      'photos/clouth/Patagonia FC Personalised Mug - $15 - image 03.png',
-      'photos/clouth/Patagonia FC Personalised Mug - $15 - image 04.png',
-      'photos/clouth/Patagonia FC Personalised Mug - $15 - image 05.png',
-      'photos/clouth/Patagonia FC Personalised Mug - $15 - image 06.png'
+      'photos/clouth/Mug Style 1.png',
+      'photos/clouth/Mug style 1 .1.png',
+      'photos/clouth/Mug Style 1 .2.png',
+      'photos/clouth/Mug style 2.png',
+      'photos/clouth/Mug Style 2.1.png',
+      'photos/clouth/Mug Style 2 - Copy.png'
+    ],
+    galleryImages: [
+      { src: 'photos/clouth/Mug Style 1.png', style: 'Style 1' },
+      { src: 'photos/clouth/Mug style 1 .1.png', style: 'Style 1' },
+      { src: 'photos/clouth/Mug Style 1 .2.png', style: 'Style 1' },
+      { src: 'photos/clouth/Mug style 2.png', style: 'Style 2' },
+      { src: 'photos/clouth/Mug Style 2.1.png', style: 'Style 2' },
+      { src: 'photos/clouth/Mug Style 2 - Copy.png', style: 'Style 2' }
     ],
     description: 'Premium ceramic mug with the Patagonia FC club logo, 2026 season design and personalised player name and number.',
     sizes: ['One Size'],
+    personalisable: true,
+    allowPlayerName: true,
+    allowPlayerNumber: true,
+    playerNamePrice: 0,
+    playerNumberPrice: 0,
+    inventoryVariants: [
+      { id: 1, sku: 'PTG-PFC-MUG-OS', size: 'One Size', colour: '', style: 'Style 1', label: 'One Size / Style 1', available: true, stockStatus: 'in_stock', allowPlayerName: false, allowPlayerNumber: false },
+      { id: 2, sku: 'PTG-PFC-MUG-STYLE-2', size: 'One Size', colour: '', style: 'Style 2', label: 'One Size / Style 2', available: true, stockStatus: 'in_stock', allowPlayerName: true, allowPlayerNumber: true }
+    ],
     featured: true
   },
   {
@@ -60,7 +76,7 @@ window.PTG_PRODUCTS = [
     gallery: [
       'photos/clouth/Patagonia FC Tournament Player Kit - $95 - image 01.png',
       'photos/clouth/Patagonia FC Tournament Player Kit - $95 - image 02.png',
-      'photos/clouth/Patagonia FC Tournament Player Kit - $95 - image 03.png',
+      'photos/clouth/Shorts $95 - image 03.png',
       'photos/clouth/Patagonia FC Tournament Player Kit - $95 - image 04.png'
     ],
     description: 'Lightweight, breathable tournament kit with moisture-wicking fabric. Includes shirt, shorts and socks.',
@@ -77,7 +93,8 @@ window.PTG_PRODUCTS = [
     type: 'Rain Suit',
     image: 'photos/clouth/Patagonia FC Waterproof Rain Suit - $50 - image 01.png',
     gallery: [
-      'photos/clouth/Patagonia FC Waterproof Rain Suit - $50 - image 01.png'
+      'photos/clouth/Patagonia FC Waterproof Rain Suit - $50 - image 01.png',
+      'photos/clouth/Patagonia FC Waterproof Rain Suit - $50 - image 011.jpeg'
     ],
     description: 'Lightweight waterproof two-piece rain suit with taped seams, breathable fabric and easy overpants for wet training days.',
     sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],

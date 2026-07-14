@@ -1,9 +1,9 @@
 const PRODUCT_FIELDS = new Set([
   'name', 'description', 'category', 'productType', 'badge', 'priceCents', 'active',
   'availableForSale', 'featured', 'trackInventory', 'allowPlayerName',
-  'allowPlayerNumber', 'playerNamePriceCents', 'playerNumberPriceCents', 'version', 'images'
+  'allowPlayerNumber', 'playerNamePriceCents', 'playerNumberPriceCents', 'version'
 ]);
-const VARIANT_FIELDS = new Set(['sku', 'size', 'colour', 'style', 'active', 'version']);
+const VARIANT_FIELDS = new Set(['sku', 'size', 'colour', 'style', 'active', 'allowPlayerName', 'allowPlayerNumber', 'version']);
 const FULFILMENT_STATUSES = new Set(['unfulfilled', 'paid', 'processing', 'ready_for_collection', 'shipped', 'completed', 'cancelled', 'refunded']);
 
 function json(body, status = 200) {
@@ -47,11 +47,6 @@ function booleanInteger(value) {
 
 function rejectUnknownFields(body, allowed) {
   return Object.keys(body).find(key => !allowed.has(key));
-}
-
-function validImagePath(path) {
-  return /^\/photos\/[A-Za-z0-9 _.,'()$\-\/]+\.(?:png|jpe?g|webp|gif)$/i.test(path)
-    && !path.includes('..');
 }
 
 async function readBody(request) {
@@ -104,6 +99,8 @@ function mapVariant(row) {
     style: row.style,
     stockQuantity: row.stock_quantity,
     active: Boolean(row.active),
+    allowPlayerName: row.allow_player_name === null || row.allow_player_name === undefined ? null : Boolean(row.allow_player_name),
+    allowPlayerNumber: row.allow_player_number === null || row.allow_player_number === undefined ? null : Boolean(row.allow_player_number),
     version: row.version,
     updatedAt: row.updated_at
   };
@@ -121,7 +118,7 @@ async function listProducts(db) {
     SELECT p.*,
       COALESCE(SUM(CASE WHEN v.active = 1 THEN v.stock_quantity ELSE 0 END), 0) AS total_stock,
       COUNT(v.id) AS variant_count,
-      (SELECT path FROM product_images WHERE product_id = p.id ORDER BY is_primary DESC, sort_order, id LIMIT 1) AS primary_image
+      (SELECT COALESCE(NULLIF(delivery_url, ''), path) FROM product_images WHERE product_id = p.id AND active = 1 ORDER BY is_primary DESC, sort_order, id LIMIT 1) AS primary_image
     FROM products p
     LEFT JOIN product_variants v ON v.product_id = p.id
     GROUP BY p.id
@@ -135,7 +132,7 @@ async function getProduct(db, productId) {
     SELECT p.*,
       COALESCE(SUM(CASE WHEN v.active = 1 THEN v.stock_quantity ELSE 0 END), 0) AS total_stock,
       COUNT(v.id) AS variant_count,
-      (SELECT path FROM product_images WHERE product_id = p.id ORDER BY is_primary DESC, sort_order, id LIMIT 1) AS primary_image
+      (SELECT COALESCE(NULLIF(delivery_url, ''), path) FROM product_images WHERE product_id = p.id AND active = 1 ORDER BY is_primary DESC, sort_order, id LIMIT 1) AS primary_image
     FROM products p
     LEFT JOIN product_variants v ON v.product_id = p.id
     WHERE p.id = ?
@@ -145,7 +142,7 @@ async function getProduct(db, productId) {
 
   const [variantResult, imageResult] = await Promise.all([
     db.prepare('SELECT * FROM product_variants WHERE product_id = ? ORDER BY id').bind(productId).all(),
-    db.prepare('SELECT id, path, alt_text, sort_order, is_primary FROM product_images WHERE product_id = ? ORDER BY is_primary DESC, sort_order, id').bind(productId).all()
+    db.prepare("SELECT id, COALESCE(NULLIF(delivery_url, ''), path) AS path, alt_text, sort_order, is_primary, variant_style FROM product_images WHERE product_id = ? AND active = 1 ORDER BY is_primary DESC, sort_order, id").bind(productId).all()
   ]);
   return {
     ...mapProduct(row),
@@ -155,7 +152,8 @@ async function getProduct(db, productId) {
       path: image.path,
       altText: image.alt_text,
       sortOrder: image.sort_order,
-      isPrimary: Boolean(image.is_primary)
+      isPrimary: Boolean(image.is_primary),
+      variantStyle: image.variant_style || ''
     }))
   };
 }
@@ -219,16 +217,6 @@ function validateProduct(body) {
   if (!Number.isInteger(namePrice) || namePrice < 0) return { error: 'Player name price is invalid.' };
   if (!Number.isInteger(numberPrice) || numberPrice < 0) return { error: 'Player number price is invalid.' };
 
-  const images = Array.isArray(body.images) ? body.images : [];
-  if (images.length > 12) return { error: 'A product can have at most 12 images.' };
-  const mappedImages = [];
-  for (let index = 0; index < images.length; index += 1) {
-    const image = images[index] || {};
-    const path = cleanText(image.path, 500);
-    if (!validImagePath(path)) return { error: `Image ${index + 1} must use an existing /photos image path.` };
-    mappedImages.push({ path, altText: cleanText(image.altText, 200), sortOrder: index + 1, isPrimary: index === 0 ? 1 : 0 });
-  }
-
   return {
     value: {
       name: cleanText(body.name, 140),
@@ -240,7 +228,6 @@ function validateProduct(body) {
       version,
       playerNamePriceCents: namePrice,
       playerNumberPriceCents: numberPrice,
-      images: mappedImages,
       ...mappedBooleans
     }
   };
@@ -264,15 +251,8 @@ async function updateProduct(db, productId, body, identity) {
       value.active, value.availableForSale, value.featured, value.trackInventory,
       value.allowPlayerName, value.allowPlayerNumber, value.playerNamePriceCents, value.playerNumberPriceCents,
       adjustmentId, productId, value.version
-    ),
-    db.prepare('DELETE FROM product_images WHERE product_id = ? AND EXISTS (SELECT 1 FROM products WHERE id = ? AND last_update_id = ?)').bind(productId, productId, adjustmentId)
+    )
   ];
-  value.images.forEach(image => statements.push(
-    db.prepare(`
-      INSERT INTO product_images (product_id, path, alt_text, sort_order, is_primary)
-      SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM products WHERE id = ? AND last_update_id = ?)
-    `).bind(productId, image.path, image.altText, image.sortOrder, image.isPrimary, productId, adjustmentId)
-  ));
   statements.push(db.prepare(`
     INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
     SELECT ?, 'update', 'product', ?, ? WHERE EXISTS (SELECT 1 FROM products WHERE id = ? AND last_update_id = ?)
@@ -292,12 +272,18 @@ function validateVariant(body, requireVersion) {
   if (active === null) return { error: 'active must be true or false.' };
   const version = Number(body.version);
   if (requireVersion && (!Number.isInteger(version) || version < 1)) return { error: 'A valid variant version is required.' };
+  const allowPlayerName = body.allowPlayerName === null || body.allowPlayerName === undefined ? null : booleanInteger(body.allowPlayerName);
+  const allowPlayerNumber = body.allowPlayerNumber === null || body.allowPlayerNumber === undefined ? null : booleanInteger(body.allowPlayerNumber);
+  if (allowPlayerName === null && body.allowPlayerName !== null && body.allowPlayerName !== undefined) return { error: 'allowPlayerName must be true, false, or null.' };
+  if (allowPlayerNumber === null && body.allowPlayerNumber !== null && body.allowPlayerNumber !== undefined) return { error: 'allowPlayerNumber must be true, false, or null.' };
   const value = {
     sku,
     size: cleanText(body.size, 50),
     colour: cleanText(body.colour, 80),
     style: cleanText(body.style, 80),
     active,
+    allowPlayerName,
+    allowPlayerNumber,
     version
   };
   if (!value.size && !value.colour && !value.style) return { error: 'Add at least a size, colour, or style.' };
@@ -312,9 +298,9 @@ async function createVariant(db, productId, body, identity) {
   const value = validation.value;
   try {
     const result = await db.prepare(`
-      INSERT INTO product_variants (product_id, sku, size, colour, style, stock_quantity, active)
-      VALUES (?, ?, ?, ?, ?, 0, ?)
-    `).bind(productId, value.sku, value.size, value.colour, value.style, value.active).run();
+      INSERT INTO product_variants (product_id, sku, size, colour, style, stock_quantity, active, allow_player_name, allow_player_number)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+    `).bind(productId, value.sku, value.size, value.colour, value.style, value.active, value.allowPlayerName, value.allowPlayerNumber).run();
     await audit(db, identity, 'create', 'variant', result.meta.last_row_id, `Created ${value.sku}`);
     return json({ ok: true, product: await getProduct(db, productId) }, 201);
   } catch (error) {
@@ -328,10 +314,10 @@ async function updateVariant(db, variantId, body, identity) {
   const value = validation.value;
   try {
     const result = await db.prepare(`
-      UPDATE product_variants SET sku = ?, size = ?, colour = ?, style = ?, active = ?,
+      UPDATE product_variants SET sku = ?, size = ?, colour = ?, style = ?, active = ?, allow_player_name = ?, allow_player_number = ?,
         version = version + 1, updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND version = ?
-    `).bind(value.sku, value.size, value.colour, value.style, value.active, variantId, value.version).run();
+    `).bind(value.sku, value.size, value.colour, value.style, value.active, value.allowPlayerName, value.allowPlayerNumber, variantId, value.version).run();
     if (!result.meta.changes) return json({ ok: false, error: 'Variant not found or changed in another session.' }, 409);
     await audit(db, identity, 'update', 'variant', variantId, `Updated ${value.sku}`);
     const variant = await db.prepare('SELECT * FROM product_variants WHERE id = ?').bind(variantId).first();

@@ -2,6 +2,28 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-14
+
+### Added
+
+* Added an additive D1 migration for R2 image metadata, active/static fallbacks, style galleries, and variant-level personalisation rules.
+* Added an authenticated Admin Pictures workspace and validated R2 upload API with controlled image delivery, previews, upload progress, alt text, primary selection, ordering, replacement, removal, and audit records.
+* Added Style 1 and Style 2 to the existing Patagonia FC mug product with style-specific galleries and personalisation visibility.
+* Added a reduced-motion-safe bulk-order banner to the Shop page.
+* Created transparent light/dark PTG logo derivatives and a refreshed favicon while preserving source logo files.
+
+### Changed
+
+* Updated product galleries to the upgraded checked-in imagery while preserving one product record per item and the static fallback architecture.
+* Removed raw image-path editing from the normal admin form and backend product mutation allowlist.
+* Removed Stripe IDs from main order tables and added masked, collapsed admin-only payment technical details.
+* Updated customer emails to use only friendly PTG order numbers and moved technical references to the internal business email footer.
+* Improved invoice actions and preserved selected mug style across cart, Stripe metadata, D1 orders, admin details, emails, invoices, and CSV data.
+
+### Notes
+
+* Cloudflare R2 must be enabled on the account before the `ptgactivewear-product-images` bucket and `PRODUCT_IMAGES` binding can be created. Static images continue to work until then.
+
 ## 2026-07-13
 
 ### Added

@@ -198,7 +198,9 @@ export function isAdminMutationAllowed(request) {
   const contentType = request.headers.get('content-type') || '';
   const adminHeader = request.headers.get('x-ptg-admin-request');
 
+  const safeContentType = contentType.toLowerCase().includes('application/json')
+    || contentType.toLowerCase().startsWith('multipart/form-data;');
   return origin === requestUrl.origin
-    && contentType.toLowerCase().includes('application/json')
+    && safeContentType
     && adminHeader === '1';
 }

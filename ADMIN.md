@@ -100,7 +100,8 @@ The Worker validates the JWT signature, audience, expiry, and email. Admin mutat
 
 ## Admin Operations
 
-* Products: edit name, description, price, category, type, badge, visibility, sale availability, featured state, inventory tracking, personalisation, and existing `/photos` paths.
+* Products: edit name, description, price, category, type, badge, visibility, sale availability, featured state, inventory tracking, and personalisation. Raw image paths are not accepted by the form or product-update API.
+* Pictures: view safe previews, edit alt text, assign a style gallery, reorder, select the main image, replace, and remove after confirmation. R2 upload supports JPEG, PNG, and WebP up to 8 MB and validates the actual file signature.
 * Variants: edit SKU, size, colour, style, and active state; add new variants with zero starting stock.
 * Stock: set exact, increase, or decrease. Every change requires a reason and writes `stock_movements` plus an admin audit entry.
 * Orders: search by order/customer/email, filter by date/payment/fulfilment, inspect immutable purchase snapshots, addresses, Stripe references, refund state, stock movements, internal notes, and fulfilment history.
@@ -122,6 +123,30 @@ Authenticated exports are available for orders, inventory, and stock movements. 
 ## Operational Scope
 
 This admin system is an operational order and stock-management tool. It is not a replacement for professional accounting software or statutory tax advice.
+
+## R2 Picture Storage
+
+Required bucket and Worker binding:
+
+```powershell
+npx wrangler r2 bucket create ptgactivewear-product-images
+```
+
+Add this binding to `wrangler.jsonc` only after R2 is enabled on the account:
+
+```json
+"r2_buckets": [
+  { "binding": "PRODUCT_IMAGES", "bucket_name": "ptgactivewear-product-images" }
+]
+```
+
+Then deploy and test one upload, main-image change, reorder, replace, and removal. Static image rows stay active as rollback-safe fallback data. R2 object keys are generated server-side and are never editable in the browser.
+
+## Deployment And Rollback
+
+Before production migration, export D1 and record the current Worker version. Apply migrations with `wrangler d1 migrations apply ptgactivewear-catalog --remote`, deploy with `wrangler deploy`, and verify `/api/products`, `/shop.html`, `/admin`, checkout session creation, and signed webhook handling.
+
+For code rollback, deploy the previously recorded Worker version from Cloudflare Deployments or revert the release commit and deploy. Migration `0003` is additive; leave its columns in place during rollback. The previous static image rows remain in D1 with `active=0` and can be reactivated without deleting orders, stock, or R2 objects.
 
 ## Inventory And Stripe
 

@@ -500,13 +500,14 @@ function renderProductCard(product, isShop) {
   const hasInventoryVariants = Array.isArray(product.inventoryVariants);
   const variantMarkup = hasInventoryVariants ? renderInventoryVariantSelect(product, isShop) : renderVariantSelect(product, isShop);
   const sizeMarkup = hasInventoryVariants ? '' : renderSizeSelect(product, isShop);
-  const gallery = getProductGallery(product);
+  const initialStyle = product.inventoryVariants?.find(variant => variant.available)?.style || '';
+  const gallery = getProductGallery(product, initialStyle);
   const galleryCount = gallery.length;
 
   return `
       <div class="${cardClasses}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}" data-allow-player-name="${product.allowPlayerName ?? product.personalisable ? 'true' : 'false'}" data-allow-player-number="${product.allowPlayerNumber ?? product.personalisable ? 'true' : 'false'}" data-name-price="${Number(product.playerNamePrice ?? PERSONALISATION_ADDON_PRICE)}" data-number-price="${Number(product.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE)}">
         <div class="product-image-wrap relative overflow-hidden ${imageHeight}">
-          <button type="button" class="product-image-button" onclick='openProductLightbox(${escapeJsString(product.name)}, 0)' aria-label="View ${escapeHtml(product.name)} image gallery">
+          <button type="button" class="product-image-button" onclick='openProductLightbox(${escapeJsString(product.name)}, 0, this)' aria-label="View ${escapeHtml(product.name)} image gallery">
             <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
             ${galleryCount > 1 ? `<span class="product-gallery-count">${galleryCount} angles</span>` : ''}
           </button>
@@ -530,7 +531,7 @@ function renderProductCard(product, isShop) {
 
 function renderStockStatus(product) {
   if (!product.stockStatus) return '';
-  const labels = { in_stock: 'In Stock', low_stock: 'Low Stock', out_of_stock: 'Out of Stock' };
+  const labels = { in_stock: 'In Stock', low_stock: 'Only a few left', out_of_stock: 'Out of Stock' };
   return `<p class="stock-status stock-${escapeHtml(product.stockStatus)}">${labels[product.stockStatus] || 'Availability unavailable'}</p>`;
 }
 
@@ -543,7 +544,7 @@ function renderInventoryVariantSelect(product, isShop) {
           <div class="product-option">
             <label for="${id}">${hasMoreThanSize ? 'Size / Option' : 'Size'}</label>
             <select id="${id}" data-inventory-variant>
-              ${variants.map(variant => `<option value="${Number(variant.id)}" data-size="${escapeHtml(variant.size)}" data-colour="${escapeHtml(variant.colour)}" data-style="${escapeHtml(variant.style)}" ${variant.available ? '' : 'disabled'}>${escapeHtml(variant.label)}${variant.available ? variant.stockStatus === 'low_stock' ? ' - Low Stock' : '' : ' - Out of Stock'}</option>`).join('')}
+              ${variants.map(variant => `<option value="${Number(variant.id)}" data-size="${escapeHtml(variant.size)}" data-colour="${escapeHtml(variant.colour)}" data-style="${escapeHtml(variant.style)}" data-allow-player-name="${variant.allowPlayerName ? 'true' : 'false'}" data-allow-player-number="${variant.allowPlayerNumber ? 'true' : 'false'}" ${variant.available ? '' : 'disabled'}>${escapeHtml(variant.label)}${variant.available ? variant.stockStatus === 'low_stock' ? ' - Only a few left' : '' : ' - Out of Stock'}</option>`).join('')}
             </select>
           </div>`;
 }
@@ -585,7 +586,11 @@ let activeLightboxProduct = null;
 let activeLightboxImages = [];
 let activeLightboxIndex = 0;
 
-function getProductGallery(product) {
+function getProductGallery(product, style = '') {
+  if (style && Array.isArray(product.galleryImages)) {
+    const styled = product.galleryImages.filter(image => !image.style || image.style === style).map(image => image.src).filter(Boolean);
+    if (styled.length) return styled;
+  }
   const gallery = Array.isArray(product.gallery) && product.gallery.length ? product.gallery : [product.image];
   return gallery.filter(Boolean);
 }
@@ -596,7 +601,7 @@ function setupProductCardCarousels() {
   document.querySelectorAll('.product-card').forEach(card => {
     const product = products.find(item => item.name === card.dataset.productName);
     const image = card.querySelector('[data-product-image]');
-    const gallery = product ? getProductGallery(product) : [];
+    let gallery = product ? getProductGallery(product, card.querySelector('[data-inventory-variant] option:checked')?.dataset.style || '') : [];
 
     if (!product || !image || gallery.length < 2) return;
 
@@ -637,6 +642,11 @@ function setupProductCardCarousels() {
     card.addEventListener('focusin', startCarousel);
     card.addEventListener('focusout', stopCarousel);
     card.addEventListener('pointerdown', stopCarousel);
+    card.querySelector('[data-inventory-variant]')?.addEventListener('change', event => {
+      gallery = getProductGallery(product, event.target.options[event.target.selectedIndex]?.dataset.style || '');
+      activeIndex = 0;
+      if (gallery[0]) image.src = gallery[0];
+    });
   });
 }
 
@@ -686,14 +696,15 @@ function setupProductLightbox() {
   });
 }
 
-function openProductLightbox(productName, index = 0) {
+function openProductLightbox(productName, index = 0, trigger = null) {
   const products = window.PTG_PRODUCTS || globalThis.PTG_PRODUCTS || [];
   const product = products.find(item => item.name === productName);
   if (!product) return;
 
   setupProductLightbox();
   activeLightboxProduct = product;
-  activeLightboxImages = getProductGallery(product);
+  const style = trigger?.closest('.product-card')?.querySelector('[data-inventory-variant] option:checked')?.dataset.style || '';
+  activeLightboxImages = getProductGallery(product, style);
   activeLightboxIndex = Math.min(Math.max(Number(index) || 0, 0), activeLightboxImages.length - 1);
   renderProductLightbox();
 
@@ -768,12 +779,12 @@ function setupPersonalisationOptions() {
     const options = document.createElement('div');
     options.className = 'personalisation-options';
     options.innerHTML = `
-      ${allowName ? `<label class="personalisation-field" for="${idBase}-name">
-        <span>Player Name <strong>(+${formatMoney(namePrice)})</strong></span>
+      ${allowName ? `<label class="personalisation-field" data-player-field="name" for="${idBase}-name">
+        <span>Player Name <strong>${namePrice > 0 ? `(+${formatMoney(namePrice)})` : '(Optional)'}</strong></span>
         <input id="${idBase}-name" data-personalisation="name" type="text" maxlength="20" autocomplete="off" placeholder="Optional player name">
       </label>` : ''}
-      ${allowNumber ? `<label class="personalisation-field" for="${idBase}-number">
-        <span>Player Number <strong>(+${formatMoney(numberPrice)})</strong></span>
+      ${allowNumber ? `<label class="personalisation-field" data-player-field="number" for="${idBase}-number">
+        <span>Player Number <strong>${numberPrice > 0 ? `(+${formatMoney(numberPrice)})` : '(Optional)'}</strong></span>
         <input id="${idBase}-number" data-personalisation="number" type="text" inputmode="numeric" maxlength="2" pattern="(?:0|00|[1-9][0-9]?)" title="Enter a jersey number from 0 to 99" placeholder="Optional number">
       </label>` : ''}
     `;
@@ -787,11 +798,39 @@ function setupPersonalisationOptions() {
         numberInput.setCustomValidity('');
       });
     }
+    updatePersonalisationForVariant(card);
   });
+}
+
+function updatePersonalisationForVariant(card) {
+  const select = card?.querySelector('[data-inventory-variant]');
+  if (!select) return;
+  const selected = select.options[select.selectedIndex];
+  for (const type of ['name', 'number']) {
+    const field = card.querySelector(`[data-player-field="${type}"]`);
+    const input = card.querySelector(`[data-personalisation="${type}"]`);
+    if (!field || !input) continue;
+    const allowed = selected?.dataset[type === 'name' ? 'allowPlayerName' : 'allowPlayerNumber'] === 'true';
+    field.hidden = !allowed;
+    input.disabled = !allowed;
+    if (!allowed) input.value = '';
+  }
 }
 
 // ── Shop page filter ──────────────────────────────────────────────────────────
 function setupProductVariants() {
+  document.querySelectorAll('[data-inventory-variant]').forEach(select => {
+    const card = select.closest('.product-card');
+    const product = getProducts().find(item => item.name === card?.dataset.productName);
+    const image = card?.querySelector('[data-product-image]');
+    select.addEventListener('change', () => {
+      const selected = select.options[select.selectedIndex];
+      const gallery = product ? getProductGallery(product, selected?.dataset.style || '') : [];
+      if (image && gallery[0]) { image.src = gallery[0]; image.alt = `${product.name} ${selected?.dataset.style || ''}`.trim(); }
+      updatePersonalisationForVariant(card);
+    });
+    updatePersonalisationForVariant(card);
+  });
   document.querySelectorAll('[data-product-variant]').forEach(select => {
     const card = select.closest('.product-card');
     const image = card ? card.querySelector('[data-product-image]') : null;
