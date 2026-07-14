@@ -62,5 +62,7 @@ This repository is for the website ptgactivewear.co.nz.
 * Keep `js/products.js` as the documented migration fallback until D1 has been tested and production removal is explicitly approved.
 * Never expose exact stock, admin identity configuration, customer data, or order data through public APIs.
 * Protect `/admin*` and `/api/admin/*` with Cloudflare Access and server-side JWT/email validation.
+* Product pictures must be managed through `/admin/pictures`; ordinary product updates must reject raw paths and image arrays.
+* Keep static product image references as a fallback until the `PRODUCT_IMAGES` R2 binding has been enabled and verified live.
 * Use Stripe test keys for local and staging admin/inventory work. Do not change production payment mode without explicit approval.
 * Do not apply remote D1 migrations, seed production, create Cloudflare resources, or deploy the admin system without explicit approval.

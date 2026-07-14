@@ -25,3 +25,5 @@ EMAIL_PROVIDER=resend
 EMAIL_API_KEY=re_replace_me
 CONTACT_TO_EMAIL=info@ptgactivewear.co.nz
 CONTACT_FROM_EMAIL=info@ptgactivewear.co.nz
+
+# PRODUCT_IMAGES is an R2 binding configured in wrangler.jsonc, not a secret or text variable.

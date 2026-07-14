@@ -28,7 +28,7 @@ async function loadInvoice() {
     document.title = `${order.invoice_number} | PTG Activewear`;
     root.innerHTML = `
       <header class="invoice-header">
-        <div class="invoice-brand"><img src="/photos/logo-header-dark.png" alt="PTG Activewear"><p>PTG Activewear<br>info@ptgactivewear.co.nz<br>ptgactivewear.co.nz</p></div>
+        <div class="invoice-brand"><img src="/photos/ptg-logo-dark-transparent.webp" alt="PTG Activewear"><p>PTG Activewear<br>info@ptgactivewear.co.nz<br>ptgactivewear.co.nz</p></div>
         <div class="invoice-meta"><h1>Invoice</h1><p><strong>${escapeHtml(order.invoice_number)}</strong></p><p>Order: ${escapeHtml(order.order_number)}</p><p>Invoice date: ${escapeHtml(date(order.invoice_created_at))}</p><p>Payment date: ${escapeHtml(date(order.payment_date))}</p></div>
       </header>
       <section class="invoice-parties"><div><h2>Bill to</h2><p><strong>${escapeHtml(order.customer_name)}</strong></p><p>${address(order.billing_address)}</p><p>${escapeHtml(order.customer_email)}</p></div><div><h2>Ship to</h2><p><strong>${escapeHtml(order.customer_name)}</strong></p><p>${address(order.shipping_address)}</p></div></section>
