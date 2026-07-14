@@ -899,16 +899,6 @@ async function handleStripeWebhook(request, env) {
 }
 
 async function serveAsset(request, env) {
-  const url = new URL(request.url);
-
-  if (url.pathname === '/order-success') {
-    url.pathname = '/order-success.html';
-    request = new Request(url.toString(), request);
-  } else if (url.pathname === '/cart') {
-    url.pathname = '/cart.html';
-    request = new Request(url.toString(), request);
-  }
-
   try {
     const assetResponse = await env.ASSETS.fetch(request);
     if (assetResponse.status === 500) {

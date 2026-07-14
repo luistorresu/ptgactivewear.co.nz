@@ -20,6 +20,10 @@ All notable changes to this website should be documented here.
 * Updated customer emails to use only friendly PTG order numbers and moved technical references to the internal business email footer.
 * Improved invoice actions and preserved selected mug style across cart, Stripe metadata, D1 orders, admin details, emails, invoices, and CSV data.
 
+### Fixed
+
+* Removed redundant Worker asset rewrites that caused redirect loops on the clean `/cart` and `/order-success` routes.
+
 ### Notes
 
 * Cloudflare R2 must be enabled on the account before the `ptgactivewear-product-images` bucket and `PRODUCT_IMAGES` binding can be created. Static images continue to work until then.
