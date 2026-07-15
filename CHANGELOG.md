@@ -6,6 +6,8 @@ All notable changes to this website should be documented here.
 
 ### Added
 
+* Added complete draft product creation with slug, SEO metadata, variants, SKUs, starting stock, personalisation controls, and recoverable multi-image R2 uploads.
+* Added D1-backed public product URLs with Product and Breadcrumb structured data, dynamic sitemap entries, and a Google Merchant-compatible XML feed.
 * Added safe product enable, disable, archive, restore, delete-as-archive, and draft duplication workflows to the admin catalogue.
 * Added drag-and-drop product image ordering, crop presets, WebP optimisation, generated thumbnails, and thumbnail-aware R2 storage cleanup.
 * Added storefront canonical links, social preview metadata, structured data, `robots.txt`, and `sitemap.xml`.
@@ -19,6 +21,7 @@ All notable changes to this website should be documented here.
 
 ### Fixed
 
+* Fixed Add Product creating only an empty product shell by creating product, variant, initial stock, and audit records in one D1 batch before optional image uploads.
 * Hid archived products from public catalogue and checkout availability while preserving order and audit history.
 * Updated the Patagonia FC Beanie with separate With Pom Pom and Without Pom Pom variants and matching galleries.
 

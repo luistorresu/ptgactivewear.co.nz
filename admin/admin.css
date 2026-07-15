@@ -157,6 +157,10 @@ tbody tr:hover { background: #fbfdfe; }
 .toggle input { width: 17px; height: 17px; accent-color: var(--black); }
 .form-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
 .product-lifecycle-note { margin: 16px 0 0; padding: 11px 13px; color: var(--muted); background: var(--soft); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.new-product-setup { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+.draft-variant-list { display: grid; gap: 12px; margin: 16px 0; }
+.draft-variant-row { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px 52px 16px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.draft-variant-remove { position: absolute; top: 12px; right: 12px; }
 .admin-toolbar { margin-bottom: 16px; padding: 14px; display: grid; grid-template-columns: minmax(240px, 1fr) minmax(180px, 260px); gap: 12px; background: var(--white); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
 .image-preview { margin-top: 14px; }
 .image-preview img { width: 110px; height: 90px; object-fit: contain; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
@@ -228,6 +232,7 @@ tbody tr:hover { background: #fbfdfe; }
   .variant-edit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stock-adjust { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .variant-create-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .draft-variant-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -248,6 +253,7 @@ tbody tr:hover { background: #fbfdfe; }
   .modal-content { padding: 18px 14px; }
   .modal-header { padding: 15px 14px; }
   .variant-edit-grid, .stock-adjust, .variant-create-form { grid-template-columns: 1fr; }
+  .draft-variant-row { grid-template-columns: 1fr; }
   .fulfilment-form { align-items: stretch; flex-direction: column; }
   .filter-bar { grid-template-columns: 1fr; }
   .heading-actions { justify-content: flex-start; }

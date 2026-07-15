@@ -477,11 +477,16 @@ function renderProductCards() {
   document.querySelectorAll('[data-product-grid]').forEach(grid => {
     const scope = grid.dataset.productGrid;
     const isShop = scope === 'shop';
-    const cardProducts = scope === 'featured'
+    const requestedSlug = grid.dataset.productSlug || '';
+    const cardProducts = requestedSlug
+      ? products.filter(product => product.slug === requestedSlug || product.id === requestedSlug)
+      : scope === 'featured'
       ? products.filter(product => product.featured)
       : products;
 
-    grid.innerHTML = cardProducts.map(product => renderProductCard(product, isShop)).join('');
+    grid.innerHTML = cardProducts.length
+      ? cardProducts.map(product => renderProductCard(product, isShop)).join('')
+      : '<p class="product-load-error">This product is not currently available.</p>';
   });
 }
 
@@ -515,7 +520,7 @@ function renderProductCard(product, isShop) {
         </div>
         <div class="${bodyPadding} product-card-content">
           <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">${escapeHtml(product.type)}</p>
-          <h3 class="${titleClass}">${escapeHtml(product.name)}</h3>
+          <h3 class="${titleClass}"><a href="/products/${encodeURIComponent(product.slug || product.id)}" class="hover:text-brand transition-colors">${escapeHtml(product.name)}</a></h3>
           <p class="${copyClass}">${escapeHtml(product.description)}</p>
           ${renderStockStatus(product)}
           ${variantMarkup}

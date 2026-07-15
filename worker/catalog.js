@@ -66,6 +66,8 @@ function publicProduct(product, images, variants, threshold) {
     price: product.price_cents / 100,
     priceCents: product.price_cents,
     currency: product.currency,
+    seoTitle: product.seo_title || product.name,
+    metaDescription: product.meta_description || product.description,
     featured: asBoolean(product.featured),
     personalisable: asBoolean(product.allow_player_name) || asBoolean(product.allow_player_number),
     allowPlayerName: asBoolean(product.allow_player_name),

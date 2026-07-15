@@ -100,7 +100,7 @@ The Worker validates the JWT signature, audience, expiry, and email. Admin mutat
 
 ## Admin Operations
 
-* Products: create inactive draft products, then edit name, description, price, category, type, badge, visibility, sale availability, featured state, inventory tracking, and personalisation. Add variants, stock, and pictures before publishing. Raw image paths are not accepted by the form or product-update API.
+* Products: create an inactive draft with name, slug, description, price, category/type, SEO metadata, personalisation, variants, unique SKUs, and starting stock in one save. Initial pictures upload to R2 after the database save; a failed upload leaves a recoverable draft that can be completed in Pictures without creating a duplicate product. Raw image paths are not accepted by the form or product-update API.
 * Pictures: view safe previews, edit alt text, assign a style gallery, reorder, select the main image, replace, and remove after confirmation. R2 upload supports JPEG, PNG, and WebP up to 8 MB and validates the actual file signature.
   The Worker requires the `PRODUCT_IMAGES` R2 binding configured in `wrangler.jsonc`, backed by the `ptgactivewear-product-images` bucket.
 * Variants: edit SKU, size, colour, style, and active state; add new variants with zero starting stock.
@@ -147,7 +147,7 @@ Then deploy and test one upload, main-image change, reorder, replace, and remova
 
 Before production migration, export D1 and record the current Worker version. Apply migrations with `wrangler d1 migrations apply ptgactivewear-catalog --remote`, deploy with `wrangler deploy`, and verify `/api/products`, `/shop.html`, `/admin`, checkout session creation, and signed webhook handling.
 
-For code rollback, deploy the previously recorded Worker version from Cloudflare Deployments or revert the release commit and deploy. Migration `0003` is additive; leave its columns in place during rollback. The previous static image rows remain in D1 with `active=0` and can be reactivated without deleting orders, stock, or R2 objects.
+For code rollback, deploy the previously recorded Worker version from Cloudflare Deployments or revert the release commit and deploy. Migrations `0003` and `0006` are additive; leave their columns in place during rollback. The previous static image rows remain in D1 with `active=0` and can be reactivated without deleting orders, stock, or R2 objects.
 
 ## Inventory And Stripe
 
@@ -176,9 +176,13 @@ Code rollback uses the previous Cloudflare Worker version. Database rollback nor
 
 ## Known Limitations
 
-* Product uploads are not included. Admin can select existing `/photos` files; R2 is recommended for future uploads.
 * Existing Stripe order history is not imported; D1 records new successful payments after cutover.
-* Initial inventory quantities must be entered before enabling tracking per product.
 * A separate staging Worker and Cloudflare Access application are not currently configured.
 * Stripe refund webhooks are not yet implemented. Future handlers should cover `refund.created`, `refund.updated`, and `charge.refunded`, update `refund_status`, and use Stripe event IDs plus `restocked_at` to prevent duplicate restocking.
 * The invoice PDF action uses the browser's Save as PDF flow rather than binary PDF generation inside the Worker.
+
+## Search And Merchant Setup
+
+Public product pages use `/products/{slug}` and expose D1-backed canonical, Open Graph, Twitter card, Product, and Breadcrumb metadata. `/sitemap.xml` includes active saleable products and `/merchant-feed.xml` provides the current public catalogue for Google Merchant Center without fabricated GTIN or MPN values.
+
+Search Console, Merchant Center, and Bing ownership verification still require the account owner to add the verification token supplied by each service. In Merchant Center, use `https://ptgactivewear.co.nz/merchant-feed.xml` as the scheduled feed URL and review any policy or identifier warnings in that account.

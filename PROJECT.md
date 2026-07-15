@@ -169,9 +169,13 @@ This admin system is an operational order and stock-management tool. It is not a
 
 ## Product Pictures
 
-Product image metadata is stored in D1. Existing checked-in `/photos` files remain the production fallback. Admin uploads use the optional `PRODUCT_IMAGES` R2 binding and are served through `/product-images/{id}`; the browser never supplies an object key or raw public path.
+Product image metadata is stored in D1. Existing checked-in `/photos` files remain the production fallback. Admin uploads use the `PRODUCT_IMAGES` R2 binding and are served through `/product-images/{id}`; the browser never supplies an object key or raw public path.
 
-The R2 bucket name is `ptgactivewear-product-images`. Until R2 is enabled for the Cloudflare account and the binding is added, the Pictures tab remains read-only for existing static images and upload requests return `503` without altering data.
+The R2 bucket name is `ptgactivewear-product-images`. The binding is configured in `wrangler.jsonc`; if it is unavailable, uploads fail without changing image metadata and existing static images continue to work.
+
+New products are saved as safe drafts. Product, variant, starting-stock movement, and audit records are written in one D1 batch. Selected initial images are then uploaded to R2; any failed upload is recoverable from the Pictures workspace without recreating the product.
+
+Active saleable products have canonical `/products/{slug}` pages with Product/Breadcrumb structured data. The dynamic `/sitemap.xml` and `/merchant-feed.xml` endpoints are generated from the same public D1 catalogue.
 
 The Patagonia FC Personalised Mug remains one product with Style 1 and Style 2 variants. Style 1 disallows Player Name and Player Number. Style 2 permits both options at the existing product prices, currently zero dollars; no new fee is inferred.
 

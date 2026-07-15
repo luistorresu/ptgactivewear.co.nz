@@ -351,11 +351,15 @@ function fillProductForm(product) {
   form.elements.id.value = product.id;
   form.elements.version.value = product.version;
   form.elements.name.value = product.name;
+  form.elements.slug.value = product.slug;
   form.elements.description.value = product.description;
   form.elements.category.value = product.category;
   form.elements.productType.value = product.productType;
   form.elements.badge.value = product.badge;
   form.elements.price.value = (product.priceCents / 100).toFixed(2);
+  form.elements.currency.value = product.currency || 'NZD';
+  form.elements.seoTitle.value = product.seoTitle || '';
+  form.elements.metaDescription.value = product.metaDescription || '';
   form.elements.active.checked = product.active;
   form.elements.availableForSale.checked = product.availableForSale;
   form.elements.featured.checked = product.featured;
@@ -368,12 +372,64 @@ function fillProductForm(product) {
   document.querySelector('[data-product-submit]').textContent = 'Save Product';
   document.querySelector('[data-manage-current-pictures]').hidden = false;
   document.getElementById('product-variants-section').hidden = false;
+  document.querySelector('[data-new-product-setup]').hidden = true;
   const lifecycleNote = document.querySelector('[data-product-lifecycle-note]');
   lifecycleNote.hidden = false;
   lifecycleNote.textContent = product.archived ? 'Archived product. Restore it before editing availability.' : product.active ? 'Active on the public website.' : 'Draft or disabled. Review pictures, variants and stock before enabling.';
   const preview = document.getElementById('product-image-preview');
   preview.innerHTML = product.images[0] ? `<img src="${escapeHtml(product.images[0].path)}" alt="${escapeHtml(product.name)} preview">` : '';
   renderVariantList(product);
+}
+
+function adminSlug(value) {
+  return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '');
+}
+
+function draftVariantRow(values = {}) {
+  return `<div class="draft-variant-row" data-draft-variant-row>
+    <label class="field"><span>SKU</span><input data-draft-sku maxlength="80" value="${escapeHtml(values.sku || '')}" required></label>
+    <label class="field"><span>Size</span><input data-draft-size maxlength="50" value="${escapeHtml(values.size ?? 'One Size')}"></label>
+    <label class="field"><span>Colour</span><input data-draft-colour maxlength="80" value="${escapeHtml(values.colour || '')}"></label>
+    <label class="field"><span>Style</span><input data-draft-style maxlength="80" value="${escapeHtml(values.style || '')}"></label>
+    <label class="field"><span>Starting stock</span><input data-draft-stock type="number" min="0" max="1000000" step="1" value="${Number(values.stockQuantity || 0)}" required></label>
+    <label class="field"><span>Player name</span><select data-draft-player-name><option value="">Inherit product</option><option value="true">Allow</option><option value="false">Disallow</option></select></label>
+    <label class="field"><span>Player number</span><select data-draft-player-number><option value="">Inherit product</option><option value="true">Allow</option><option value="false">Disallow</option></select></label>
+    <label class="toggle"><input data-draft-active type="checkbox" checked><span>Active option</span></label>
+    <button type="button" class="icon-button draft-variant-remove" data-remove-draft-variant aria-label="Remove this option">&times;</button>
+  </div>`;
+}
+
+function addDraftVariant(values = {}) {
+  document.querySelector('[data-draft-variant-list]').insertAdjacentHTML('beforeend', draftVariantRow(values));
+}
+
+function collectDraftVariants() {
+  return [...document.querySelectorAll('[data-draft-variant-row]')].map(row => ({
+    sku: row.querySelector('[data-draft-sku]').value,
+    size: row.querySelector('[data-draft-size]').value,
+    colour: row.querySelector('[data-draft-colour]').value,
+    style: row.querySelector('[data-draft-style]').value,
+    stockQuantity: Number(row.querySelector('[data-draft-stock]').value),
+    active: row.querySelector('[data-draft-active]').checked,
+    allowPlayerName: row.querySelector('[data-draft-player-name]').value === '' ? null : row.querySelector('[data-draft-player-name]').value === 'true',
+    allowPlayerNumber: row.querySelector('[data-draft-player-number]').value === '' ? null : row.querySelector('[data-draft-player-number]').value === 'true'
+  }));
+}
+
+async function uploadInitialPicture(productId, file, altText) {
+  const optimised = await optimisePicture(file, 'original');
+  const data = new FormData();
+  data.set('file', optimised.main, optimised.main.name);
+  data.set('thumbnail', optimised.thumbnail, optimised.thumbnail.name);
+  data.set('altText', altText);
+  data.set('variantStyle', '');
+  const response = await fetch(`/api/admin/products/${encodeURIComponent(productId)}/pictures`, {
+    method: 'POST', headers: { 'X-PTG-Admin-Request': '1' }, credentials: 'same-origin', body: data
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.ok) throw new Error(result.error || 'The picture could not be uploaded.');
+  return result;
 }
 
 async function reorderPictureTo(sourceId, targetId) {
@@ -467,6 +523,9 @@ function newProduct() {
   form.elements.id.value = '';
   form.elements.version.value = '';
   form.elements.price.value = '0.00';
+  form.elements.slug.value = '';
+  delete form.elements.slug.dataset.edited;
+  form.elements.currency.value = 'NZD';
   form.elements.playerNamePrice.value = '0.00';
   form.elements.playerNumberPrice.value = '0.00';
   form.elements.active.checked = false;
@@ -476,8 +535,12 @@ function newProduct() {
   document.getElementById('product-image-preview').innerHTML = '';
   document.getElementById('variant-list').innerHTML = empty('Create the draft product before adding variants and stock.');
   document.getElementById('product-variants-section').hidden = true;
+  const setup = document.querySelector('[data-new-product-setup]');
+  setup.hidden = false;
+  document.querySelector('[data-draft-variant-list]').innerHTML = '';
+  addDraftVariant();
   document.querySelector('[data-manage-current-pictures]').hidden = true;
-  document.querySelector('[data-product-submit]').textContent = 'Create Draft Product';
+  document.querySelector('[data-product-submit]').textContent = 'Create Product';
   document.querySelector('[data-product-lifecycle-note]').hidden = true;
   modal('product', true);
   form.elements.name.focus();
@@ -543,12 +606,16 @@ async function saveProduct(event) {
   const becomesUnavailable = state.currentProduct && ((state.currentProduct.active && !form.elements.active.checked) || (state.currentProduct.availableForSale && !form.elements.availableForSale.checked));
   if (becomesUnavailable && !window.confirm('This will remove the product from sale. Continue?')) return;
   const body = {
+    slug: form.elements.slug.value,
     name: form.elements.name.value,
     description: form.elements.description.value,
     category: form.elements.category.value,
     productType: form.elements.productType.value,
     badge: form.elements.badge.value,
     priceCents: Math.round(Number(form.elements.price.value) * 100),
+    currency: form.elements.currency.value,
+    seoTitle: form.elements.seoTitle.value,
+    metaDescription: form.elements.metaDescription.value,
     active: form.elements.active.checked,
     availableForSale: form.elements.availableForSale.checked,
     featured: form.elements.featured.checked,
@@ -558,16 +625,44 @@ async function saveProduct(event) {
     playerNamePriceCents: Math.round(Number(form.elements.playerNamePrice.value || 0) * 100),
     playerNumberPriceCents: Math.round(Number(form.elements.playerNumberPrice.value || 0) * 100)
   };
+  if (!state.currentProduct) body.variants = collectDraftVariants();
   if (state.currentProduct) body.version = Number(form.elements.version.value);
   submitButton.disabled = true;
-  submitButton.textContent = state.currentProduct ? 'Saving...' : 'Creating Draft...';
+  submitButton.textContent = state.currentProduct ? 'Saving...' : 'Creating product...';
   try {
     const isCreating = !state.currentProduct;
     const result = await api(isCreating ? '/products' : `/products/${encodeURIComponent(state.currentProduct.id)}`, { method: isCreating ? 'POST' : 'PUT', body: JSON.stringify(body) });
     state.currentProduct = result.product;
     fillProductForm(result.product);
-    setStatus(document.getElementById('product-modal-status'), 'success', isCreating ? 'Draft product created. Add variants, stock and pictures before making it visible.' : 'Product saved successfully.');
+    if (isCreating) {
+      const files = [...form.elements.initialPictures.files];
+      const altText = form.elements.initialAltText.value.trim() || result.product.name;
+      let uploadError = null;
+      for (const [index, file] of files.entries()) {
+        setStatus(document.getElementById('product-modal-status'), 'warning', `Product created. Optimising and uploading picture ${index + 1} of ${files.length}...`);
+        try { await uploadInitialPicture(result.product.id, file, files.length > 1 ? `${altText} image ${index + 1}` : altText); }
+        catch (error) { uploadError = error; break; }
+      }
+      if (!uploadError && result.publishRequested && files.length) {
+        const enabled = await api(`/products/${encodeURIComponent(result.product.id)}/lifecycle`, { method: 'POST', body: JSON.stringify({ action: 'enable' }) });
+        state.currentProduct = enabled.product;
+        fillProductForm(enabled.product);
+      } else {
+        await refreshCurrentProduct();
+      }
+      const message = uploadError
+        ? `Product and variants were created safely, but an image could not be uploaded: ${uploadError.message} Open Manage Pictures to retry; do not create the product again.`
+        : result.publishRequested && !files.length
+          ? 'Product and variants were created as a draft. Add at least one picture, then enable the product.'
+          : result.publishRequested
+            ? 'Product, variants, stock and pictures were created and the product is now live.'
+            : 'Product, variants and starting stock were created. It remains a safe draft until enabled.';
+      setStatus(document.getElementById('product-modal-status'), uploadError ? 'warning' : 'success', message);
+    } else {
+      setStatus(document.getElementById('product-modal-status'), 'success', 'Product saved successfully.');
+    }
     await loadProducts();
+    await loadDashboard();
   } catch (error) {
     const status = document.getElementById('product-modal-status');
     setStatus(status, 'error', error.message);
@@ -692,6 +787,10 @@ document.addEventListener('click', event => {
   if (productButton) openProduct(productButton.dataset.productId);
   const newProductButton = event.target.closest('[data-new-product]');
   if (newProductButton) newProduct();
+  const addDraftVariantButton = event.target.closest('[data-add-draft-variant]');
+  if (addDraftVariantButton) addDraftVariant();
+  const removeDraftVariantButton = event.target.closest('[data-remove-draft-variant]');
+  if (removeDraftVariantButton) removeDraftVariantButton.closest('[data-draft-variant-row]')?.remove();
   const duplicateButton = event.target.closest('[data-duplicate-product]');
   if (duplicateButton) duplicateProduct(duplicateButton.dataset.duplicateProduct).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
   const lifecycleButton = event.target.closest('[data-product-action]');
@@ -751,6 +850,15 @@ document.getElementById('order-filters').addEventListener('reset', () => setTime
 document.getElementById('movement-filters').addEventListener('reset', () => setTimeout(loadMovements, 0));
 document.querySelector('[data-product-search]').addEventListener('input', renderProducts);
 document.querySelector('[data-product-status]').addEventListener('change', renderProducts);
+document.getElementById('product-form').elements.name.addEventListener('input', event => {
+  if (!state.currentProduct) {
+    const slugInput = event.currentTarget.form.elements.slug;
+    if (!slugInput.dataset.edited) slugInput.value = adminSlug(event.currentTarget.value);
+  }
+});
+document.getElementById('product-form').elements.slug.addEventListener('input', event => {
+  event.currentTarget.dataset.edited = event.currentTarget.value ? 'true' : '';
+});
 const pictureForm = document.getElementById('picture-upload-form');
 pictureForm.elements.file.addEventListener('change', event => preparePicture(event.target.files[0]));
 pictureForm.elements.crop.addEventListener('change', () => preparePicture(pictureForm.elements.file.files[0]));

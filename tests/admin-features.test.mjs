@@ -44,17 +44,52 @@ test('ordinary product updates reject raw image paths', async () => {
   assert.doesNotMatch(api, /'version', 'images'/);
 });
 
-test('admin can create an inactive draft product before adding variants and pictures', async () => {
+test('admin creates a safe product and initial variants in one validated batch', async () => {
   const [html, script, api] = await Promise.all([
     readFile(new URL('admin/index.html', root), 'utf8'),
     readFile(new URL('admin/admin.js', root), 'utf8'),
     readFile(new URL('worker/admin-api.js', root), 'utf8')
   ]);
   assert.match(html, /data-new-product/);
+  assert.match(html, /data-draft-variant-list/);
+  assert.match(html, /name="initialPictures"[^>]*multiple/);
   assert.match(script, /method: isCreating \? 'POST' : 'PUT'/);
+  assert.match(script, /collectDraftVariants/);
+  assert.match(script, /uploadInitialPicture/);
   assert.match(api, /INSERT INTO products/);
-  assert.match(api, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, 'NZD', 0, 0, 0/);
+  assert.match(api, /CREATE_PRODUCT_FIELDS/);
+  assert.match(api, /INSERT INTO product_variants/);
+  assert.match(api, /'Initial stock', 'product_create'/);
+  assert.match(api, /await db\.batch\(statements\)/);
   assert.match(api, /method === 'POST'.*segments\[0\] === 'products'/s);
+});
+
+test('product creation rejects duplicate slugs, SKUs, bad stock and unsupported currency', async () => {
+  const api = await readFile(new URL('worker/admin-api.js', root), 'utf8');
+  assert.match(api, /That product slug is already in use/);
+  assert.match(api, /Duplicate SKU in this product/);
+  assert.match(api, /SKU already exists/);
+  assert.match(api, /starting stock must be a non-negative whole number/);
+  assert.match(api, /Currency must be NZD/);
+  assert.match(api, /rejectUnknownFields\(variant/);
+});
+
+test('product SEO pages, structured data, sitemap and merchant feed use D1 catalogue data', async () => {
+  const [worker, template, catalogue, migration] = await Promise.all([
+    readFile(new URL('_worker.js', root), 'utf8'),
+    readFile(new URL('product.html', root), 'utf8'),
+    readFile(new URL('worker/catalog.js', root), 'utf8'),
+    readFile(new URL('migrations/0006_product_seo.sql', root), 'utf8')
+  ]);
+  assert.match(worker, /servePublicProductPage/);
+  assert.match(worker, /merchantFeed/);
+  assert.match(worker, /dynamicSitemap/);
+  assert.match(worker, /'@type': 'Product'/);
+  assert.match(template, /__PRODUCT_SCHEMA__/);
+  assert.match(template, /data-product-slug="__PRODUCT_SLUG__"/);
+  assert.match(catalogue, /seoTitle/);
+  assert.match(migration, /ADD COLUMN seo_title/);
+  assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
 });
 
 test('beanie exposes pom pom styles with matching image galleries', async () => {

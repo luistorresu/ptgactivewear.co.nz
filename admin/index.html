@@ -26,6 +26,7 @@
     <nav class="admin-nav" aria-label="Admin sections">
       <button type="button" class="nav-button is-active" data-view-button="dashboard">Dashboard</button>
       <button type="button" class="nav-button" data-view-button="products">Products</button>
+      <button type="button" class="nav-button" data-new-product>Add Product</button>
       <button type="button" class="nav-button" data-view-button="pictures">Pictures</button>
       <button type="button" class="nav-button" data-view-button="orders">Orders</button>
       <button type="button" class="nav-button" data-view-button="movements">Stock history</button>
@@ -131,11 +132,15 @@
         <input type="hidden" name="version">
         <div class="form-grid">
           <label class="field field-wide"><span>Product name</span><input name="name" maxlength="140" required></label>
+          <label class="field"><span>URL slug</span><input name="slug" maxlength="100" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="team-training-shirt" required></label>
           <label class="field"><span>Price (NZD)</span><input name="price" type="number" min="0" step="0.01" required></label>
+          <label class="field"><span>Currency</span><select name="currency"><option value="NZD">NZD</option></select></label>
           <label class="field"><span>Category</span><input name="category" maxlength="80"></label>
           <label class="field"><span>Product type</span><input name="productType" maxlength="80"></label>
           <label class="field"><span>Badge</span><input name="badge" maxlength="60"></label>
           <label class="field field-wide"><span>Description</span><textarea name="description" rows="4" maxlength="4000"></textarea></label>
+          <label class="field field-wide"><span>SEO title</span><input name="seoTitle" maxlength="160" placeholder="Defaults to the product name"></label>
+          <label class="field field-wide"><span>Meta description</span><textarea name="metaDescription" rows="2" maxlength="320" placeholder="Defaults to the product description"></textarea></label>
         </div>
         <div class="toggle-grid">
           <label class="toggle"><input name="active" type="checkbox"><span>Visible on website</span></label>
@@ -149,6 +154,12 @@
           <label class="field"><span>Player name price (NZD)</span><input name="playerNamePrice" type="number" min="0" step="0.01"></label>
           <label class="field"><span>Player number price (NZD)</span><input name="playerNumberPrice" type="number" min="0" step="0.01"></label>
         </div>
+        <section class="new-product-setup" data-new-product-setup hidden>
+          <div class="section-heading"><div><h3>Initial variants and stock</h3><p>Create sizes, colours or styles now. The product and every option are saved together.</p></div><button type="button" class="button button-secondary button-small" data-add-draft-variant>+ Add option</button></div>
+          <div class="draft-variant-list" data-draft-variant-list></div>
+          <label class="picture-dropzone field field-wide"><span>Initial product pictures</span><input name="initialPictures" type="file" accept="image/jpeg,image/png,image/webp" multiple><strong>Choose one or more images</strong><small>The first image becomes the main image. Uploads are optimised after the product and variants are safely created.</small></label>
+          <label class="field field-wide"><span>Image alt text</span><input name="initialAltText" maxlength="200" placeholder="Defaults to the product name"></label>
+        </section>
         <div id="product-image-preview" class="image-preview"></div>
         <p class="product-lifecycle-note" data-product-lifecycle-note hidden></p>
         <div class="form-actions"><button type="button" class="button button-secondary" data-manage-current-pictures hidden>Manage Pictures</button><button type="submit" class="button button-primary" data-product-submit>Save Product</button></div>

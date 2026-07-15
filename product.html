@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <base href="/" />
+  <title>__PRODUCT_TITLE__</title>
+  <meta name="description" content="__PRODUCT_DESCRIPTION__" />
+  <link rel="canonical" href="__PRODUCT_URL__" />
+  <meta property="og:type" content="product" />
+  <meta property="og:title" content="__PRODUCT_TITLE__" />
+  <meta property="og:description" content="__PRODUCT_DESCRIPTION__" />
+  <meta property="og:url" content="__PRODUCT_URL__" />
+  <meta property="og:image" content="__PRODUCT_IMAGE__" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="__PRODUCT_TITLE__" />
+  <meta name="twitter:description" content="__PRODUCT_DESCRIPTION__" />
+  <meta name="twitter:image" content="__PRODUCT_IMAGE__" />
+
+  <link rel="preconnect" href="https://cdn.tailwindcss.com">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { DEFAULT: '#5BB8D4', dark: '#3A9CBD', light: '#EBF7FB' }
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="favicon-ptg.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="application/ld+json">
+  __PRODUCT_SCHEMA__
+  </script>
+</head>
+<body class="font-sans text-gray-900 bg-white">
+
+  <!-- ── HEADER ── -->
+  <header class="site-header sticky top-0 z-50 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+      <a href="index.html" class="site-logo-link flex items-center shrink-0" aria-label="PTG Activewear home">
+        <img src="photos/ptg-logo-light-transparent.webp" alt="PTG Activewear" class="site-logo" width="2016" height="702">
+      </a>
+      <nav class="hidden md:flex items-center gap-8">
+        <a href="index.html"  class="site-nav-link">Home</a>
+        <a href="shop.html"   class="site-nav-link active">Shop</a>
+        <a href="about.html"  class="site-nav-link">About</a>
+        <a href="contact.html" class="site-nav-link">Contact</a>
+      </nav>
+      <div class="flex items-center gap-4">
+        <button onclick="toggleCart()" class="site-icon-button relative p-1" aria-label="Cart">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 5.6A1 1 0 007 20h10a1 1 0 00.97-.76L19 13M7 13H5.4M10 21a1 1 0 100-2 1 1 0 000 2zm7 0a1 1 0 100-2 1 1 0 000 2z"/>
+          </svg>
+          <span id="cart-count" class="hidden absolute -top-1 -right-1 bg-brand text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">0</span>
+        </button>
+        <button onclick="toggleMobileMenu()" class="site-icon-button md:hidden p-1" aria-label="Menu">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="mobile-menu" class="site-mobile-menu hidden md:hidden px-4 py-5">
+      <nav class="flex flex-col gap-4">
+        <a href="index.html" class="site-mobile-link">Home</a>
+        <a href="shop.html"  class="site-mobile-link active">Shop</a>
+        <a href="about.html" class="site-mobile-link">About</a>
+        <a href="contact.html" class="site-mobile-link">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ── PAGE HERO ── -->
+  <section class="bg-brand-light border-b border-brand/20 py-10 px-4 sm:px-6 lg:px-8 text-center">
+    <nav aria-label="Breadcrumb" class="product-breadcrumb"><a href="/">Home</a><span aria-hidden="true">/</span><a href="/shop">Shop</a><span aria-hidden="true">/</span><span>__PRODUCT_NAME__</span></nav>
+    <h1 class="text-4xl font-black text-gray-900 mt-3">__PRODUCT_NAME__</h1>
+  </section>
+
+  <!-- ── FILTERS ── -->
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8"><a href="/shop" class="text-sm font-semibold text-brand hover:text-brand-dark">&larr; Back to all products</a></div>
+
+  <!-- ── PRODUCT GRID ── -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-24">
+    <div class="bulk-order-banner" tabindex="0" aria-label="Bulk order assistance">
+      <div class="bulk-order-track"><span>Planning a team or bulk order? Contact <a href="mailto:info@ptgactivewear.co.nz">info@ptgactivewear.co.nz</a> for assistance.</span><span aria-hidden="true">Planning a team or bulk order? Contact info@ptgactivewear.co.nz for assistance.</span></div>
+    </div>
+    <div data-product-grid="shop" data-product-slug="__PRODUCT_SLUG__" class="product-detail-grid"></div>
+  </main>
+
+  <!-- ── FOOTER ── -->
+  <footer class="bg-gray-950 text-gray-500 pt-16 pb-8 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto text-center">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+        <div class="md:col-span-2 footer-brand">
+          <a href="index.html" class="footer-logo-link" aria-label="PTG Activewear home">
+            <img src="photos/ptg-logo-light-transparent.webp" alt="PTG Activewear" class="footer-logo" width="2016" height="702">
+          </a>
+          <p class="footer-brand-copy text-sm leading-relaxed">Premium football apparel designed and shipped from New Zealand. Built for performance, made to last.</p>
+        </div>
+        <div class="footer-column">
+          <h4 class="text-white font-semibold text-xs mb-5 uppercase tracking-wider">Quick Links</h4>
+          <ul class="space-y-3 text-sm">
+            <li><a href="index.html" class="hover:text-brand transition-colors">Home</a></li>
+            <li><a href="shop.html"  class="hover:text-brand transition-colors">Shop</a></li>
+            <li><a href="about.html" class="hover:text-brand transition-colors">About Us</a></li>
+            <li><a href="contact.html" class="hover:text-brand transition-colors">Contact Us</a></li>
+            <li><a href="mailto:info@Ptgactivewear.co.nz" class="hover:text-brand transition-colors">info@Ptgactivewear.co.nz</a></li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h4 class="text-white font-semibold text-xs mb-5 uppercase tracking-wider">Support</h4>
+          <ul class="space-y-3 text-sm">
+            <li><a href="contact.html" class="hover:text-brand transition-colors">Custom Teamwear</a></li>
+            <li><a href="contact.html" class="hover:text-brand transition-colors">Club Orders</a></li>
+            <li><a href="about.html" class="hover:text-brand transition-colors">Our Process</a></li>
+            <li><a href="mailto:info@ptgactivewear.co.nz" class="hover:text-brand transition-colors">Email Support</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom border-t border-gray-800 pt-8 flex flex-col items-center justify-center gap-4 text-xs">
+        <p>&copy; 2026 PTG Activewear. All rights reserved.</p>
+        <div class="flex flex-wrap justify-center gap-6">
+          <span>Secure payments powered by Stripe</span>
+          <a href="contact.html" class="hover:text-brand transition-colors">Contact</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ── CART SIDEBAR ── -->
+  <div id="cart-overlay" onclick="toggleCart()" class="fixed inset-0 bg-black/50 z-40 hidden"></div>
+  <aside id="cart-sidebar" class="fixed right-0 top-0 h-full w-full sm:w-96 bg-white z-50 shadow-2xl flex flex-col">
+    <div class="flex items-center justify-between px-6 py-5 border-b">
+      <h2 class="text-base font-bold">Your Cart</h2>
+      <button onclick="toggleCart()" class="text-gray-400 hover:text-gray-900 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div id="cart-items" class="flex-1 overflow-y-auto px-6"></div>
+    <div class="px-6 py-5 border-t bg-gray-50">
+      <div class="flex justify-between mb-4 text-sm">
+        <span class="text-gray-600">Subtotal</span>
+        <span id="cart-total" class="font-bold text-lg">$0.00</span>
+      </div>
+      <p data-checkout-status class="hidden rounded-xl px-4 py-3 text-sm font-medium mb-3" role="status" aria-live="polite"></p>
+      <button type="button" data-checkout-button class="w-full btn-primary py-4 text-sm">Proceed to Checkout</button>
+      <p class="text-center text-xs text-gray-400 mt-3">Shipping calculated at checkout</p>
+    </div>
+  </aside>
+
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full text-sm font-medium z-[60] whitespace-nowrap shadow-lg"></div>
+
+  <script src="js/products.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

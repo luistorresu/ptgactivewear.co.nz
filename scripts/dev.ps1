@@ -42,7 +42,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Local product seed failed.' }
 
   Copy-Item -LiteralPath 'css', 'js', 'admin', 'photos' -Destination $site -Recurse -Force
-  Copy-Item -LiteralPath 'index.html', 'shop.html', 'about.html', 'contact.html', 'cart.html', 'order-success.html', 'favicon.png' -Destination $site -Force
+  Copy-Item -LiteralPath 'index.html', 'shop.html', 'product.html', 'about.html', 'contact.html', 'cart.html', 'order-success.html', 'robots.txt', 'sitemap.xml', 'favicon.png' -Destination $site -Force
 
   Write-Host "Starting PTG Activewear locally at http://127.0.0.1:$Port"
   & $runner @runnerPrefix dev --port $Port --persist-to $state --assets $site `

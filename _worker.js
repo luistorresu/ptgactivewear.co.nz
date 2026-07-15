@@ -978,6 +978,86 @@ async function serveAdminAsset(request, env) {
   return secureAssetResponse(response, { admin: true });
 }
 
+function xmlEscape(value) {
+  return String(value ?? '').replace(/[<>&"']/g, character => ({
+    '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;'
+  }[character]));
+}
+
+function absoluteSiteUrl(value, env) {
+  const base = String(env.SITE_URL || SITE_ORIGIN).replace(/\/$/, '');
+  try { return new URL(String(value || ''), `${base}/`).href; } catch { return `${base}/`; }
+}
+
+async function servePublicProductPage(request, env, slug) {
+  if (!isD1CatalogueEnabled(env)) return new Response('Product unavailable', { status: 503 });
+  const product = await getPublicProductBySlug(env, slug);
+  if (!product) return new Response('Product not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+  // Cloudflare Assets serves clean HTML paths and redirects explicit .html URLs.
+  const templateUrl = new URL('/product', request.url);
+  const templateResponse = await env.ASSETS.fetch(new Request(templateUrl, request));
+  if (!templateResponse.ok) return new Response('Product page unavailable', { status: 503 });
+  const productUrl = absoluteSiteUrl(`/products/${encodeURIComponent(product.slug)}`, env);
+  const productImage = absoluteSiteUrl(product.image, env);
+  const title = product.seoTitle || `${product.name} | PTG Activewear`;
+  const description = product.metaDescription || product.description;
+  const sku = product.inventoryVariants?.[0]?.sku || product.id;
+  const schema = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Product', name: product.name, description, image: product.gallery.map(image => absoluteSiteUrl(image, env)),
+        sku, brand: { '@type': 'Brand', name: 'PTG Activewear' }, url: productUrl,
+        offers: { '@type': 'Offer', url: productUrl, priceCurrency: product.currency, price: product.price.toFixed(2),
+          availability: product.available ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', itemCondition: 'https://schema.org/NewCondition' }
+      },
+      { '@type': 'BreadcrumbList', itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: absoluteSiteUrl('/', env) },
+        { '@type': 'ListItem', position: 2, name: 'Shop', item: absoluteSiteUrl('/shop', env) },
+        { '@type': 'ListItem', position: 3, name: product.name, item: productUrl }
+      ] }
+    ]
+  }).replace(/</g, '\\u003c');
+  const replacements = {
+    '__PRODUCT_TITLE__': escapeHtml(title),
+    '__PRODUCT_DESCRIPTION__': escapeHtml(description),
+    '__PRODUCT_URL__': escapeHtml(productUrl),
+    '__PRODUCT_IMAGE__': escapeHtml(productImage),
+    '__PRODUCT_NAME__': escapeHtml(product.name),
+    '__PRODUCT_SLUG__': escapeHtml(product.slug),
+    '__PRODUCT_SCHEMA__': schema
+  };
+  let html = await templateResponse.text();
+  for (const [placeholder, value] of Object.entries(replacements)) html = html.split(placeholder).join(value);
+  return secureAssetResponse(new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } }));
+}
+
+async function merchantFeed(env) {
+  if (!isD1CatalogueEnabled(env)) return new Response('Catalogue unavailable', { status: 503 });
+  const products = await getPublicProducts(env);
+  const items = products.map(product => `<item>
+    <g:id>${xmlEscape(product.id)}</g:id>
+    <title>${xmlEscape(product.name)}</title>
+    <description>${xmlEscape(product.description)}</description>
+    <link>${xmlEscape(absoluteSiteUrl(`/products/${encodeURIComponent(product.slug)}`, env))}</link>
+    <g:image_link>${xmlEscape(absoluteSiteUrl(product.image, env))}</g:image_link>
+    <g:availability>${product.available ? 'in stock' : 'out of stock'}</g:availability>
+    <g:price>${product.price.toFixed(2)} ${xmlEscape(product.currency)}</g:price>
+    <g:brand>PTG Activewear</g:brand>
+    <g:condition>new</g:condition>
+    <g:identifier_exists>no</g:identifier_exists>
+  </item>`).join('\n');
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>PTG Activewear Products</title><link>${xmlEscape(absoluteSiteUrl('/shop', env))}</link><description>PTG Activewear product catalogue</description>${items}</channel></rss>`;
+  return secureAssetResponse(new Response(xml, { headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' } }));
+}
+
+async function dynamicSitemap(env) {
+  const products = isD1CatalogueEnabled(env) ? await getPublicProducts(env) : [];
+  const urls = ['/', '/shop', '/about', '/contact', ...products.map(product => `/products/${encodeURIComponent(product.slug)}`)];
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(path => `<url><loc>${xmlEscape(absoluteSiteUrl(path, env))}</loc></url>`).join('')}</urlset>`;
+  return secureAssetResponse(new Response(xml, { headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' } }));
+}
+
 function isAdminPicturesPath(pathname) {
   const path = String(pathname || '').replace(/^\/api\/admin\/?/, '');
   const segments = path.split('/').filter(Boolean);
@@ -1010,6 +1090,14 @@ export default {
     if (url.pathname.startsWith('/api/products/')) {
       return handlePublicProducts(request, env, decodeURIComponent(url.pathname.slice('/api/products/'.length)));
     }
+
+    if (url.pathname.startsWith('/products/') && ['GET', 'HEAD'].includes(request.method.toUpperCase())) {
+      return servePublicProductPage(request, env, decodeURIComponent(url.pathname.slice('/products/'.length)));
+    }
+
+    if (url.pathname === '/product.html' || url.pathname === '/product') return Response.redirect(new URL('/shop', request.url), 302);
+    if (url.pathname === '/merchant-feed.xml') return merchantFeed(env);
+    if (url.pathname === '/sitemap.xml') return dynamicSitemap(env);
 
     if (/^\/product-images\/\d+(?:\/thumbnail)?$/.test(url.pathname) && ['GET', 'HEAD'].includes(request.method.toUpperCase())) {
       const parts = url.pathname.split('/').filter(Boolean);

@@ -1,8 +1,9 @@
 const PRODUCT_FIELDS = new Set([
-  'name', 'description', 'category', 'productType', 'badge', 'priceCents', 'active',
+  'slug', 'name', 'description', 'category', 'productType', 'badge', 'priceCents', 'currency', 'seoTitle', 'metaDescription', 'active',
   'availableForSale', 'featured', 'trackInventory', 'allowPlayerName',
   'allowPlayerNumber', 'playerNamePriceCents', 'playerNumberPriceCents', 'version'
 ]);
+const CREATE_PRODUCT_FIELDS = new Set([...PRODUCT_FIELDS, 'variants']);
 const VARIANT_FIELDS = new Set(['sku', 'size', 'colour', 'style', 'active', 'allowPlayerName', 'allowPlayerNumber', 'version']);
 const FULFILMENT_STATUSES = new Set(['unfulfilled', 'paid', 'processing', 'ready_for_collection', 'shipped', 'completed', 'cancelled', 'refunded']);
 
@@ -72,6 +73,8 @@ function mapProduct(row) {
     badge: row.badge,
     priceCents: row.price_cents,
     currency: row.currency,
+    seoTitle: row.seo_title || '',
+    metaDescription: row.meta_description || '',
     active: Boolean(row.active),
     availableForSale: Boolean(row.available_for_sale),
     featured: Boolean(row.featured),
@@ -196,13 +199,17 @@ async function dashboard(db, threshold) {
   };
 }
 
-function validateProduct(body, requireVersion = true) {
-  const unknown = rejectUnknownFields(body, PRODUCT_FIELDS);
+function validateProduct(body, requireVersion = true, allowedFields = PRODUCT_FIELDS) {
+  const unknown = rejectUnknownFields(body, allowedFields);
   if (unknown) return { error: `Unknown field: ${unknown}.` };
   const version = Number(body.version);
   const priceCents = Number(body.priceCents);
+  const slug = productSlug(body.slug || body.name);
+  const currency = cleanText(body.currency || 'NZD', 3).toUpperCase();
   if (requireVersion && (!Number.isInteger(version) || version < 1)) return { error: 'A valid product version is required.' };
   if (!cleanText(body.name, 140)) return { error: 'Product name is required.' };
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return { error: 'Slug must use lowercase letters, numbers, and single hyphens.' };
+  if (currency !== 'NZD') return { error: 'Currency must be NZD for the current checkout configuration.' };
   if (!Number.isInteger(priceCents) || priceCents < 0 || priceCents > 100000000) return { error: 'Price must be a valid amount in cents.' };
 
   const booleans = ['active', 'availableForSale', 'featured', 'trackInventory', 'allowPlayerName', 'allowPlayerNumber'];
@@ -221,11 +228,15 @@ function validateProduct(body, requireVersion = true) {
   return {
     value: {
       name: cleanText(body.name, 140),
+      slug,
       description: cleanText(body.description, 4000),
       category: cleanText(body.category, 80),
       productType: cleanText(body.productType, 80),
       badge: cleanText(body.badge, 60),
       priceCents,
+      currency,
+      seoTitle: cleanText(body.seoTitle, 160),
+      metaDescription: cleanText(body.metaDescription, 320),
       version: requireVersion ? version : 1,
       playerNamePriceCents: namePrice,
       playerNumberPriceCents: numberPrice,
@@ -257,30 +268,74 @@ async function availableProductId(db, name) {
 }
 
 async function createProduct(db, body, identity) {
-  const validation = validateProduct(body, false);
+  const validation = validateProduct(body, false, CREATE_PRODUCT_FIELDS);
   if (validation.error) return json({ ok: false, error: validation.error }, 400);
   const value = validation.value;
-  const productId = await availableProductId(db, value.name);
+  const variants = Array.isArray(body.variants) ? body.variants : [];
+  if (variants.length > 100) return json({ ok: false, error: 'A product can have no more than 100 variants.' }, 400);
+  if (value.active && value.availableForSale && !variants.length) return json({ ok: false, error: 'Add at least one variant before publishing a new product.' }, 400);
+  const validatedVariants = [];
+  const seenSkus = new Set();
+  const seenOptions = new Set();
+  for (const [index, variant] of variants.entries()) {
+    if (!variant || typeof variant !== 'object' || Array.isArray(variant)) return json({ ok: false, error: `Variant ${index + 1} is invalid.` }, 400);
+    const unknown = rejectUnknownFields(variant, new Set([...VARIANT_FIELDS, 'stockQuantity']));
+    if (unknown) return json({ ok: false, error: `Variant ${index + 1} has an unknown field: ${unknown}.` }, 400);
+    const { stockQuantity: ignoredStockQuantity, ...variantFields } = variant;
+    const validationResult = validateVariant(variantFields, false);
+    if (validationResult.error) return json({ ok: false, error: `Variant ${index + 1}: ${validationResult.error}` }, 400);
+    const stockQuantity = Number(variant.stockQuantity || 0);
+    if (!Number.isInteger(stockQuantity) || stockQuantity < 0 || stockQuantity > 1000000) return json({ ok: false, error: `Variant ${index + 1}: starting stock must be a non-negative whole number.` }, 400);
+    const optionKey = [validationResult.value.size, validationResult.value.colour, validationResult.value.style].join('\u0000').toLowerCase();
+    if (seenSkus.has(validationResult.value.sku)) return json({ ok: false, error: `Duplicate SKU in this product: ${validationResult.value.sku}.` }, 409);
+    if (seenOptions.has(optionKey)) return json({ ok: false, error: `Variant ${index + 1} duplicates another size, colour, and style combination.` }, 409);
+    seenSkus.add(validationResult.value.sku);
+    seenOptions.add(optionKey);
+    validatedVariants.push({ ...validationResult.value, stockQuantity });
+  }
+  const productId = value.slug;
+  const existing = await db.prepare('SELECT id FROM products WHERE id = ? OR slug = ?').bind(productId, value.slug).first();
+  if (existing) return json({ ok: false, error: 'That product slug is already in use.' }, 409);
+  if (seenSkus.size) {
+    const placeholders = [...seenSkus].map(() => '?').join(', ');
+    const duplicate = await db.prepare(`SELECT sku FROM product_variants WHERE sku IN (${placeholders}) LIMIT 1`).bind(...seenSkus).first();
+    if (duplicate) return json({ ok: false, error: `SKU already exists: ${duplicate.sku}.` }, 409);
+  }
 
   try {
-    await db.batch([
+    const statements = [
       db.prepare(`
         INSERT INTO products (
           id, slug, name, description, category, product_type, badge, price_cents, currency,
           active, available_for_sale, featured, track_inventory,
-          allow_player_name, allow_player_number, player_name_price_cents, player_number_price_cents
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'NZD', 0, 0, 0, ?, ?, ?, ?, ?)
+          allow_player_name, allow_player_number, player_name_price_cents, player_number_price_cents,
+          seo_title, meta_description
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        productId, productId, value.name, value.description, value.category, value.productType,
-        value.badge, value.priceCents, value.trackInventory, value.allowPlayerName,
-        value.allowPlayerNumber, value.playerNamePriceCents, value.playerNumberPriceCents
-      ),
+        productId, value.slug, value.name, value.description, value.category, value.productType,
+        value.badge, value.priceCents, value.currency, value.featured, value.trackInventory, value.allowPlayerName,
+        value.allowPlayerNumber, value.playerNamePriceCents, value.playerNumberPriceCents, value.seoTitle, value.metaDescription
+      )
+    ];
+    for (const variant of validatedVariants) {
+      statements.push(db.prepare(`INSERT INTO product_variants
+        (product_id, sku, size, colour, style, stock_quantity, active, allow_player_name, allow_player_number)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(productId, variant.sku, variant.size, variant.colour, variant.style, variant.stockQuantity,
+          variant.active, variant.allowPlayerName, variant.allowPlayerNumber));
+      if (variant.stockQuantity > 0) statements.push(db.prepare(`INSERT INTO stock_movements
+        (product_variant_id, change_quantity, quantity_before, quantity_after, reason, reference_type, reference_id, changed_by)
+        SELECT id, ?, 0, ?, 'Initial stock', 'product_create', ?, ? FROM product_variants WHERE product_id = ? AND sku = ?`)
+        .bind(variant.stockQuantity, variant.stockQuantity, productId, identity.email, productId, variant.sku));
+    }
+    statements.push(
       db.prepare(`
         INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
         VALUES (?, 'create', 'product', ?, ?)
-      `).bind(identity.email, productId, `Created draft product: ${value.name}`)
-    ]);
-    return json({ ok: true, product: await getProduct(db, productId) }, 201);
+      `).bind(identity.email, productId, `Created draft product with ${validatedVariants.length} variant(s): ${value.name}`)
+    );
+    await db.batch(statements);
+    return json({ ok: true, product: await getProduct(db, productId), publishRequested: value.active && value.availableForSale }, 201);
   } catch (error) {
     return json({ ok: false, error: 'A product with that name or URL already exists. Try a more specific name.' }, 409);
   }
@@ -334,11 +389,12 @@ async function duplicateProduct(db, productId, identity) {
     db.prepare(`INSERT INTO products (
       id, slug, name, description, category, product_type, badge, price_cents, currency,
       active, available_for_sale, featured, track_inventory, allow_player_name, allow_player_number,
-      player_name_price_cents, player_number_price_cents, archived
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, 0)`)
+      player_name_price_cents, player_number_price_cents, archived, seo_title, meta_description
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, 0, ?, ?)`)
       .bind(copyId, copyId, copyName, source.description, source.category, source.product_type, source.badge,
         source.price_cents, source.currency, source.track_inventory, source.allow_player_name,
-        source.allow_player_number, source.player_name_price_cents, source.player_number_price_cents)
+        source.allow_player_number, source.player_name_price_cents, source.player_number_price_cents,
+        source.seo_title || '', source.meta_description || '')
   ];
   for (const [index, variant] of (variants.results || []).entries()) {
     const skuBase = String(variant.sku || 'PTG-COPY').slice(0, 64);
@@ -362,13 +418,15 @@ async function updateProduct(db, productId, body, identity) {
   const statements = [
     db.prepare(`
       UPDATE products SET
-        name = ?, description = ?, category = ?, product_type = ?, badge = ?, price_cents = ?,
+        slug = ?, name = ?, description = ?, category = ?, product_type = ?, badge = ?, price_cents = ?, currency = ?,
+        seo_title = ?, meta_description = ?,
         active = ?, available_for_sale = ?, featured = ?, track_inventory = ?,
         allow_player_name = ?, allow_player_number = ?, player_name_price_cents = ?, player_number_price_cents = ?,
         version = version + 1, last_update_id = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND version = ?
     `).bind(
-      value.name, value.description, value.category, value.productType, value.badge, value.priceCents,
+      value.slug, value.name, value.description, value.category, value.productType, value.badge, value.priceCents, value.currency,
+      value.seoTitle, value.metaDescription,
       value.active, value.availableForSale, value.featured, value.trackInventory,
       value.allowPlayerName, value.allowPlayerNumber, value.playerNamePriceCents, value.playerNumberPriceCents,
       adjustmentId, productId, value.version
@@ -379,7 +437,9 @@ async function updateProduct(db, productId, body, identity) {
     SELECT ?, 'update', 'product', ?, ? WHERE EXISTS (SELECT 1 FROM products WHERE id = ? AND last_update_id = ?)
   `).bind(identity.email, productId, `Product update ${adjustmentId}`, productId, adjustmentId));
 
-  const results = await db.batch(statements);
+  let results;
+  try { results = await db.batch(statements); }
+  catch (error) { return json({ ok: false, error: 'That product slug is already in use.' }, 409); }
   if (!results[0]?.meta?.changes) return json({ ok: false, error: 'This product changed in another session. Refresh and try again.' }, 409);
   return json({ ok: true, product: await getProduct(db, productId) });
 }
