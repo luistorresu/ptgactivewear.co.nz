@@ -898,6 +898,29 @@ async function handleStripeWebhook(request, env) {
   return jsonResponse({ received: true });
 }
 
+function secureAssetResponse(response, { admin = false } = {}) {
+  const headers = new Headers(response.headers);
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Referrer-Policy', admin ? 'same-origin' : 'strict-origin-when-cross-origin');
+  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  headers.set('Content-Security-Policy', [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'"
+  ].join('; '));
+  if (admin) headers.set('Cache-Control', 'no-store');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 async function serveAsset(request, env) {
   try {
     const assetResponse = await env.ASSETS.fetch(request);
@@ -905,7 +928,7 @@ async function serveAsset(request, env) {
       return new Response('Not found', { status: 404 });
     }
 
-    return assetResponse;
+    return secureAssetResponse(assetResponse);
   } catch (error) {
     return new Response('Not found', { status: 404 });
   }
@@ -952,12 +975,7 @@ async function serveAdminAsset(request, env) {
     request = new Request(url.toString(), request);
   }
   const response = await env.ASSETS.fetch(request);
-  const headers = new Headers(response.headers);
-  headers.set('Cache-Control', 'no-store');
-  headers.set('X-Content-Type-Options', 'nosniff');
-  headers.set('X-Frame-Options', 'DENY');
-  headers.set('Referrer-Policy', 'same-origin');
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  return secureAssetResponse(response, { admin: true });
 }
 
 function isAdminPicturesPath(pathname) {
@@ -993,8 +1011,9 @@ export default {
       return handlePublicProducts(request, env, decodeURIComponent(url.pathname.slice('/api/products/'.length)));
     }
 
-    if (/^\/product-images\/\d+$/.test(url.pathname) && ['GET', 'HEAD'].includes(request.method.toUpperCase())) {
-      return serveProductPicture(request, env, Number(url.pathname.split('/').pop()));
+    if (/^\/product-images\/\d+(?:\/thumbnail)?$/.test(url.pathname) && ['GET', 'HEAD'].includes(request.method.toUpperCase())) {
+      const parts = url.pathname.split('/').filter(Boolean);
+      return serveProductPicture(request, env, Number(parts[1]), parts[2] === 'thumbnail');
     }
 
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {

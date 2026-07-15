@@ -98,7 +98,7 @@ export function isD1CatalogueEnabled(env) {
 
 export async function getPublicProducts(env) {
   if (!env.DB) throw new Error('D1 database binding is missing.');
-  const productResult = await env.DB.prepare('SELECT * FROM products WHERE active = 1 ORDER BY name').all();
+  const productResult = await env.DB.prepare('SELECT * FROM products WHERE active = 1 AND archived = 0 ORDER BY name').all();
   const products = productResult.results || [];
   const productIds = products.map(product => product.id);
   const related = await loadRelatedRows(env.DB, productIds);
@@ -114,7 +114,7 @@ export async function getPublicProducts(env) {
 
 export async function getPublicProductBySlug(env, slug) {
   if (!env.DB) throw new Error('D1 database binding is missing.');
-  const product = await env.DB.prepare('SELECT * FROM products WHERE slug = ? AND active = 1').bind(slug).first();
+  const product = await env.DB.prepare('SELECT * FROM products WHERE slug = ? AND active = 1 AND archived = 0').bind(slug).first();
   if (!product) return null;
   const related = await loadRelatedRows(env.DB, [product.id]);
   const threshold = Math.max(0, Number(env.LOW_STOCK_THRESHOLD || 5));

@@ -36,7 +36,7 @@ export async function validateD1CheckoutPayload(payload, env) {
     }
 
     const product = await env.DB.prepare('SELECT * FROM products WHERE id = ?').bind(productId).first();
-    if (!product || !product.active || !product.available_for_sale) {
+    if (!product || product.archived || !product.active || !product.available_for_sale) {
       return { error: 'One of the products in your cart is no longer available.' };
     }
     const variant = await env.DB.prepare('SELECT * FROM product_variants WHERE id = ? AND product_id = ?').bind(variantId, productId).first();
@@ -140,7 +140,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
   const catalogue = [];
   for (const group of groups) {
     const row = await env.DB.prepare(`
-      SELECT p.id AS product_id, p.name, p.price_cents, p.active AS product_active,
+      SELECT p.id AS product_id, p.name, p.price_cents, p.active AS product_active, p.archived AS product_archived,
              p.available_for_sale, p.track_inventory,
              v.id AS variant_id, v.sku, v.stock_quantity, v.active AS variant_active
       FROM products p JOIN product_variants v ON v.product_id = p.id

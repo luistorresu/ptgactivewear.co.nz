@@ -75,6 +75,7 @@ function mapProduct(row) {
     active: Boolean(row.active),
     availableForSale: Boolean(row.available_for_sale),
     featured: Boolean(row.featured),
+    archived: Boolean(row.archived),
     trackInventory: Boolean(row.track_inventory),
     allowPlayerName: Boolean(row.allow_player_name),
     allowPlayerNumber: Boolean(row.allow_player_number),
@@ -283,6 +284,74 @@ async function createProduct(db, body, identity) {
   } catch (error) {
     return json({ ok: false, error: 'A product with that name or URL already exists. Try a more specific name.' }, 409);
   }
+}
+
+async function productLifecycle(db, productId, body, identity) {
+  const unknown = rejectUnknownFields(body, new Set(['action']));
+  if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
+  const action = cleanText(body.action, 20).toLowerCase();
+  if (!['enable', 'disable', 'archive', 'restore', 'delete'].includes(action)) {
+    return json({ ok: false, error: 'Choose enable, disable, archive, restore, or delete.' }, 400);
+  }
+  const product = await db.prepare('SELECT id, name FROM products WHERE id = ?').bind(productId).first();
+  if (!product) return json({ ok: false, error: 'Product not found.' }, 404);
+
+  if (action === 'enable') {
+    const readiness = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM product_variants WHERE product_id = ? AND active = 1) AS variants,
+      (SELECT COUNT(*) FROM product_images WHERE product_id = ? AND active = 1) AS pictures
+    `).bind(productId, productId).first();
+    if (!Number(readiness?.variants) || !Number(readiness?.pictures)) {
+      return json({ ok: false, error: 'Add at least one active variant and one picture before enabling this product.' }, 409);
+    }
+  }
+
+  const lifecycle = action === 'enable'
+    ? { archived: 0, active: 1, available: 1, label: 'enabled' }
+    : action === 'restore'
+      ? { archived: 0, active: 0, available: 0, label: 'restored as a draft' }
+      : action === 'disable'
+        ? { archived: 0, active: 0, available: 0, label: 'disabled' }
+        : { archived: 1, active: 0, available: 0, label: 'archived' };
+
+  await db.batch([
+    db.prepare(`UPDATE products SET archived = ?, active = ?, available_for_sale = ?, version = version + 1,
+      updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(lifecycle.archived, lifecycle.active, lifecycle.available, productId),
+    db.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+      VALUES (?, ?, 'product', ?, ?)`).bind(identity.email, action === 'delete' ? 'archive' : action, productId, `${product.name} ${lifecycle.label}`)
+  ]);
+  return json({ ok: true, product: await getProduct(db, productId), message: `${product.name} ${lifecycle.label}.` });
+}
+
+async function duplicateProduct(db, productId, identity) {
+  const source = await db.prepare('SELECT * FROM products WHERE id = ?').bind(productId).first();
+  if (!source) return json({ ok: false, error: 'Product not found.' }, 404);
+  const copyName = `${source.name} Copy`;
+  const copyId = await availableProductId(db, copyName);
+  const variants = await db.prepare('SELECT * FROM product_variants WHERE product_id = ? ORDER BY id').bind(productId).all();
+  const suffix = crypto.randomUUID().slice(0, 6).toUpperCase();
+  const statements = [
+    db.prepare(`INSERT INTO products (
+      id, slug, name, description, category, product_type, badge, price_cents, currency,
+      active, available_for_sale, featured, track_inventory, allow_player_name, allow_player_number,
+      player_name_price_cents, player_number_price_cents, archived
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, 0)`)
+      .bind(copyId, copyId, copyName, source.description, source.category, source.product_type, source.badge,
+        source.price_cents, source.currency, source.track_inventory, source.allow_player_name,
+        source.allow_player_number, source.player_name_price_cents, source.player_number_price_cents)
+  ];
+  for (const [index, variant] of (variants.results || []).entries()) {
+    const skuBase = String(variant.sku || 'PTG-COPY').slice(0, 64);
+    statements.push(db.prepare(`INSERT INTO product_variants (
+      product_id, sku, size, colour, style, stock_quantity, active, allow_player_name, allow_player_number
+    ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)`)
+      .bind(copyId, `${skuBase}-${suffix}-${index + 1}`, variant.size, variant.colour, variant.style,
+        variant.active, variant.allow_player_name, variant.allow_player_number));
+  }
+  statements.push(db.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+    VALUES (?, 'duplicate', 'product', ?, ?)`).bind(identity.email, copyId, `Duplicated ${source.name} as an inactive draft`));
+  await db.batch(statements);
+  return json({ ok: true, product: await getProduct(db, copyId), message: 'Draft duplicate created. Add pictures and review stock before enabling it.' }, 201);
 }
 
 async function updateProduct(db, productId, body, identity) {
@@ -574,6 +643,13 @@ export async function handleAdminApi(request, env, identity) {
     if (method === 'PUT' && segments[0] === 'products' && segments.length === 2) {
       const parsed = await readBody(request);
       return parsed.error ? json({ ok: false, error: parsed.error }, 400) : updateProduct(env.DB, segments[1], parsed.body, identity);
+    }
+    if (method === 'POST' && segments[0] === 'products' && segments[2] === 'lifecycle' && segments.length === 3) {
+      const parsed = await readBody(request);
+      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : productLifecycle(env.DB, segments[1], parsed.body, identity);
+    }
+    if (method === 'POST' && segments[0] === 'products' && segments[2] === 'duplicate' && segments.length === 3) {
+      return duplicateProduct(env.DB, segments[1], identity);
     }
     if (method === 'GET' && segments[0] === 'products' && segments[2] === 'variants' && segments.length === 3) {
       const product = await getProduct(env.DB, segments[1]);

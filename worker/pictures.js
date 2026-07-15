@@ -59,6 +59,7 @@ function mapPicture(row) {
     id: row.id,
     productId: row.product_id,
     url: pictureUrl(row),
+    thumbnailUrl: row.thumbnail_delivery_url || pictureUrl(row),
     altText: row.alt_text || '',
     sortOrder: Number(row.sort_order || 0),
     isPrimary: Boolean(row.is_primary),
@@ -121,8 +122,17 @@ async function parseUpload(request) {
   if (!extension) return { error: 'Only JPEG, PNG, and WebP images are accepted.' };
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (!signatureMatches(bytes, type)) return { error: 'The file contents do not match the selected image type.' };
+  const thumbnail = form.get('thumbnail');
+  let thumbnailUpload = null;
+  if (thumbnail instanceof File && thumbnail.size) {
+    const thumbnailType = String(thumbnail.type || '').toLowerCase();
+    if (thumbnail.size > 1024 * 1024 || !ALLOWED_TYPES.has(thumbnailType)) return { error: 'The generated thumbnail is invalid.' };
+    const thumbnailBytes = new Uint8Array(await thumbnail.arrayBuffer());
+    if (!signatureMatches(thumbnailBytes, thumbnailType)) return { error: 'The thumbnail contents are invalid.' };
+    thumbnailUpload = { file: thumbnail, bytes: thumbnailBytes, type: thumbnailType, extension: ALLOWED_TYPES.get(thumbnailType) };
+  }
   return {
-    form, file, bytes, type, extension,
+    form, file, bytes, type, extension, thumbnail: thumbnailUpload,
     altText: cleanText(form.get('altText'), 200),
     variantStyle: cleanText(form.get('variantStyle'), 80),
     replacePictureId: validId(form.get('replacePictureId')),
@@ -145,33 +155,42 @@ async function uploadPicture(request, env, identity, productId) {
   }
 
   const key = `products/${productId}/${crypto.randomUUID()}.${upload.extension}`;
-  await env.PRODUCT_IMAGES.put(key, upload.bytes, {
-    httpMetadata: { contentType: upload.type, cacheControl: 'public, max-age=31536000, immutable' },
-    customMetadata: { productId, uploadedBy: identity.email }
-  });
-
+  const thumbnailKey = upload.thumbnail ? `products/${productId}/thumbnails/${crypto.randomUUID()}.${upload.thumbnail.extension}` : '';
   try {
+    await env.PRODUCT_IMAGES.put(key, upload.bytes, {
+      httpMetadata: { contentType: upload.type, cacheControl: 'public, max-age=31536000, immutable' },
+      customMetadata: { productId, uploadedBy: identity.email }
+    });
+    if (upload.thumbnail) {
+      await env.PRODUCT_IMAGES.put(thumbnailKey, upload.thumbnail.bytes, {
+        httpMetadata: { contentType: upload.thumbnail.type, cacheControl: 'public, max-age=31536000, immutable' },
+        customMetadata: { productId, uploadedBy: identity.email, purpose: 'thumbnail' }
+      });
+    }
     if (replaced) {
-      await env.DB.prepare(`UPDATE product_images SET object_key = ?, delivery_url = ?, mime_type = ?, file_size = ?,
+      await env.DB.prepare(`UPDATE product_images SET object_key = ?, delivery_url = ?, thumbnail_object_key = ?, thumbnail_delivery_url = ?, mime_type = ?, file_size = ?,
         width = ?, height = ?, alt_text = ?, variant_style = ?, uploaded_by = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND product_id = ? AND active = 1`)
-        .bind(key, `/product-images/${replaced.id}`, upload.type, upload.file.size, upload.width, upload.height,
+        .bind(key, `/product-images/${replaced.id}`, thumbnailKey, thumbnailKey ? `/product-images/${replaced.id}/thumbnail` : '', upload.type, upload.file.size, upload.width, upload.height,
           upload.altText || replaced.alt_text || product.name, upload.variantStyle, identity.email, replaced.id, productId).run();
       await audit(env.DB, identity, 'replace', replaced.id, `Replaced picture for ${product.name}`);
       if (replaced.object_key) await env.PRODUCT_IMAGES.delete(replaced.object_key);
+      if (replaced.thumbnail_object_key) await env.PRODUCT_IMAGES.delete(replaced.thumbnail_object_key);
     } else {
       const max = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), 0) AS value, COUNT(*) AS count FROM product_images WHERE product_id = ? AND active = 1').bind(productId).first();
       const result = await env.DB.prepare(`INSERT INTO product_images
-        (product_id, path, object_key, delivery_url, mime_type, file_size, width, height, alt_text, sort_order, is_primary, active, uploaded_by, variant_style)
-        VALUES (?, '', ?, '', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
-        .bind(productId, key, upload.type, upload.file.size, upload.width, upload.height,
+        (product_id, path, object_key, delivery_url, thumbnail_object_key, thumbnail_delivery_url, mime_type, file_size, width, height, alt_text, sort_order, is_primary, active, uploaded_by, variant_style)
+        VALUES (?, '', ?, '', ?, '', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
+        .bind(productId, key, thumbnailKey, upload.type, upload.file.size, upload.width, upload.height,
           upload.altText || product.name, Number(max?.value || 0) + 1, Number(max?.count || 0) === 0 ? 1 : 0, identity.email, upload.variantStyle).run();
       const id = Number(result.meta.last_row_id);
-      await env.DB.prepare('UPDATE product_images SET delivery_url = ? WHERE id = ?').bind(`/product-images/${id}`, id).run();
+      await env.DB.prepare('UPDATE product_images SET delivery_url = ?, thumbnail_delivery_url = ? WHERE id = ?')
+        .bind(`/product-images/${id}`, thumbnailKey ? `/product-images/${id}/thumbnail` : '', id).run();
       await audit(env.DB, identity, 'upload', id, `Uploaded picture for ${product.name}`);
     }
   } catch (error) {
     await env.PRODUCT_IMAGES.delete(key);
+    if (thumbnailKey) await env.PRODUCT_IMAGES.delete(thumbnailKey);
     throw error;
   }
   return json({ ok: true, pictures: await listProductPictures(env.DB, productId) }, replaced ? 200 : 201);
@@ -226,20 +245,24 @@ async function removePicture(env, identity, pictureId) {
   }
   await audit(env.DB, identity, 'remove', pictureId, 'Removed product picture');
   if (picture.object_key && env.PRODUCT_IMAGES) await env.PRODUCT_IMAGES.delete(picture.object_key);
+  if (picture.thumbnail_object_key && env.PRODUCT_IMAGES) await env.PRODUCT_IMAGES.delete(picture.thumbnail_object_key);
   return json({ ok: true, pictures: await listProductPictures(env.DB, picture.product_id) });
 }
 
-export async function serveProductPicture(request, env, pictureId) {
+export async function serveProductPicture(request, env, pictureId, thumbnail = false) {
   if (!env.DB || !env.PRODUCT_IMAGES) return new Response('Not found', { status: 404 });
-  const picture = await env.DB.prepare('SELECT object_key, mime_type FROM product_images WHERE id = ? AND active = 1 AND object_key != ?').bind(pictureId, '').first();
+  const picture = await env.DB.prepare('SELECT object_key, thumbnail_object_key, mime_type FROM product_images WHERE id = ? AND active = 1 AND object_key != ?').bind(pictureId, '').first();
   if (!picture) return new Response('Not found', { status: 404 });
-  const object = await env.PRODUCT_IMAGES.get(picture.object_key);
+  const objectKey = thumbnail && picture.thumbnail_object_key ? picture.thumbnail_object_key : picture.object_key;
+  const object = await env.PRODUCT_IMAGES.get(objectKey);
   if (!object) return new Response('Not found', { status: 404 });
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set('Content-Type', picture.mime_type || headers.get('Content-Type') || 'application/octet-stream');
   headers.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
   headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox");
+  headers.set('Cross-Origin-Resource-Policy', 'same-site');
   return new Response(request.method === 'HEAD' ? null : object.body, { headers });
 }
 

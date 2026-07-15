@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /cart
+Disallow: /order-success
+
+Sitemap: https://ptgactivewear.co.nz/sitemap.xml

@@ -2,10 +2,31 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-15
+
+### Added
+
+* Added safe product enable, disable, archive, restore, delete-as-archive, and draft duplication workflows to the admin catalogue.
+* Added drag-and-drop product image ordering, crop presets, WebP optimisation, generated thumbnails, and thumbnail-aware R2 storage cleanup.
+* Added storefront canonical links, social preview metadata, structured data, `robots.txt`, and `sitemap.xml`.
+* Added consistent storefront and admin security headers at the Worker asset boundary.
+
+### Changed
+
+* Polished the admin catalogue, dashboard, sidebar, tables, status filtering, and responsive picture workflow without changing the storefront design direction.
+* Replaced unverified homepage trust statements and dead footer links with factual service and Stripe checkout information.
+* Converted the Luchito and Contact hero backgrounds to compact WebP assets while preserving the original source images.
+
+### Fixed
+
+* Hid archived products from public catalogue and checkout availability while preserving order and audit history.
+* Updated the Patagonia FC Beanie with separate With Pom Pom and Without Pom Pom variants and matching galleries.
+
 ## 2026-07-14
 
 ### Added
 
+* Added separate Patagonia FC Beanie options for With Pom Pom and Without Pom Pom, using their matching style galleries.
 * Added the production R2 binding declaration required by admin product-picture uploads.
 * Added an admin workflow for creating safe inactive draft products, with server-generated IDs and direct access to variants, stock, and picture management.
 * Added an additive D1 migration for R2 image metadata, active/static fallbacks, style galleries, and variant-level personalisation rules.

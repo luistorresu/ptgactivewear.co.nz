@@ -5,12 +5,21 @@ window.PTG_PRODUCTS = [
     price: 35,
     category: 'accessories',
     type: 'Beanie',
-    image: 'photos/clouth/Patagonia FC Beanie - $35 - image 01 .jpeg',
+    image: 'photos/clouth/binnie 1.jpeg',
     gallery: [
-      'photos/clouth/Patagonia FC Beanie - $35 - image 01 .jpeg'
+      'photos/clouth/binnie 1.jpeg',
+      'photos/clouth/binnie PomPom.jpeg'
     ],
-    description: 'Soft knitted beanie with the Patagonia FC crest and bold club branding for training, match days and everyday wear. Two styles available.',
+    galleryImages: [
+      { src: 'photos/clouth/binnie 1.jpeg', style: 'Without Pom Pom' },
+      { src: 'photos/clouth/binnie PomPom.jpeg', style: 'With Pom Pom' }
+    ],
+    description: 'Soft knitted beanie with the Patagonia FC crest and bold club branding. Choose your preferred style with or without a pom pom.',
     sizes: ['One Size'],
+    inventoryVariants: [
+      { id: 1, sku: 'PTG-PFC-BEANIE-OS', size: 'One Size', colour: '', style: 'Without Pom Pom', label: 'One Size / Without Pom Pom', available: true, stockStatus: 'in_stock', allowPlayerName: false, allowPlayerNumber: false },
+      { id: 2, sku: 'PTG-PFC-BEANIE-POMPOM', size: 'One Size', colour: '', style: 'With Pom Pom', label: 'One Size / With Pom Pom', available: true, stockStatus: 'in_stock', allowPlayerName: false, allowPlayerNumber: false }
+    ],
     featured: true
   },
   {

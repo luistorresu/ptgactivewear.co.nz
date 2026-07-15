@@ -148,7 +148,7 @@ html { scroll-behavior: smooth; }
   inset: 0;
   background:
     linear-gradient(90deg, rgba(0, 0, 0, 0.74) 0%, rgba(0, 0, 0, 0.52) 46%, rgba(0, 0, 0, 0.62) 100%),
-    url("../photos/Luchito.png");
+    url("../photos/Luchito.webp");
   background-size: cover;
   background-position: center 42%;
   opacity: 0;
@@ -179,7 +179,7 @@ html { scroll-behavior: smooth; }
   z-index: 0;
   background:
     linear-gradient(90deg, rgba(0, 0, 0, 0.76) 0%, rgba(0, 0, 0, 0.54) 48%, rgba(0, 0, 0, 0.7) 100%),
-    url("../photos/Luchito.png");
+    url("../photos/Luchito.webp");
   background-size: cover;
   background-position: center 42%;
   transform: scale(1.01);
@@ -203,7 +203,7 @@ html { scroll-behavior: smooth; }
   inset: 0;
   background:
     linear-gradient(90deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.5) 46%, rgba(0, 0, 0, 0.68) 100%),
-    url("../photos/contact us.png");
+    url("../photos/contact us.webp");
   background-size: cover;
   background-position: center 44%;
   opacity: 0;

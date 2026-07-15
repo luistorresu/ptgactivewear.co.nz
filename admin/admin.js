@@ -3,7 +3,10 @@ const state = {
   currentProduct: null,
   currentOrder: null,
   pictureProducts: [],
-  currentPictureProduct: null
+  currentPictureProduct: null,
+  products: [],
+  pendingPictureFile: null,
+  pendingThumbnailFile: null
 };
 
 function applyTheme(theme) {
@@ -119,16 +122,32 @@ async function loadProducts() {
   const container = document.getElementById('products-table');
   container.innerHTML = empty('Loading products...');
   const result = await api('/products');
-  if (!result.products.length) { container.innerHTML = empty('No products found.'); return; }
-  container.innerHTML = `<table><thead><tr><th>Product</th><th>Price</th><th>Status</th><th>Inventory</th><th>Total stock</th><th>Variants</th><th></th></tr></thead><tbody>${result.products.map(product => `
+  state.products = result.products;
+  renderProducts();
+}
+
+function renderProducts() {
+  const container = document.getElementById('products-table');
+  const search = String(document.querySelector('[data-product-search]')?.value || '').trim().toLowerCase();
+  const status = document.querySelector('[data-product-status]')?.value || 'all';
+  const products = state.products.filter(product => {
+    const matchesSearch = !search || [product.name, product.category, product.productType, product.id].some(value => String(value || '').toLowerCase().includes(search));
+    const matchesStatus = status === 'all'
+      || (status === 'active' && product.active && !product.archived)
+      || (status === 'draft' && !product.active && !product.archived)
+      || (status === 'archived' && product.archived);
+    return matchesSearch && matchesStatus;
+  });
+  if (!products.length) { container.innerHTML = empty('No products match these filters.'); return; }
+  container.innerHTML = `<table><thead><tr><th>Product</th><th>Price</th><th>Status</th><th>Inventory</th><th>Total stock</th><th>Variants</th><th>Actions</th></tr></thead><tbody>${products.map(product => `
     <tr>
       <td><div class="product-cell"><img src="${escapeHtml(product.primaryImage)}" alt=""><div><strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(product.id)}</span></div></div></td>
       <td>${money(product.priceCents)}</td>
-      <td>${product.active ? badge('Active', 'success') : badge('Inactive', 'danger')} ${product.availableForSale ? '' : badge('Not for sale', 'warning')}</td>
+      <td>${product.archived ? badge('Archived', 'neutral') : product.active ? badge('Active', 'success') : badge('Draft / disabled', 'warning')} ${product.availableForSale ? '' : badge('Not for sale', 'warning')}</td>
       <td>${product.trackInventory ? badge('Tracked', 'neutral') : badge('Not tracked', 'warning')}</td>
       <td><strong>${Number(product.totalStock)}</strong></td>
       <td>${Number(product.variantCount)}</td>
-      <td><div class="table-actions"><button type="button" class="button button-secondary button-small" data-product-id="${escapeHtml(product.id)}">Edit</button><button type="button" class="button button-secondary button-small" data-product-pictures="${escapeHtml(product.id)}">Pictures</button></div></td>
+      <td><div class="table-actions"><button type="button" class="button button-secondary button-small" data-product-id="${escapeHtml(product.id)}">Edit</button><button type="button" class="button button-secondary button-small" data-product-pictures="${escapeHtml(product.id)}">Pictures</button><button type="button" class="button button-secondary button-small" data-duplicate-product="${escapeHtml(product.id)}">Duplicate</button>${product.archived ? `<button type="button" class="button button-secondary button-small" data-product-action="restore" data-product-action-id="${escapeHtml(product.id)}">Restore</button>` : `<button type="button" class="button button-secondary button-small" data-product-action="${product.active ? 'disable' : 'enable'}" data-product-action-id="${escapeHtml(product.id)}">${product.active ? 'Disable' : 'Enable'}</button><button type="button" class="button button-secondary button-small" data-product-action="archive" data-product-action-id="${escapeHtml(product.id)}">Archive</button><button type="button" class="button button-danger button-small" data-product-action="delete" data-product-action-id="${escapeHtml(product.id)}">Delete</button>`}</div></td>
     </tr>`).join('')}</tbody></table>`;
 }
 
@@ -160,8 +179,9 @@ function renderPictureManager() {
   const product = state.currentPictureProduct;
   const container = document.getElementById('picture-manager-list');
   if (!product || !product.pictures.length) { container.innerHTML = empty('No pictures are available.'); return; }
-  container.innerHTML = product.pictures.map((picture, index) => `<article class="picture-row" data-picture-row="${Number(picture.id)}">
-    <img src="${escapeHtml(picture.url)}" alt="${escapeHtml(picture.altText)}">
+  container.innerHTML = product.pictures.map((picture, index) => `<article class="picture-row" data-picture-row="${Number(picture.id)}" draggable="true" tabindex="0" aria-label="Gallery image ${index + 1}; drag to reorder">
+    <div class="picture-drag-handle" aria-hidden="true">&#8942;&#8942;</div>
+    <img src="${escapeHtml(picture.thumbnailUrl || picture.url)}" alt="${escapeHtml(picture.altText)}">
     <form class="picture-meta-form" data-picture-meta="${Number(picture.id)}">
       <label class="field"><span>Alt text</span><input name="altText" value="${escapeHtml(picture.altText)}" maxlength="200" required></label>
       <label class="field"><span>Gallery style</span><input name="variantStyle" value="${escapeHtml(picture.variantStyle)}" maxlength="80" placeholder="Optional"></label>
@@ -189,6 +209,9 @@ function openPicturesManager(productId) {
   form.querySelector('[type="submit"]').textContent = 'Upload Picture';
   form.querySelector('[data-cancel-replace]').hidden = true;
   document.getElementById('picture-upload-preview').hidden = true;
+  state.pendingPictureFile = null;
+  state.pendingThumbnailFile = null;
+  document.querySelector('[data-optimisation-summary]').textContent = 'Optimisation details will appear after you choose an image.';
   clearStatus(document.getElementById('pictures-modal-status'));
   renderPictureManager();
   modal('pictures', true);
@@ -220,7 +243,11 @@ function uploadPicture(form) {
       else reject(new Error(result.error || 'The picture could not be uploaded.'));
     });
     xhr.addEventListener('error', () => { button.disabled = false; reject(new Error('The picture upload was interrupted.')); });
-    xhr.send(new FormData(form));
+    const data = new FormData(form);
+    data.delete('crop');
+    if (state.pendingPictureFile) data.set('file', state.pendingPictureFile, state.pendingPictureFile.name);
+    if (state.pendingThumbnailFile) data.set('thumbnail', state.pendingThumbnailFile, state.pendingThumbnailFile.name);
+    xhr.send(data);
   });
 }
 
@@ -341,9 +368,95 @@ function fillProductForm(product) {
   document.querySelector('[data-product-submit]').textContent = 'Save Product';
   document.querySelector('[data-manage-current-pictures]').hidden = false;
   document.getElementById('product-variants-section').hidden = false;
+  const lifecycleNote = document.querySelector('[data-product-lifecycle-note]');
+  lifecycleNote.hidden = false;
+  lifecycleNote.textContent = product.archived ? 'Archived product. Restore it before editing availability.' : product.active ? 'Active on the public website.' : 'Draft or disabled. Review pictures, variants and stock before enabling.';
   const preview = document.getElementById('product-image-preview');
   preview.innerHTML = product.images[0] ? `<img src="${escapeHtml(product.images[0].path)}" alt="${escapeHtml(product.name)} preview">` : '';
   renderVariantList(product);
+}
+
+async function reorderPictureTo(sourceId, targetId) {
+  const pictures = [...state.currentPictureProduct.pictures];
+  const sourceIndex = pictures.findIndex(picture => picture.id === sourceId);
+  const targetIndex = pictures.findIndex(picture => picture.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+  const [moved] = pictures.splice(sourceIndex, 1);
+  pictures.splice(targetIndex, 0, moved);
+  const result = await api(`/products/${encodeURIComponent(state.currentPictureProduct.id)}/pictures/reorder`, { method: 'POST', body: JSON.stringify({ pictureIds: pictures.map(picture => picture.id) }) });
+  syncCurrentPictures(result.pictures);
+  setStatus(document.getElementById('pictures-modal-status'), 'success', 'Gallery order saved.');
+}
+
+function canvasBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Image conversion failed.')), type, quality));
+}
+
+async function optimisePicture(file, crop) {
+  if (!file || file.size > 8 * 1024 * 1024) throw new Error('Choose a JPEG, PNG or WebP image up to 8 MB.');
+  const bitmap = await createImageBitmap(file);
+  const ratios = { square: 1, portrait: 4 / 5, landscape: 4 / 3 };
+  const targetRatio = ratios[crop] || bitmap.width / bitmap.height;
+  let sourceWidth = bitmap.width;
+  let sourceHeight = bitmap.height;
+  let sourceX = 0;
+  let sourceY = 0;
+  if (crop !== 'original') {
+    if (bitmap.width / bitmap.height > targetRatio) {
+      sourceWidth = Math.round(bitmap.height * targetRatio);
+      sourceX = Math.round((bitmap.width - sourceWidth) / 2);
+    } else {
+      sourceHeight = Math.round(bitmap.width / targetRatio);
+      sourceY = Math.round((bitmap.height - sourceHeight) / 2);
+    }
+  }
+  const scale = Math.min(1, 2400 / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d', { alpha: true }).drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
+  const mainBlob = await canvasBlob(canvas, 'image/webp', 0.86);
+  const thumbScale = Math.min(1, 480 / Math.max(width, height));
+  const thumb = document.createElement('canvas');
+  thumb.width = Math.max(1, Math.round(width * thumbScale));
+  thumb.height = Math.max(1, Math.round(height * thumbScale));
+  thumb.getContext('2d', { alpha: true }).drawImage(canvas, 0, 0, thumb.width, thumb.height);
+  const thumbnailBlob = await canvasBlob(thumb, 'image/webp', 0.78);
+  bitmap.close();
+  const base = file.name.replace(/\.[^.]+$/, '').slice(0, 80) || 'product-picture';
+  return {
+    main: new File([mainBlob], `${base}.webp`, { type: 'image/webp' }),
+    thumbnail: new File([thumbnailBlob], `${base}-thumb.webp`, { type: 'image/webp' }),
+    width,
+    height,
+    originalBytes: file.size
+  };
+}
+
+async function preparePicture(file) {
+  const preview = document.getElementById('picture-upload-preview');
+  const summary = document.querySelector('[data-optimisation-summary]');
+  if (!file) { preview.hidden = true; state.pendingPictureFile = null; state.pendingThumbnailFile = null; return; }
+  summary.textContent = 'Optimising image...';
+  try {
+    const result = await optimisePicture(file, document.getElementById('picture-upload-form').elements.crop.value);
+    state.pendingPictureFile = result.main;
+    state.pendingThumbnailFile = result.thumbnail;
+    const url = URL.createObjectURL(result.main);
+    preview.innerHTML = `<img src="${url}" alt="Optimised picture preview">`;
+    preview.hidden = false;
+    preview.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+    const reduction = Math.max(0, Math.round((1 - result.main.size / result.originalBytes) * 100));
+    summary.textContent = `${result.width} x ${result.height} WebP; ${Math.round(result.main.size / 1024)} KB${reduction ? `; ${reduction}% smaller` : ''}. Thumbnail generated.`;
+  } catch (error) {
+    state.pendingPictureFile = null;
+    state.pendingThumbnailFile = null;
+    preview.hidden = true;
+    summary.textContent = error.message;
+    setStatus(document.getElementById('pictures-modal-status'), 'error', error.message);
+  }
 }
 
 function newProduct() {
@@ -365,8 +478,31 @@ function newProduct() {
   document.getElementById('product-variants-section').hidden = true;
   document.querySelector('[data-manage-current-pictures]').hidden = true;
   document.querySelector('[data-product-submit]').textContent = 'Create Draft Product';
+  document.querySelector('[data-product-lifecycle-note]').hidden = true;
   modal('product', true);
   form.elements.name.focus();
+}
+
+async function changeProductLifecycle(productId, action) {
+  const labels = {
+    archive: 'Archive this product? It will disappear from the shop but remain available in admin and order history.',
+    delete: 'Delete this product? For safety it will be archived, not permanently erased.',
+    disable: 'Disable this product and remove it from sale?',
+    enable: 'Enable this product on the website?',
+    restore: 'Restore this product as a disabled draft?'
+  };
+  if (!window.confirm(labels[action])) return;
+  const result = await api(`/products/${encodeURIComponent(productId)}/lifecycle`, { method: 'POST', body: JSON.stringify({ action }) });
+  setStatus(document.getElementById('global-status'), 'success', result.message);
+  await loadProducts();
+}
+
+async function duplicateProduct(productId) {
+  if (!window.confirm('Create a hidden draft copy with the same details and options? Stock starts at zero and pictures must be added separately.')) return;
+  const result = await api(`/products/${encodeURIComponent(productId)}/duplicate`, { method: 'POST', body: '{}' });
+  setStatus(document.getElementById('global-status'), 'success', result.message);
+  await loadProducts();
+  await openProduct(result.product.id);
 }
 
 async function manageProductPictures(productId) {
@@ -556,6 +692,10 @@ document.addEventListener('click', event => {
   if (productButton) openProduct(productButton.dataset.productId);
   const newProductButton = event.target.closest('[data-new-product]');
   if (newProductButton) newProduct();
+  const duplicateButton = event.target.closest('[data-duplicate-product]');
+  if (duplicateButton) duplicateProduct(duplicateButton.dataset.duplicateProduct).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
+  const lifecycleButton = event.target.closest('[data-product-action]');
+  if (lifecycleButton) changeProductLifecycle(lifecycleButton.dataset.productActionId, lifecycleButton.dataset.productAction).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
   const productPictures = event.target.closest('[data-product-pictures]');
   if (productPictures) manageProductPictures(productPictures.dataset.productPictures).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
   const currentPictures = event.target.closest('[data-manage-current-pictures]');
@@ -593,7 +733,7 @@ document.addEventListener('click', event => {
 document.addEventListener('submit', async event => {
   try {
     if (event.target.id === 'product-form') return await saveProduct(event);
-    if (event.target.id === 'picture-upload-form') { event.preventDefault(); const result = await uploadPicture(event.target); syncCurrentPictures(result.pictures); event.target.reset(); event.target.elements.altText.value = state.currentPictureProduct.name; event.target.elements.replacePictureId.value = ''; event.target.querySelector('[type="submit"]').textContent = 'Upload Picture'; event.target.querySelector('[data-cancel-replace]').hidden = true; event.target.querySelector('.upload-progress').hidden = true; document.getElementById('picture-upload-preview').hidden = true; return setStatus(document.getElementById('pictures-modal-status'), 'success', 'Picture saved successfully.'); }
+    if (event.target.id === 'picture-upload-form') { event.preventDefault(); const result = await uploadPicture(event.target); syncCurrentPictures(result.pictures); event.target.reset(); event.target.elements.altText.value = state.currentPictureProduct.name; event.target.elements.replacePictureId.value = ''; event.target.querySelector('[type="submit"]').textContent = 'Upload Picture'; event.target.querySelector('[data-cancel-replace]').hidden = true; event.target.querySelector('.upload-progress').hidden = true; document.getElementById('picture-upload-preview').hidden = true; state.pendingPictureFile = null; state.pendingThumbnailFile = null; document.querySelector('[data-optimisation-summary]').textContent = 'Optimisation details will appear after you choose an image.'; return setStatus(document.getElementById('pictures-modal-status'), 'success', 'Picture optimised and saved successfully.'); }
     if (event.target.matches('[data-picture-meta]')) { event.preventDefault(); return await savePictureMeta(event.target); }
     if (event.target.id === 'add-variant-form') return await addVariant(event);
     if (event.target.id === 'fulfilment-form') { event.preventDefault(); return await saveFulfilment(event.target); }
@@ -609,14 +749,38 @@ document.addEventListener('submit', async event => {
 
 document.getElementById('order-filters').addEventListener('reset', () => setTimeout(loadOrders, 0));
 document.getElementById('movement-filters').addEventListener('reset', () => setTimeout(loadMovements, 0));
-document.getElementById('picture-upload-form').elements.file.addEventListener('change', event => {
-  const preview = document.getElementById('picture-upload-preview');
-  const file = event.target.files[0];
-  if (!file) { preview.hidden = true; return; }
-  const url = URL.createObjectURL(file);
-  preview.innerHTML = `<img src="${url}" alt="Selected picture preview">`;
-  preview.hidden = false;
-  preview.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+document.querySelector('[data-product-search]').addEventListener('input', renderProducts);
+document.querySelector('[data-product-status]').addEventListener('change', renderProducts);
+const pictureForm = document.getElementById('picture-upload-form');
+pictureForm.elements.file.addEventListener('change', event => preparePicture(event.target.files[0]));
+pictureForm.elements.crop.addEventListener('change', () => preparePicture(pictureForm.elements.file.files[0]));
+const dropzone = document.querySelector('[data-picture-dropzone]');
+for (const eventName of ['dragenter', 'dragover']) dropzone.addEventListener(eventName, event => { event.preventDefault(); dropzone.classList.add('is-dragging'); });
+for (const eventName of ['dragleave', 'drop']) dropzone.addEventListener(eventName, event => { event.preventDefault(); dropzone.classList.remove('is-dragging'); });
+dropzone.addEventListener('drop', event => {
+  const file = [...event.dataTransfer.files].find(item => item.type.startsWith('image/'));
+  if (!file) return;
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  pictureForm.elements.file.files = transfer.files;
+  preparePicture(file);
+});
+
+let draggedPictureId = null;
+document.addEventListener('dragstart', event => {
+  const row = event.target.closest('[data-picture-row]');
+  if (!row) return;
+  draggedPictureId = Number(row.dataset.pictureRow);
+  row.classList.add('is-dragging');
+  event.dataTransfer.effectAllowed = 'move';
+});
+document.addEventListener('dragend', event => { event.target.closest('[data-picture-row]')?.classList.remove('is-dragging'); draggedPictureId = null; });
+document.addEventListener('dragover', event => { if (draggedPictureId && event.target.closest('[data-picture-row]')) event.preventDefault(); });
+document.addEventListener('drop', event => {
+  const row = event.target.closest('[data-picture-row]');
+  if (!row || !draggedPictureId) return;
+  event.preventDefault();
+  reorderPictureTo(draggedPictureId, Number(row.dataset.pictureRow)).catch(error => setStatus(document.getElementById('pictures-modal-status'), 'error', error.message));
 });
 
 document.addEventListener('keydown', event => {
