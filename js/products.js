@@ -45,22 +45,14 @@ window.PTG_PRODUCTS = [
     price: 15,
     category: 'accessories',
     type: 'Mug',
-    image: 'photos/clouth/Mug Style 1.png',
+    image: 'photos/clouth/Mug style 1  new .jpeg',
     gallery: [
-      'photos/clouth/Mug Style 1.png',
-      'photos/clouth/Mug style 1 .1.png',
-      'photos/clouth/Mug Style 1 .2.png',
-      'photos/clouth/Mug style 2.png',
-      'photos/clouth/Mug Style 2.1.png',
-      'photos/clouth/Mug Style 2 - Copy.png'
+      'photos/clouth/Mug style 1  new .jpeg',
+      'photos/clouth/Mug Style 2 New.jpeg'
     ],
     galleryImages: [
-      { src: 'photos/clouth/Mug Style 1.png', style: 'Style 1' },
-      { src: 'photos/clouth/Mug style 1 .1.png', style: 'Style 1' },
-      { src: 'photos/clouth/Mug Style 1 .2.png', style: 'Style 1' },
-      { src: 'photos/clouth/Mug style 2.png', style: 'Style 2' },
-      { src: 'photos/clouth/Mug Style 2.1.png', style: 'Style 2' },
-      { src: 'photos/clouth/Mug Style 2 - Copy.png', style: 'Style 2' }
+      { src: 'photos/clouth/Mug style 1  new .jpeg', style: 'Style 1' },
+      { src: 'photos/clouth/Mug Style 2 New.jpeg', style: 'Style 2' }
     ],
     description: 'Premium ceramic mug with the Patagonia FC club logo, 2026 season design and personalised player name and number.',
     sizes: ['One Size'],
@@ -108,5 +100,23 @@ window.PTG_PRODUCTS = [
     description: 'Lightweight waterproof two-piece rain suit with taped seams, breathable fabric and easy overpants for wet training days.',
     sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
     featured: true
+  },
+  {
+    id: 'patagonia-fc-windbreaker-jacket',
+    slug: 'patagonia-fc-windbreaker-jacket',
+    name: 'Patagonia FC Windbreaker Jacket',
+    price: 120,
+    category: 'jackets',
+    type: 'Windbreaker Jacket',
+    image: 'photos/clouth/Windbreaker.jpeg',
+    gallery: [
+      'photos/clouth/Windbreaker.jpeg',
+      'photos/clouth/WindBreaker 2.png',
+      'photos/clouth/Windbreaker 1.png'
+    ],
+    description: 'Stay comfortable and protected in changing weather with the official Patagonia FC Windbreaker Jacket. Designed for training, travel and everyday wear, this lightweight jacket offers protection from wind and light showers while remaining breathable and comfortable. Constructed from a durable water-resistant outer shell, it features a soft mesh lining that improves airflow and comfort without adding unnecessary weight. The full-length front zip allows for easy layering, while the elasticated cuffs and waistband provide a secure fit. Includes two side pockets. Finished with the official Patagonia FC crest and PTG Activewear branding, this jacket combines performance with a clean, professional look. Features: water-resistant outer fabric for light rain and windy conditions; lightweight design; breathable mesh inner lining; full front zipper; two side pockets; elasticated cuffs and waistband; official Patagonia FC and PTG Activewear branding; athletic fit; suitable for players. Please note: this jacket is water-resistant and is not designed as a fully waterproof raincoat.',
+    sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
+    badge: 'New',
+    featured: false
   }
 ];

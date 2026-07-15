@@ -6,6 +6,8 @@ All notable changes to this website should be documented here.
 
 ### Added
 
+* Added the Patagonia FC Windbreaker Jacket at NZD $120 with XS-2XL options, three gallery images, full product details, and water-resistant usage guidance.
+* Replaced the Patagonia FC mug gallery with clear new Style 1 and personalised Style 2 images while preserving style-specific options.
 * Added complete draft product creation with slug, SEO metadata, variants, SKUs, starting stock, personalisation controls, and recoverable multi-image R2 uploads.
 * Added D1-backed public product URLs with Product and Breadcrumb structured data, dynamic sitemap entries, and a Google Merchant-compatible XML feed.
 * Added safe product enable, disable, archive, restore, delete-as-archive, and draft duplication workflows to the admin catalogue.

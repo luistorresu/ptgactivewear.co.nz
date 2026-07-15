@@ -108,6 +108,41 @@ test('beanie exposes pom pom styles with matching image galleries', async () => 
   assert.match(migration, /INSERT OR IGNORE INTO product_variants/);
 });
 
+test('windbreaker is one NZD 120 product with six sizes and three images', async () => {
+  const [products, seed, migration] = await Promise.all([
+    readFile(new URL('js/products.js', root), 'utf8'),
+    readFile(new URL('seed/seed-products.sql', root), 'utf8'),
+    readFile(new URL('migrations/0007_add_windbreaker_jacket.sql', root), 'utf8')
+  ]);
+  for (const source of [products, seed, migration]) {
+    assert.match(source, /patagonia-fc-windbreaker-jacket/);
+    assert.match(source, /Windbreaker\.jpeg/);
+    assert.match(source, /WindBreaker 2\.png/);
+    assert.match(source, /Windbreaker 1\.png/);
+  }
+  assert.match(products, /price: 120/);
+  assert.match(products, /sizes: \['XS', 'S', 'M', 'L', 'XL', '2XL'\]/);
+  assert.match(migration, /12000/);
+  assert.equal((migration.match(/PTG-PFC-WINDBREAKER-(?:XS|S|M|L|XL|2XL)'/g) || []).length, 6);
+  assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
+});
+
+test('mug styles use the new style-specific images', async () => {
+  const [products, seed, migration] = await Promise.all([
+    readFile(new URL('js/products.js', root), 'utf8'),
+    readFile(new URL('seed/seed-products.sql', root), 'utf8'),
+    readFile(new URL('migrations/0008_update_mug_style_images.sql', root), 'utf8')
+  ]);
+  for (const source of [products, seed, migration]) {
+    assert.match(source, /Mug style 1  new \.jpeg/);
+    assert.match(source, /Mug Style 2 New\.jpeg/);
+  }
+  assert.match(products, /Mug style 1  new \.jpeg', style: 'Style 1'/);
+  assert.match(products, /Mug Style 2 New\.jpeg', style: 'Style 2'/);
+  assert.match(migration, /SET active = 0, is_primary = 0/);
+  assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
+});
+
 test('pictures API validates uploads and never accepts browser object keys', async () => {
   const [pictures, worker, configText] = await Promise.all([
     readFile(new URL('worker/pictures.js', root), 'utf8'),

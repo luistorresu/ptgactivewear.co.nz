@@ -485,19 +485,21 @@ function renderProductCards() {
       : products;
 
     grid.innerHTML = cardProducts.length
-      ? cardProducts.map(product => renderProductCard(product, isShop)).join('')
+      ? cardProducts.map(product => renderProductCard(product, isShop, Boolean(requestedSlug))).join('')
       : '<p class="product-load-error">This product is not currently available.</p>';
   });
 }
 
-function renderProductCard(product, isShop) {
+function renderProductCard(product, isShop, isProductPage = false) {
   const cardClasses = isShop
     ? 'product-card product-card-shop product-item group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100'
     : 'product-card group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100';
   const imageHeight = isShop ? 'h-80' : 'h-72';
   const bodyPadding = isShop ? 'p-5 sm:p-6' : 'p-5';
   const titleClass = isShop ? 'font-semibold text-gray-900 text-base leading-snug' : 'font-semibold text-gray-900';
-  const copyClass = isShop ? 'text-gray-400 text-sm mt-2 leading-relaxed' : 'text-gray-400 text-sm mt-1';
+  const copyClass = isShop
+    ? `text-gray-400 text-sm mt-2 leading-relaxed${isProductPage ? '' : ' product-card-description'}`
+    : 'text-gray-400 text-sm mt-1';
   const priceClass = isShop ? 'text-lg font-bold text-gray-900' : 'text-xl font-bold';
   const buttonClass = isShop ? 'btn-primary px-5 py-2.5 text-sm' : 'btn-primary px-5 py-2 text-sm';
   const actionMargin = isShop ? 'mt-5' : 'mt-4';

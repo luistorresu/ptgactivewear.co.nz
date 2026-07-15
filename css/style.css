@@ -328,6 +328,13 @@ html { scroll-behavior: smooth; }
   flex-direction: column;
 }
 
+.product-card-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
 .product-detail-grid { width: min(100%, 760px); margin: 0 auto; }
 .product-detail-grid .product-card { display: grid; grid-template-columns: minmax(280px, 1.08fr) minmax(280px, .92fr); }
 .product-detail-grid .product-image-wrap { height: 100%; min-height: 520px; }
