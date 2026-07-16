@@ -490,6 +490,86 @@ function renderProductCards() {
   });
 }
 
+function renderHomeProductCarousel() {
+  const carousel = document.querySelector('[data-home-product-carousel]');
+  if (!carousel || window.PTG_PRODUCTS_SOURCE !== 'd1') return;
+  const products = getProducts().filter(product => product.available === true && product.active !== false);
+  const track = carousel.querySelector('[data-home-carousel-track]');
+  const dots = carousel.querySelector('[data-home-carousel-dots]');
+  const status = carousel.querySelector('[data-home-carousel-status]');
+  const previous = carousel.querySelector('[data-home-carousel-prev]');
+  const next = carousel.querySelector('[data-home-carousel-next]');
+  if (!products.length) {
+    track.innerHTML = '<p class="home-carousel-loading">No products are currently available.</p>';
+    previous.hidden = true;
+    next.hidden = true;
+    return;
+  }
+
+  track.innerHTML = products.map((product, index) => `
+    <article class="home-carousel-slide" aria-hidden="${index ? 'true' : 'false'}">
+      <a class="home-carousel-image" href="/products/${encodeURIComponent(product.slug || product.id)}">
+        <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" ${index ? 'loading="lazy"' : 'fetchpriority="high"'} decoding="async">
+      </a>
+      <div class="home-carousel-copy">
+        <p class="home-carousel-kicker">${escapeHtml(product.productType || product.type || 'Sportswear')}</p>
+        <h3>${escapeHtml(product.name)}</h3>
+        <p class="home-carousel-price">${formatMoney(product.price).replace('.00', '')}</p>
+        ${renderStockStatus(product)}
+        <a class="btn-primary home-carousel-action" href="/products/${encodeURIComponent(product.slug || product.id)}">View Product</a>
+      </div>
+    </article>`).join('');
+  dots.innerHTML = products.map((product, index) => `<button type="button" class="${index ? '' : 'is-active'}" aria-label="View ${escapeHtml(product.name)}" aria-current="${index ? 'false' : 'true'}"></button>`).join('');
+  previous.hidden = products.length < 2;
+  next.hidden = products.length < 2;
+
+  let current = 0;
+  let timer = 0;
+  let pointerStart = null;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const slides = [...track.children];
+  const dotButtons = [...dots.children];
+  const show = (index, manual = false) => {
+    current = (index + products.length) % products.length;
+    track.style.transform = `translateX(-${current * 100}%)`;
+    slides.forEach((slide, slideIndex) => slide.setAttribute('aria-hidden', slideIndex === current ? 'false' : 'true'));
+    dotButtons.forEach((dot, dotIndex) => {
+      dot.classList.toggle('is-active', dotIndex === current);
+      dot.setAttribute('aria-current', dotIndex === current ? 'true' : 'false');
+    });
+    if (manual) status.textContent = `${products[current].name}, product ${current + 1} of ${products.length}`;
+  };
+  const stop = () => { if (timer) window.clearInterval(timer); timer = 0; };
+  const start = () => {
+    stop();
+    if (products.length < 2 || reducedMotion.matches || document.hidden) return;
+    timer = window.setInterval(() => show(current + 1), 5500);
+  };
+  const interact = index => { stop(); show(index, true); };
+  previous.addEventListener('click', () => interact(current - 1));
+  next.addEventListener('click', () => interact(current + 1));
+  dotButtons.forEach((dot, index) => dot.addEventListener('click', () => interact(index)));
+  carousel.addEventListener('mouseenter', stop);
+  carousel.addEventListener('mouseleave', start);
+  carousel.addEventListener('focusin', stop);
+  carousel.addEventListener('focusout', event => { if (!carousel.contains(event.relatedTarget)) start(); });
+  carousel.addEventListener('keydown', event => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      interact(current + (event.key === 'ArrowRight' ? 1 : -1));
+    }
+  });
+  carousel.addEventListener('pointerdown', event => { pointerStart = event.clientX; stop(); });
+  carousel.addEventListener('pointerup', event => {
+    if (pointerStart !== null && Math.abs(event.clientX - pointerStart) > 45) interact(current + (event.clientX < pointerStart ? 1 : -1));
+    pointerStart = null;
+  });
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  reducedMotion.addEventListener?.('change', start);
+  show(0);
+  start();
+}
+
 function renderProductCard(product, isShop, isProductPage = false) {
   const cardClasses = isShop
     ? 'product-card product-card-shop product-item group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100'
@@ -592,6 +672,7 @@ function slugify(value) {
 let activeLightboxProduct = null;
 let activeLightboxImages = [];
 let activeLightboxIndex = 0;
+let activeLightboxTrigger = null;
 
 function getProductGallery(product, style = '') {
   if (style && Array.isArray(product.galleryImages)) {
@@ -661,7 +742,7 @@ function setupProductLightbox() {
   if (document.getElementById('product-lightbox')) return;
 
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="product-lightbox" class="product-lightbox is-hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Product image gallery">
+    <div id="product-lightbox" class="product-lightbox is-hidden" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="product-lightbox-title">
       <button type="button" class="product-lightbox-backdrop" onclick="closeProductLightbox()" aria-label="Close image gallery"></button>
       <div class="product-lightbox-panel">
         <div class="product-lightbox-header">
@@ -676,13 +757,13 @@ function setupProductLightbox() {
           </button>
         </div>
         <div class="product-lightbox-stage">
-          <button type="button" class="product-lightbox-nav product-lightbox-prev" onclick="changeLightboxImage(-1)" aria-label="Previous product image">
+          <button type="button" class="product-lightbox-nav product-lightbox-prev" onclick="changeLightboxImage(-1)" aria-label="Previous image">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
             </svg>
           </button>
           <img id="product-lightbox-image" class="product-lightbox-image" src="" alt="">
-          <button type="button" class="product-lightbox-nav product-lightbox-next" onclick="changeLightboxImage(1)" aria-label="Next product image">
+          <button type="button" class="product-lightbox-nav product-lightbox-next" onclick="changeLightboxImage(1)" aria-label="Next image">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
             </svg>
@@ -700,6 +781,13 @@ function setupProductLightbox() {
     if (event.key === 'Escape') closeProductLightbox();
     if (event.key === 'ArrowLeft') changeLightboxImage(-1);
     if (event.key === 'ArrowRight') changeLightboxImage(1);
+    if (event.key === 'Tab') {
+      const focusable = [...lightbox.querySelectorAll('button:not([hidden]), a[href], [tabindex]:not([tabindex="-1"])')].filter(item => !item.disabled);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
   });
 }
 
@@ -709,6 +797,7 @@ function openProductLightbox(productName, index = 0, trigger = null) {
   if (!product) return;
 
   setupProductLightbox();
+  activeLightboxTrigger = trigger || document.activeElement;
   activeLightboxProduct = product;
   const style = trigger?.closest('.product-card')?.querySelector('[data-inventory-variant] option:checked')?.dataset.style || '';
   activeLightboxImages = getProductGallery(product, style);
@@ -719,6 +808,7 @@ function openProductLightbox(productName, index = 0, trigger = null) {
   lightbox.classList.remove('is-hidden');
   lightbox.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
+  lightbox.querySelector('.product-lightbox-close')?.focus();
 }
 
 function closeProductLightbox() {
@@ -728,6 +818,8 @@ function closeProductLightbox() {
   lightbox.classList.add('is-hidden');
   lightbox.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
+  activeLightboxTrigger?.focus?.();
+  activeLightboxTrigger = null;
 }
 
 function changeLightboxImage(delta) {
@@ -767,6 +859,7 @@ function renderProductLightbox() {
       </button>
     `).join('');
   }
+  document.querySelectorAll('.product-lightbox-nav').forEach(button => { button.hidden = activeLightboxImages.length < 2; });
 }
 
 function setupPersonalisationOptions() {
@@ -868,6 +961,7 @@ function filterProducts(category) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 function initialiseProductExperience() {
   renderProductCards();
+  renderHomeProductCarousel();
   setupProductLightbox();
   setupPersonalisationOptions();
   setupProductVariants();
@@ -905,6 +999,7 @@ async function loadDatabaseProducts() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok || !Array.isArray(result.products)) return;
     window.PTG_PRODUCTS = result.products;
+    window.PTG_PRODUCTS_SOURCE = 'd1';
     refreshCartFromDatabaseProducts();
     initialiseProductExperience();
     updateCartUI();

@@ -218,3 +218,46 @@ test('customer order email uses friendly order number without technical referenc
   assert.match(customerTemplate, /order\.orderNumber/);
   assert.doesNotMatch(customerTemplate, /order\.sessionId|paymentIntentId|eventId/);
 });
+
+test('homepage carousel uses D1 saleable products and accessible motion controls', async () => {
+  const [home, script, styles] = await Promise.all([
+    readFile(new URL('index.html', root), 'utf8'),
+    readFile(new URL('js/main.js', root), 'utf8'),
+    readFile(new URL('css/style.css', root), 'utf8')
+  ]);
+  assert.match(home, /data-home-product-carousel/);
+  assert.match(script, /PTG_PRODUCTS_SOURCE = 'd1'/);
+  assert.match(script, /filter\(product => product\.available === true/);
+  assert.match(script, /visibilitychange/);
+  assert.match(script, /prefers-reduced-motion: reduce/);
+  assert.match(script, /pointerStart/);
+  assert.match(styles, /home-carousel-slide/);
+});
+
+test('picture uploads are retry-safe and surface precise client errors', async () => {
+  const [pictures, admin, migration] = await Promise.all([
+    readFile(new URL('worker/pictures.js', root), 'utf8'),
+    readFile(new URL('admin/admin.js', root), 'utf8'),
+    readFile(new URL('migrations/0009_upload_idempotency.sql', root), 'utf8')
+  ]);
+  assert.match(pictures, /upload_request_id/);
+  assert.match(pictures, /REQUEST_ID_CONFLICT/);
+  assert.match(pictures, /DATABASE_COMMIT_FAILED/);
+  assert.match(admin, /X-Upload-Request-ID/);
+  assert.match(admin, /xhr\.timeout = 90000/);
+  assert.match(admin, /pendingPicturePromise/);
+  assert.match(migration, /CREATE UNIQUE INDEX/);
+  assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
+});
+
+test('new product form makes Draft and Active an explicit choice', async () => {
+  const [html, admin] = await Promise.all([
+    readFile(new URL('admin/index.html', root), 'utf8'),
+    readFile(new URL('admin/admin.js', root), 'utf8')
+  ]);
+  assert.match(html, /name="createStatus"/);
+  assert.match(html, /Draft \(hidden\)/);
+  assert.match(html, /Active \(publish\)/);
+  assert.match(admin, /publishRequested/);
+  assert.match(admin, /Choose at least one product image before publishing/);
+});

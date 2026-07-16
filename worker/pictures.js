@@ -1,4 +1,7 @@
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+const MAX_MULTIPART_BYTES = 18 * 1024 * 1024;
+const MAX_IMAGE_EDGE = 12000;
+const MAX_IMAGE_PIXELS = 60_000_000;
 const ALLOWED_TYPES = new Map([
   ['image/jpeg', 'jpg'],
   ['image/png', 'png'],
@@ -47,11 +50,43 @@ function dimensions(bytes, type) {
       offset += length + 2;
     }
   }
+  if (type === 'image/webp' && bytes.length >= 30) {
+    const chunk = String.fromCharCode(...bytes.slice(12, 16));
+    if (chunk === 'VP8X') {
+      return {
+        width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16),
+        height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16)
+      };
+    }
+    if (chunk === 'VP8L' && bytes[20] === 0x2f) {
+      return {
+        width: 1 + bytes[21] + ((bytes[22] & 0x3f) << 8),
+        height: 1 + ((bytes[22] & 0xc0) >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0f) << 10)
+      };
+    }
+    if (chunk === 'VP8 ') {
+      for (let index = 20; index + 6 < bytes.length; index += 1) {
+        if (bytes[index] === 0x9d && bytes[index + 1] === 0x01 && bytes[index + 2] === 0x2a) {
+          return {
+            width: (bytes[index + 3] + (bytes[index + 4] << 8)) & 0x3fff,
+            height: (bytes[index + 5] + (bytes[index + 6] << 8)) & 0x3fff
+          };
+        }
+      }
+    }
+  }
   return { width: null, height: null };
 }
 
+function validRequestId(value) {
+  const requestId = cleanText(value, 80).toLowerCase();
+  return /^[a-z0-9][a-z0-9-]{7,79}$/.test(requestId) ? requestId : '';
+}
+
 function pictureUrl(row) {
-  return row.delivery_url || row.path;
+  if (!row.object_key) return row.path;
+  const version = encodeURIComponent(row.updated_at || row.created_at || row.id);
+  return `/product-images/${row.id}?v=${version}`;
 }
 
 function mapPicture(row) {
@@ -59,7 +94,9 @@ function mapPicture(row) {
     id: row.id,
     productId: row.product_id,
     url: pictureUrl(row),
-    thumbnailUrl: row.thumbnail_delivery_url || pictureUrl(row),
+    thumbnailUrl: row.thumbnail_object_key
+      ? `/product-images/${row.id}/thumbnail?v=${encodeURIComponent(row.updated_at || row.created_at || row.id)}`
+      : pictureUrl(row),
     altText: row.alt_text || '',
     sortOrder: Number(row.sort_order || 0),
     isPrimary: Boolean(row.is_primary),
@@ -109,91 +146,139 @@ async function listAll(db, env) {
 
 async function parseUpload(request) {
   if (!String(request.headers.get('content-type') || '').toLowerCase().startsWith('multipart/form-data')) {
-    return { error: 'A multipart image upload is required.' };
+    return { error: 'A multipart image upload is required.', code: 'INVALID_MULTIPART' };
   }
   const length = Number(request.headers.get('content-length') || 0);
-  if (length > MAX_UPLOAD_BYTES + 1024 * 1024) return { error: 'The image is larger than 8 MB.' };
+  if (length > MAX_MULTIPART_BYTES) return { error: 'The upload request is too large.', code: 'REQUEST_TOO_LARGE' };
   const form = await request.formData();
   const file = form.get('file');
-  if (!(file instanceof File) || !file.size) return { error: 'Choose an image to upload.' };
-  if (file.size > MAX_UPLOAD_BYTES) return { error: 'The image is larger than 8 MB.' };
+  if (!(file instanceof File) || !file.size) return { error: 'Choose an image to upload.', code: 'FILE_REQUIRED' };
+  if (file.size > MAX_UPLOAD_BYTES) return { error: 'The image is larger than 8 MB.', code: 'FILE_TOO_LARGE' };
   const type = String(file.type || '').toLowerCase();
   const extension = ALLOWED_TYPES.get(type);
-  if (!extension) return { error: 'Only JPEG, PNG, and WebP images are accepted.' };
+  if (!extension) return { error: 'Only JPEG, PNG, and WebP images are accepted.', code: 'UNSUPPORTED_FILE_TYPE' };
   const bytes = new Uint8Array(await file.arrayBuffer());
-  if (!signatureMatches(bytes, type)) return { error: 'The file contents do not match the selected image type.' };
+  if (!signatureMatches(bytes, type)) return { error: 'The file contents do not match the selected image type.', code: 'INVALID_FILE_SIGNATURE' };
+  const imageDimensions = dimensions(bytes, type);
+  if (!imageDimensions.width || !imageDimensions.height) return { error: 'The image dimensions could not be verified.', code: 'INVALID_IMAGE_DIMENSIONS' };
+  if (imageDimensions.width > MAX_IMAGE_EDGE || imageDimensions.height > MAX_IMAGE_EDGE || imageDimensions.width * imageDimensions.height > MAX_IMAGE_PIXELS) {
+    return { error: `Image dimensions are too large. Use no more than ${MAX_IMAGE_EDGE}px per edge and 60 megapixels.`, code: 'IMAGE_DIMENSIONS_TOO_LARGE' };
+  }
   const thumbnail = form.get('thumbnail');
   let thumbnailUpload = null;
   if (thumbnail instanceof File && thumbnail.size) {
     const thumbnailType = String(thumbnail.type || '').toLowerCase();
-    if (thumbnail.size > 1024 * 1024 || !ALLOWED_TYPES.has(thumbnailType)) return { error: 'The generated thumbnail is invalid.' };
+    if (thumbnail.size > 1024 * 1024 || !ALLOWED_TYPES.has(thumbnailType)) return { error: 'The generated thumbnail is invalid.', code: 'INVALID_THUMBNAIL' };
     const thumbnailBytes = new Uint8Array(await thumbnail.arrayBuffer());
-    if (!signatureMatches(thumbnailBytes, thumbnailType)) return { error: 'The thumbnail contents are invalid.' };
+    if (!signatureMatches(thumbnailBytes, thumbnailType)) return { error: 'The thumbnail contents are invalid.', code: 'INVALID_THUMBNAIL' };
     thumbnailUpload = { file: thumbnail, bytes: thumbnailBytes, type: thumbnailType, extension: ALLOWED_TYPES.get(thumbnailType) };
   }
   return {
     form, file, bytes, type, extension, thumbnail: thumbnailUpload,
+    requestId: validRequestId(form.get('requestId')),
     altText: cleanText(form.get('altText'), 200),
     variantStyle: cleanText(form.get('variantStyle'), 80),
     replacePictureId: validId(form.get('replacePictureId')),
-    ...dimensions(bytes, type)
+    ...imageDimensions
   };
 }
 
 async function uploadPicture(request, env, identity, productId) {
-  if (!env.PRODUCT_IMAGES) return json({ ok: false, error: 'R2 image storage is not enabled for this Worker yet.' }, 503);
+  const startedAt = Date.now();
+  let requestId = validRequestId(request.headers.get('X-Upload-Request-ID')) || crypto.randomUUID();
+  const context = { requestId, admin: identity.email, productId, action: 'upload' };
+  if (!env.PRODUCT_IMAGES) return failure('R2_NOT_CONFIGURED', 'R2 image storage is not enabled for this Worker yet.', 503, requestId);
   const product = await productExists(env.DB, productId);
-  if (!product) return json({ ok: false, error: 'Product not found.' }, 404);
+  if (!product) return failure('PRODUCT_NOT_FOUND', 'Product not found.', 404, requestId);
   let upload;
-  try { upload = await parseUpload(request); } catch (error) { return json({ ok: false, error: 'The upload could not be read.' }, 400); }
-  if (upload.error) return json({ ok: false, error: upload.error }, 400);
+  try { upload = await parseUpload(request); }
+  catch (error) {
+    logUpload({ ...context, status: 'rejected', errorCode: 'INVALID_UPLOAD_BODY', durationMs: Date.now() - startedAt });
+    return failure('INVALID_UPLOAD_BODY', 'The upload could not be read.', 400, requestId);
+  }
+  requestId = upload.requestId || requestId;
+  context.requestId = requestId;
+  Object.assign(context, { mimeType: upload.type, fileSize: upload.file?.size || 0, width: upload.width || null, height: upload.height || null });
+  if (upload.error) {
+    logUpload({ ...context, status: 'rejected', errorCode: upload.code, durationMs: Date.now() - startedAt });
+    return failure(upload.code, upload.error, 400, requestId);
+  }
+
+  const completed = await env.DB.prepare('SELECT id, product_id, active FROM product_images WHERE upload_request_id = ?').bind(requestId).first();
+  if (completed) {
+    if (completed.product_id !== productId || !completed.active) return failure('REQUEST_ID_CONFLICT', 'This upload request identifier cannot be reused.', 409, requestId);
+    logUpload({ ...context, status: 'idempotent_success', pictureId: completed.id, durationMs: Date.now() - startedAt });
+    return json({ ok: true, requestId, idempotent: true, pictures: await listProductPictures(env.DB, productId) });
+  }
 
   let replaced = null;
   if (upload.replacePictureId) {
     replaced = await env.DB.prepare('SELECT * FROM product_images WHERE id = ? AND product_id = ? AND active = 1').bind(upload.replacePictureId, productId).first();
-    if (!replaced) return json({ ok: false, error: 'The picture to replace was not found.' }, 404);
+    if (!replaced) return failure('REPLACE_TARGET_NOT_FOUND', 'The picture to replace was not found.', 404, requestId);
+    context.action = 'replace';
   }
 
-  const key = `products/${productId}/${crypto.randomUUID()}.${upload.extension}`;
-  const thumbnailKey = upload.thumbnail ? `products/${productId}/thumbnails/${crypto.randomUUID()}.${upload.thumbnail.extension}` : '';
+  const key = `products/${productId}/${requestId}.${upload.extension}`;
+  const thumbnailKey = upload.thumbnail ? `products/${productId}/thumbnails/${requestId}.${upload.thumbnail.extension}` : '';
+  let d1Committed = false;
   try {
     await env.PRODUCT_IMAGES.put(key, upload.bytes, {
       httpMetadata: { contentType: upload.type, cacheControl: 'public, max-age=31536000, immutable' },
-      customMetadata: { productId, uploadedBy: identity.email }
+      customMetadata: { productId, uploadedBy: identity.email, requestId, width: String(upload.width), height: String(upload.height) }
     });
     if (upload.thumbnail) {
       await env.PRODUCT_IMAGES.put(thumbnailKey, upload.thumbnail.bytes, {
         httpMetadata: { contentType: upload.thumbnail.type, cacheControl: 'public, max-age=31536000, immutable' },
-        customMetadata: { productId, uploadedBy: identity.email, purpose: 'thumbnail' }
+        customMetadata: { productId, uploadedBy: identity.email, requestId, purpose: 'thumbnail' }
       });
     }
     if (replaced) {
-      await env.DB.prepare(`UPDATE product_images SET object_key = ?, delivery_url = ?, thumbnail_object_key = ?, thumbnail_delivery_url = ?, mime_type = ?, file_size = ?,
+      const results = await env.DB.batch([
+        env.DB.prepare(`UPDATE product_images SET object_key = ?, delivery_url = ?, thumbnail_object_key = ?, thumbnail_delivery_url = ?, mime_type = ?, file_size = ?,
         width = ?, height = ?, alt_text = ?, variant_style = ?, uploaded_by = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND product_id = ? AND active = 1`)
+        , upload_request_id = ? WHERE id = ? AND product_id = ? AND active = 1`)
         .bind(key, `/product-images/${replaced.id}`, thumbnailKey, thumbnailKey ? `/product-images/${replaced.id}/thumbnail` : '', upload.type, upload.file.size, upload.width, upload.height,
-          upload.altText || replaced.alt_text || product.name, upload.variantStyle, identity.email, replaced.id, productId).run();
-      await audit(env.DB, identity, 'replace', replaced.id, `Replaced picture for ${product.name}`);
-      if (replaced.object_key) await env.PRODUCT_IMAGES.delete(replaced.object_key);
-      if (replaced.thumbnail_object_key) await env.PRODUCT_IMAGES.delete(replaced.thumbnail_object_key);
+          upload.altText || replaced.alt_text || product.name, upload.variantStyle, identity.email, requestId, replaced.id, productId),
+        env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+          VALUES (?, 'replace', 'product_image', ?, ?)`).bind(identity.email, String(replaced.id), `Replaced picture for ${product.name}; request ${requestId}`)
+      ]);
+      if (!results[0]?.meta?.changes) throw new Error('D1_REPLACE_NOT_COMMITTED');
+      d1Committed = true;
+      for (const oldKey of [replaced.object_key, replaced.thumbnail_object_key]) {
+        if (oldKey && oldKey !== key && oldKey !== thumbnailKey) {
+          try { await env.PRODUCT_IMAGES.delete(oldKey); }
+          catch (error) { logUpload({ ...context, status: 'cleanup_warning', errorCode: 'OLD_OBJECT_CLEANUP_FAILED' }); }
+        }
+      }
     } else {
       const max = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), 0) AS value, COUNT(*) AS count FROM product_images WHERE product_id = ? AND active = 1').bind(productId).first();
-      const result = await env.DB.prepare(`INSERT INTO product_images
-        (product_id, path, object_key, delivery_url, thumbnail_object_key, thumbnail_delivery_url, mime_type, file_size, width, height, alt_text, sort_order, is_primary, active, uploaded_by, variant_style)
-        VALUES (?, '', ?, '', ?, '', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
-        .bind(productId, key, thumbnailKey, upload.type, upload.file.size, upload.width, upload.height,
-          upload.altText || product.name, Number(max?.value || 0) + 1, Number(max?.count || 0) === 0 ? 1 : 0, identity.email, upload.variantStyle).run();
-      const id = Number(result.meta.last_row_id);
-      await env.DB.prepare('UPDATE product_images SET delivery_url = ?, thumbnail_delivery_url = ? WHERE id = ?')
-        .bind(`/product-images/${id}`, thumbnailKey ? `/product-images/${id}/thumbnail` : '', id).run();
-      await audit(env.DB, identity, 'upload', id, `Uploaded picture for ${product.name}`);
+      const results = await env.DB.batch([
+        env.DB.prepare(`INSERT INTO product_images
+          (product_id, path, object_key, delivery_url, thumbnail_object_key, thumbnail_delivery_url, mime_type, file_size, width, height, alt_text, sort_order, is_primary, active, uploaded_by, variant_style, upload_request_id)
+          SELECT ?, '', ?, '', ?, '', ?, ?, ?, ?, ?, ?,
+            CASE WHEN EXISTS (SELECT 1 FROM product_images WHERE product_id = ? AND active = 1) THEN 0 ELSE 1 END,
+            1, ?, ?, ?`)
+          .bind(productId, key, thumbnailKey, upload.type, upload.file.size, upload.width, upload.height,
+            upload.altText || product.name, Number(max?.value || 0) + 1, productId, identity.email, upload.variantStyle, requestId),
+        env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+          VALUES (?, 'upload', 'product_image', ?, ?)`).bind(identity.email, requestId, `Uploaded picture for ${product.name}; request ${requestId}`)
+      ]);
+      if (!results[0]?.meta?.changes) throw new Error('D1_INSERT_NOT_COMMITTED');
+      d1Committed = true;
     }
   } catch (error) {
-    await env.PRODUCT_IMAGES.delete(key);
-    if (thumbnailKey) await env.PRODUCT_IMAGES.delete(thumbnailKey);
-    throw error;
+    if (!d1Committed) {
+      try { await env.PRODUCT_IMAGES.delete(key); } catch {}
+      if (thumbnailKey) { try { await env.PRODUCT_IMAGES.delete(thumbnailKey); } catch {} }
+    }
+    const errorCode = String(error.message || '').startsWith('D1_') ? 'DATABASE_COMMIT_FAILED' : 'R2_UPLOAD_FAILED';
+    logUpload({ ...context, status: 'failed', r2Stored: false, d1Committed, errorCode, durationMs: Date.now() - startedAt });
+    return failure(errorCode, errorCode === 'DATABASE_COMMIT_FAILED' ? 'The image was uploaded but its database record could not be saved. Nothing was changed; please retry.' : 'R2 could not store the image. Please retry.', 502, requestId);
   }
-  return json({ ok: true, pictures: await listProductPictures(env.DB, productId) }, replaced ? 200 : 201);
+  const pictures = await listProductPictures(env.DB, productId);
+  const picture = pictures.find(item => item.id === replaced?.id) || pictures[pictures.length - 1];
+  logUpload({ ...context, status: 'succeeded', pictureId: picture?.id || null, r2Stored: true, d1Committed: true, durationMs: Date.now() - startedAt });
+  return json({ ok: true, requestId, pictures }, replaced ? 200 : 201);
 }
 
 async function updatePicture(request, env, identity, pictureId) {
@@ -259,11 +344,19 @@ export async function serveProductPicture(request, env, pictureId, thumbnail = f
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set('Content-Type', picture.mime_type || headers.get('Content-Type') || 'application/octet-stream');
-  headers.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; sandbox");
   headers.set('Cross-Origin-Resource-Policy', 'same-site');
   return new Response(request.method === 'HEAD' ? null : object.body, { headers });
+}
+
+function failure(code, error, status, requestId = '') {
+  return json({ ok: false, code, error, requestId }, status);
+}
+
+function logUpload(event) {
+  console.log(JSON.stringify({ scope: 'admin_picture', ...event }));
 }
 
 export async function handlePicturesApi(request, env, identity) {

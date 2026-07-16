@@ -6,7 +6,12 @@ const state = {
   currentPictureProduct: null,
   products: [],
   pendingPictureFile: null,
-  pendingThumbnailFile: null
+  pendingThumbnailFile: null,
+  pendingPictureInfo: null,
+  pendingPicturePromise: null,
+  uploadRequestId: '',
+  uploadInFlight: false,
+  productFormDirty: false
 };
 
 function applyTheme(theme) {
@@ -211,6 +216,9 @@ function openPicturesManager(productId) {
   document.getElementById('picture-upload-preview').hidden = true;
   state.pendingPictureFile = null;
   state.pendingThumbnailFile = null;
+  state.pendingPictureInfo = null;
+  state.pendingPicturePromise = null;
+  state.uploadRequestId = '';
   document.querySelector('[data-optimisation-summary]').textContent = 'Optimisation details will appear after you choose an image.';
   clearStatus(document.getElementById('pictures-modal-status'));
   renderPictureManager();
@@ -227,24 +235,42 @@ function syncCurrentPictures(pictures) {
 
 function uploadPicture(form) {
   return new Promise((resolve, reject) => {
+    if (state.uploadInFlight) return reject(new Error('An image upload is already in progress.'));
     const xhr = new XMLHttpRequest();
     const progress = form.querySelector('.upload-progress');
     const bar = progress.querySelector('span');
     const button = form.querySelector('[type="submit"]');
+    const progressText = form.querySelector('[data-upload-progress-text]');
+    state.uploadInFlight = true;
     progress.hidden = false; bar.style.width = '0%'; button.disabled = true;
+    if (progressText) progressText.textContent = 'Preparing upload...';
     xhr.open('POST', `/api/admin/products/${encodeURIComponent(state.currentPictureProduct.id)}/pictures`);
     xhr.withCredentials = true;
+    xhr.timeout = 90000;
     xhr.setRequestHeader('X-PTG-Admin-Request', '1');
-    xhr.upload.addEventListener('progress', event => { if (event.lengthComputable) bar.style.width = `${Math.round(event.loaded / event.total * 100)}%`; });
-    xhr.addEventListener('load', () => {
-      button.disabled = false;
-      const result = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
-      if (xhr.status >= 200 && xhr.status < 300 && result.ok) resolve(result);
-      else reject(new Error(result.error || 'The picture could not be uploaded.'));
+    xhr.setRequestHeader('X-Upload-Request-ID', state.uploadRequestId);
+    xhr.upload.addEventListener('progress', event => {
+      if (!event.lengthComputable) return;
+      const percent = Math.round(event.loaded / event.total * 100);
+      bar.style.width = `${percent}%`;
+      if (progressText) progressText.textContent = percent < 100 ? `Uploading ${percent}%` : 'Finalising in R2 and D1...';
     });
-    xhr.addEventListener('error', () => { button.disabled = false; reject(new Error('The picture upload was interrupted.')); });
+    xhr.addEventListener('load', () => {
+      button.disabled = false; state.uploadInFlight = false;
+      const result = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
+      if (xhr.status >= 200 && xhr.status < 300 && result.ok) {
+        if (progressText) progressText.textContent = 'Upload complete.';
+        resolve(result);
+      } else if (xhr.status === 401) reject(new Error('Your admin session expired. Refresh the page and sign in before retrying.'));
+      else if (xhr.status === 403) reject(new Error('Your account is not permitted to upload product images.'));
+      else reject(new Error(result.error || `The picture could not be uploaded (${result.code || xhr.status}).`));
+    });
+    xhr.addEventListener('error', () => { button.disabled = false; state.uploadInFlight = false; reject(new Error('The network interrupted the image upload. Your product was not changed.')); });
+    xhr.addEventListener('timeout', () => { button.disabled = false; state.uploadInFlight = false; reject(new Error('The image upload timed out after 90 seconds. Check your connection and retry.')); });
+    xhr.addEventListener('abort', () => { button.disabled = false; state.uploadInFlight = false; reject(new Error('The image upload was cancelled.')); });
     const data = new FormData(form);
     data.delete('crop');
+    data.set('requestId', state.uploadRequestId);
     if (state.pendingPictureFile) data.set('file', state.pendingPictureFile, state.pendingPictureFile.name);
     if (state.pendingThumbnailFile) data.set('thumbnail', state.pendingThumbnailFile, state.pendingThumbnailFile.name);
     xhr.send(data);
@@ -373,6 +399,8 @@ function fillProductForm(product) {
   document.querySelector('[data-manage-current-pictures]').hidden = false;
   document.getElementById('product-variants-section').hidden = false;
   document.querySelector('[data-new-product-setup]').hidden = true;
+  document.querySelector('[data-new-product-status]').hidden = true;
+  document.querySelector('[data-existing-status-controls]').hidden = false;
   const lifecycleNote = document.querySelector('[data-product-lifecycle-note]');
   lifecycleNote.hidden = false;
   lifecycleNote.textContent = product.archived ? 'Archived product. Restore it before editing availability.' : product.active ? 'Active on the public website.' : 'Draft or disabled. Review pictures, variants and stock before enabling.';
@@ -419,14 +447,26 @@ function collectDraftVariants() {
 
 async function uploadInitialPicture(productId, file, altText) {
   const optimised = await optimisePicture(file, 'original');
+  const requestId = crypto.randomUUID();
   const data = new FormData();
   data.set('file', optimised.main, optimised.main.name);
   data.set('thumbnail', optimised.thumbnail, optimised.thumbnail.name);
   data.set('altText', altText);
   data.set('variantStyle', '');
-  const response = await fetch(`/api/admin/products/${encodeURIComponent(productId)}/pictures`, {
-    method: 'POST', headers: { 'X-PTG-Admin-Request': '1' }, credentials: 'same-origin', body: data
-  });
+  data.set('requestId', requestId);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 90000);
+  let response;
+  try {
+    response = await fetch(`/api/admin/products/${encodeURIComponent(productId)}/pictures`, {
+      method: 'POST', headers: { 'X-PTG-Admin-Request': '1', 'X-Upload-Request-ID': requestId }, credentials: 'same-origin', body: data, signal: controller.signal
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('Image upload timed out after 90 seconds. The product remains safely saved.');
+    throw new Error('The network interrupted the image upload. The product remains safely saved.');
+  } finally {
+    window.clearTimeout(timeout);
+  }
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.ok) throw new Error(result.error || 'The picture could not be uploaded.');
   return result;
@@ -448,22 +488,51 @@ function canvasBlob(canvas, type, quality) {
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Image conversion failed.')), type, quality));
 }
 
+function fileSize(bytes) {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+async function decodePicture(file) {
+  if (typeof createImageBitmap === 'function') {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch (error) { /* Fall through to the broadly supported image decoder. */ }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = url;
+    await image.decode();
+    return image;
+  } catch (error) {
+    throw new Error('This image could not be decoded. Export it as a standard JPEG, PNG or WebP and try again.');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function optimisePicture(file, crop) {
-  if (!file || file.size > 8 * 1024 * 1024) throw new Error('Choose a JPEG, PNG or WebP image up to 8 MB.');
-  const bitmap = await createImageBitmap(file);
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!file) throw new Error('Choose an image to upload.');
+  if (!allowedTypes.includes(file.type)) throw new Error('Unsupported file type. Choose a JPEG, PNG or WebP image.');
+  if (file.size > 8 * 1024 * 1024) throw new Error('File too large. Choose an image no larger than 8 MB.');
+  const bitmap = await decodePicture(file);
+  const bitmapWidth = bitmap.width || bitmap.naturalWidth;
+  const bitmapHeight = bitmap.height || bitmap.naturalHeight;
+  if (!bitmapWidth || !bitmapHeight) throw new Error('The image dimensions could not be read.');
   const ratios = { square: 1, portrait: 4 / 5, landscape: 4 / 3 };
-  const targetRatio = ratios[crop] || bitmap.width / bitmap.height;
-  let sourceWidth = bitmap.width;
-  let sourceHeight = bitmap.height;
+  const targetRatio = ratios[crop] || bitmapWidth / bitmapHeight;
+  let sourceWidth = bitmapWidth;
+  let sourceHeight = bitmapHeight;
   let sourceX = 0;
   let sourceY = 0;
   if (crop !== 'original') {
-    if (bitmap.width / bitmap.height > targetRatio) {
-      sourceWidth = Math.round(bitmap.height * targetRatio);
-      sourceX = Math.round((bitmap.width - sourceWidth) / 2);
+    if (bitmapWidth / bitmapHeight > targetRatio) {
+      sourceWidth = Math.round(bitmapHeight * targetRatio);
+      sourceX = Math.round((bitmapWidth - sourceWidth) / 2);
     } else {
-      sourceHeight = Math.round(bitmap.width / targetRatio);
-      sourceY = Math.round((bitmap.height - sourceHeight) / 2);
+      sourceHeight = Math.round(bitmapWidth / targetRatio);
+      sourceY = Math.round((bitmapHeight - sourceHeight) / 2);
     }
   }
   const scale = Math.min(1, 2400 / Math.max(sourceWidth, sourceHeight));
@@ -472,43 +541,58 @@ async function optimisePicture(file, crop) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  canvas.getContext('2d', { alpha: true }).drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
+  const context = canvas.getContext('2d', { alpha: true });
+  if (!context) throw new Error('Your browser could not prepare this image. Try a smaller file or another browser.');
+  context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
   const mainBlob = await canvasBlob(canvas, 'image/webp', 0.86);
   const thumbScale = Math.min(1, 480 / Math.max(width, height));
   const thumb = document.createElement('canvas');
   thumb.width = Math.max(1, Math.round(width * thumbScale));
   thumb.height = Math.max(1, Math.round(height * thumbScale));
-  thumb.getContext('2d', { alpha: true }).drawImage(canvas, 0, 0, thumb.width, thumb.height);
+  const thumbnailContext = thumb.getContext('2d', { alpha: true });
+  if (!thumbnailContext) throw new Error('Your browser could not generate the image thumbnail.');
+  thumbnailContext.drawImage(canvas, 0, 0, thumb.width, thumb.height);
   const thumbnailBlob = await canvasBlob(thumb, 'image/webp', 0.78);
-  bitmap.close();
+  if (typeof bitmap.close === 'function') bitmap.close();
   const base = file.name.replace(/\.[^.]+$/, '').slice(0, 80) || 'product-picture';
   return {
     main: new File([mainBlob], `${base}.webp`, { type: 'image/webp' }),
     thumbnail: new File([thumbnailBlob], `${base}-thumb.webp`, { type: 'image/webp' }),
     width,
     height,
+    sourceWidth: bitmapWidth,
+    sourceHeight: bitmapHeight,
+    sourceType: file.type,
+    sourceName: file.name,
     originalBytes: file.size
   };
 }
 
 async function preparePicture(file) {
+  const form = document.getElementById('picture-upload-form');
   const preview = document.getElementById('picture-upload-preview');
   const summary = document.querySelector('[data-optimisation-summary]');
-  if (!file) { preview.hidden = true; state.pendingPictureFile = null; state.pendingThumbnailFile = null; return; }
+  if (!file) { preview.hidden = true; state.pendingPictureFile = null; state.pendingThumbnailFile = null; state.pendingPictureInfo = null; return; }
   summary.textContent = 'Optimising image...';
+  state.uploadRequestId = crypto.randomUUID();
   try {
-    const result = await optimisePicture(file, document.getElementById('picture-upload-form').elements.crop.value);
+    const result = await optimisePicture(file, form.elements.crop.value);
     state.pendingPictureFile = result.main;
     state.pendingThumbnailFile = result.thumbnail;
+    state.pendingPictureInfo = result;
     const url = URL.createObjectURL(result.main);
     preview.innerHTML = `<img src="${url}" alt="Optimised picture preview">`;
     preview.hidden = false;
     preview.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
     const reduction = Math.max(0, Math.round((1 - result.main.size / result.originalBytes) * 100));
-    summary.textContent = `${result.width} x ${result.height} WebP; ${Math.round(result.main.size / 1024)} KB${reduction ? `; ${reduction}% smaller` : ''}. Thumbnail generated.`;
+    const primary = form.elements.replacePictureId.value
+      ? state.currentPictureProduct.pictures.find(picture => picture.id === Number(form.elements.replacePictureId.value))?.isPrimary
+      : !state.currentPictureProduct.pictures.length;
+    summary.textContent = `${result.sourceName} | ${result.sourceType.replace('image/', '').toUpperCase()} | ${fileSize(result.originalBytes)} | ${result.sourceWidth} x ${result.sourceHeight}. Upload: ${result.width} x ${result.height} WebP, ${fileSize(result.main.size)}${reduction ? ` (${reduction}% smaller)` : ''}. Product: ${state.currentPictureProduct.name}. ${primary ? 'Main image.' : 'Gallery image.'}`;
   } catch (error) {
     state.pendingPictureFile = null;
     state.pendingThumbnailFile = null;
+    state.pendingPictureInfo = null;
     preview.hidden = true;
     summary.textContent = error.message;
     setStatus(document.getElementById('pictures-modal-status'), 'error', error.message);
@@ -531,12 +615,15 @@ function newProduct() {
   form.elements.active.checked = false;
   form.elements.availableForSale.checked = false;
   form.elements.featured.checked = false;
+  form.elements.createStatus.value = 'draft';
   document.getElementById('product-modal-title').textContent = 'New Product';
   document.getElementById('product-image-preview').innerHTML = '';
   document.getElementById('variant-list').innerHTML = empty('Create the draft product before adding variants and stock.');
   document.getElementById('product-variants-section').hidden = true;
   const setup = document.querySelector('[data-new-product-setup]');
   setup.hidden = false;
+  document.querySelector('[data-new-product-status]').hidden = false;
+  document.querySelector('[data-existing-status-controls]').hidden = true;
   document.querySelector('[data-draft-variant-list]').innerHTML = '';
   addDraftVariant();
   document.querySelector('[data-manage-current-pictures]').hidden = true;
@@ -601,6 +688,13 @@ async function saveProduct(event) {
   event.preventDefault();
   const form = event.currentTarget;
   if (!form.reportValidity()) return;
+  const isCreating = !state.currentProduct;
+  const publishRequested = isCreating && form.elements.createStatus.value === 'active';
+  if (publishRequested && !form.elements.initialPictures.files.length) {
+    setStatus(document.getElementById('product-modal-status'), 'error', 'Choose at least one product image before publishing. Select Draft to save without an image.');
+    form.elements.initialPictures.focus();
+    return;
+  }
   const submitButton = form.querySelector('[data-product-submit]');
   const originalLabel = submitButton.textContent;
   const becomesUnavailable = state.currentProduct && ((state.currentProduct.active && !form.elements.active.checked) || (state.currentProduct.availableForSale && !form.elements.availableForSale.checked));
@@ -616,8 +710,8 @@ async function saveProduct(event) {
     currency: form.elements.currency.value,
     seoTitle: form.elements.seoTitle.value,
     metaDescription: form.elements.metaDescription.value,
-    active: form.elements.active.checked,
-    availableForSale: form.elements.availableForSale.checked,
+    active: isCreating ? publishRequested : form.elements.active.checked,
+    availableForSale: isCreating ? publishRequested : form.elements.availableForSale.checked,
     featured: form.elements.featured.checked,
     trackInventory: form.elements.trackInventory.checked,
     allowPlayerName: form.elements.allowPlayerName.checked,
@@ -625,12 +719,11 @@ async function saveProduct(event) {
     playerNamePriceCents: Math.round(Number(form.elements.playerNamePrice.value || 0) * 100),
     playerNumberPriceCents: Math.round(Number(form.elements.playerNumberPrice.value || 0) * 100)
   };
-  if (!state.currentProduct) body.variants = collectDraftVariants();
+  if (isCreating) body.variants = collectDraftVariants();
   if (state.currentProduct) body.version = Number(form.elements.version.value);
   submitButton.disabled = true;
   submitButton.textContent = state.currentProduct ? 'Saving...' : 'Creating product...';
   try {
-    const isCreating = !state.currentProduct;
     const result = await api(isCreating ? '/products' : `/products/${encodeURIComponent(state.currentProduct.id)}`, { method: isCreating ? 'POST' : 'PUT', body: JSON.stringify(body) });
     state.currentProduct = result.product;
     fillProductForm(result.product);
@@ -656,7 +749,7 @@ async function saveProduct(event) {
           ? 'Product and variants were created as a draft. Add at least one picture, then enable the product.'
           : result.publishRequested
             ? 'Product, variants, stock and pictures were created and the product is now live.'
-            : 'Product, variants and starting stock were created. It remains a safe draft until enabled.';
+            : 'Product saved as Draft. It is available in admin and hidden from the public website.';
       setStatus(document.getElementById('product-modal-status'), uploadError ? 'warning' : 'success', message);
     } else {
       setStatus(document.getElementById('product-modal-status'), 'success', 'Product saved successfully.');
@@ -832,7 +925,27 @@ document.addEventListener('click', event => {
 document.addEventListener('submit', async event => {
   try {
     if (event.target.id === 'product-form') return await saveProduct(event);
-    if (event.target.id === 'picture-upload-form') { event.preventDefault(); const result = await uploadPicture(event.target); syncCurrentPictures(result.pictures); event.target.reset(); event.target.elements.altText.value = state.currentPictureProduct.name; event.target.elements.replacePictureId.value = ''; event.target.querySelector('[type="submit"]').textContent = 'Upload Picture'; event.target.querySelector('[data-cancel-replace]').hidden = true; event.target.querySelector('.upload-progress').hidden = true; document.getElementById('picture-upload-preview').hidden = true; state.pendingPictureFile = null; state.pendingThumbnailFile = null; document.querySelector('[data-optimisation-summary]').textContent = 'Optimisation details will appear after you choose an image.'; return setStatus(document.getElementById('pictures-modal-status'), 'success', 'Picture optimised and saved successfully.'); }
+    if (event.target.id === 'picture-upload-form') {
+      event.preventDefault();
+      if (state.pendingPicturePromise) await state.pendingPicturePromise;
+      if (!state.pendingPictureFile || !state.pendingThumbnailFile) throw new Error('Wait for a valid image preview before uploading.');
+      const result = await uploadPicture(event.target);
+      syncCurrentPictures(result.pictures);
+      event.target.reset();
+      event.target.elements.altText.value = state.currentPictureProduct.name;
+      event.target.elements.replacePictureId.value = '';
+      event.target.querySelector('[type="submit"]').textContent = 'Upload Picture';
+      event.target.querySelector('[data-cancel-replace]').hidden = true;
+      event.target.querySelector('.upload-progress').hidden = true;
+      document.getElementById('picture-upload-preview').hidden = true;
+      state.pendingPictureFile = null;
+      state.pendingThumbnailFile = null;
+      state.pendingPictureInfo = null;
+      state.pendingPicturePromise = null;
+      state.uploadRequestId = '';
+      document.querySelector('[data-optimisation-summary]').textContent = 'Optimisation details will appear after you choose an image.';
+      return setStatus(document.getElementById('pictures-modal-status'), 'success', result.idempotent ? 'This image was already saved; the gallery is up to date.' : 'Picture optimised and saved successfully.');
+    }
     if (event.target.matches('[data-picture-meta]')) { event.preventDefault(); return await savePictureMeta(event.target); }
     if (event.target.id === 'add-variant-form') return await addVariant(event);
     if (event.target.id === 'fulfilment-form') { event.preventDefault(); return await saveFulfilment(event.target); }
@@ -842,7 +955,10 @@ document.addEventListener('submit', async event => {
     if (event.target.matches('[data-stock-form]')) { event.preventDefault(); return await adjustStock(event.target); }
   } catch (error) {
     event.preventDefault();
-    setStatus(document.getElementById('product-modal-status'), 'error', error.message);
+    const status = event.target.id === 'picture-upload-form'
+      ? document.getElementById('pictures-modal-status')
+      : document.getElementById('product-modal-status');
+    setStatus(status, 'error', error.message);
   }
 });
 
@@ -860,8 +976,8 @@ document.getElementById('product-form').elements.slug.addEventListener('input', 
   event.currentTarget.dataset.edited = event.currentTarget.value ? 'true' : '';
 });
 const pictureForm = document.getElementById('picture-upload-form');
-pictureForm.elements.file.addEventListener('change', event => preparePicture(event.target.files[0]));
-pictureForm.elements.crop.addEventListener('change', () => preparePicture(pictureForm.elements.file.files[0]));
+pictureForm.elements.file.addEventListener('change', event => { state.pendingPicturePromise = preparePicture(event.target.files[0]); });
+pictureForm.elements.crop.addEventListener('change', () => { state.pendingPicturePromise = preparePicture(pictureForm.elements.file.files[0]); });
 const dropzone = document.querySelector('[data-picture-dropzone]');
 for (const eventName of ['dragenter', 'dragover']) dropzone.addEventListener(eventName, event => { event.preventDefault(); dropzone.classList.add('is-dragging'); });
 for (const eventName of ['dragleave', 'drop']) dropzone.addEventListener(eventName, event => { event.preventDefault(); dropzone.classList.remove('is-dragging'); });
@@ -871,7 +987,7 @@ dropzone.addEventListener('drop', event => {
   const transfer = new DataTransfer();
   transfer.items.add(file);
   pictureForm.elements.file.files = transfer.files;
-  preparePicture(file);
+  state.pendingPicturePromise = preparePicture(file);
 });
 
 let draggedPictureId = null;

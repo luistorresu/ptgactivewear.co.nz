@@ -10,6 +10,13 @@ function variantLabel(variant) {
   return [variant.size, variant.colour, variant.style].filter(Boolean).join(' / ') || variant.sku;
 }
 
+function imageUrl(image, thumbnail = false) {
+  if (!image.object_key) return image.path;
+  const path = thumbnail && image.thumbnail_object_key ? `/product-images/${image.id}/thumbnail` : `/product-images/${image.id}`;
+  const version = encodeURIComponent(image.updated_at || image.created_at || image.id);
+  return `${path}?v=${version}`;
+}
+
 function stockStatus(product, variant, threshold) {
   if (!product.active || !product.available_for_sale || !variant.active) return 'out_of_stock';
   if (!product.track_inventory) return 'in_stock';
@@ -43,7 +50,7 @@ function publicProduct(product, images, variants, threshold) {
   const availableVariants = publicVariants.filter(variant => variant.available);
   const publicImages = images.map(image => ({
     id: image.id,
-    src: image.delivery_url || image.path,
+    src: imageUrl(image),
     alt: image.alt_text || product.name,
     style: image.variant_style || '',
     isPrimary: asBoolean(image.is_primary)

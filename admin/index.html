@@ -142,7 +142,11 @@
           <label class="field field-wide"><span>SEO title</span><input name="seoTitle" maxlength="160" placeholder="Defaults to the product name"></label>
           <label class="field field-wide"><span>Meta description</span><textarea name="metaDescription" rows="2" maxlength="320" placeholder="Defaults to the product description"></textarea></label>
         </div>
-        <div class="toggle-grid">
+        <div class="product-form-section" data-new-product-status hidden>
+          <div class="section-heading"><div><h3>Status</h3><p>Choose whether to keep this product hidden or publish it after its images are uploaded.</p></div></div>
+          <label class="field"><span>Product status</span><select name="createStatus"><option value="draft">Draft (hidden)</option><option value="active">Active (publish)</option></select></label>
+        </div>
+        <div class="toggle-grid" data-existing-status-controls>
           <label class="toggle"><input name="active" type="checkbox"><span>Visible on website</span></label>
           <label class="toggle"><input name="availableForSale" type="checkbox"><span>Available for sale</span></label>
           <label class="toggle"><input name="featured" type="checkbox"><span>Featured product</span></label>
@@ -162,7 +166,7 @@
         </section>
         <div id="product-image-preview" class="image-preview"></div>
         <p class="product-lifecycle-note" data-product-lifecycle-note hidden></p>
-        <div class="form-actions"><button type="button" class="button button-secondary" data-manage-current-pictures hidden>Manage Pictures</button><button type="submit" class="button button-primary" data-product-submit>Save Product</button></div>
+        <div class="form-actions"><button type="button" class="button button-secondary" data-manage-current-pictures hidden>Manage Pictures</button><button type="submit" class="button button-primary" data-product-submit value="save">Save Product</button></div>
       </form>
 
       <section id="product-variants-section" class="modal-content variants-section">
@@ -202,7 +206,7 @@
           <label class="field"><span>Alt text</span><input name="altText" maxlength="200" required></label>
           <label class="field"><span>Gallery style</span><input name="variantStyle" maxlength="80" placeholder="Optional, e.g. Style 2"></label>
           <input name="replacePictureId" type="hidden">
-          <div class="upload-progress" hidden><span></span></div>
+          <div class="upload-progress" hidden><span></span><output data-upload-progress-text>Preparing upload...</output></div>
           <div class="form-actions"><button type="submit" class="button button-primary">Upload Picture</button><button type="button" class="button button-secondary" data-cancel-replace hidden>Cancel replace</button></div>
         </form>
         <div id="picture-manager-list" class="picture-manager-list"></div>

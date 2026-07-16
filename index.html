@@ -143,17 +143,27 @@
   </section>
 
   <!-- ── FEATURED PRODUCTS ── -->
-  <section class="py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+  <section class="home-products py-20 px-4 sm:px-6 lg:px-8" aria-labelledby="home-products-title">
+    <div class="max-w-7xl mx-auto">
     <div class="text-center mb-14">
       <span class="text-brand text-xs font-semibold tracking-widest uppercase">Our Range</span>
-      <h2 class="text-3xl sm:text-4xl font-bold text-gray-900 mt-2">Featured Products</h2>
+      <h2 id="home-products-title" class="text-3xl sm:text-4xl font-bold text-gray-900 mt-2">Shop Patagonia FC</h2>
       <p class="text-gray-500 mt-3 max-w-lg mx-auto text-sm">Match day essentials to training gear — everything you need to perform at your best.</p>
     </div>
 
-    <div data-product-grid="featured" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8"></div>
+    <div class="home-product-carousel" data-home-product-carousel tabindex="0" aria-roledescription="carousel" aria-label="Available products">
+      <div class="home-carousel-viewport">
+        <div class="home-carousel-track" data-home-carousel-track aria-live="off"><p class="home-carousel-loading">Loading current products...</p></div>
+      </div>
+      <button type="button" class="home-carousel-control home-carousel-prev" data-home-carousel-prev aria-label="Previous product"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+      <button type="button" class="home-carousel-control home-carousel-next" data-home-carousel-next aria-label="Next product"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+      <div class="home-carousel-dots" data-home-carousel-dots aria-label="Choose a product slide"></div>
+      <p class="sr-only" data-home-carousel-status aria-live="polite"></p>
+    </div>
 
     <div class="text-center mt-12">
       <a href="shop.html" class="btn-outline px-9 py-3.5 text-sm">View All Products →</a>
+    </div>
     </div>
   </section>
 

@@ -268,6 +268,8 @@ async function availableProductId(db, name) {
 }
 
 async function createProduct(db, body, identity) {
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
   const validation = validateProduct(body, false, CREATE_PRODUCT_FIELDS);
   if (validation.error) return json({ ok: false, error: validation.error }, 400);
   const value = validation.value;
@@ -335,8 +337,10 @@ async function createProduct(db, body, identity) {
       `).bind(identity.email, productId, `Created draft product with ${validatedVariants.length} variant(s): ${value.name}`)
     );
     await db.batch(statements);
+    console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action: 'create', status: 'succeeded', variants: validatedVariants.length, publishRequested: value.active && value.availableForSale, durationMs: Date.now() - startedAt }));
     return json({ ok: true, product: await getProduct(db, productId), publishRequested: value.active && value.availableForSale }, 201);
   } catch (error) {
+    console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action: 'create', status: 'failed', errorCode: 'DATABASE_WRITE_FAILED', durationMs: Date.now() - startedAt }));
     return json({ ok: false, error: 'A product with that name or URL already exists. Try a more specific name.' }, 409);
   }
 }

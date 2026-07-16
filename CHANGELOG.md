@@ -2,6 +2,25 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-16
+
+### Added
+
+* Added a D1-backed homepage product carousel for all active saleable products, with autoplay, manual controls, touch swipe, keyboard navigation, stock status, lazy loading, and reduced-motion support.
+* Added upload request IDs and an additive D1 uniqueness constraint so repeated image-upload requests are idempotent.
+
+### Changed
+
+* Made Draft and Active an explicit status choice when creating a product, with an image required before immediate publication.
+* Reduced and repositioned product lightbox controls, added a focus trap, and restored focus to the opening control when closed.
+* Added image preflight details, progress text, timeout handling, decoder fallback, structured server diagnostics, and versioned R2 image URLs.
+
+### Fixed
+
+* Fixed picture-upload errors appearing in the hidden product dialog instead of the Pictures dialog.
+* Fixed submitting while client-side image optimisation was still running and prevented duplicate concurrent uploads.
+* Made R2 and D1 image writes retry-safe, with cleanup when a database commit fails.
+
 ## 2026-07-15
 
 ### Added

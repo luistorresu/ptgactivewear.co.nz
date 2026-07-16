@@ -283,8 +283,9 @@ tbody tr:hover { background: #fbfdfe; }
 .picture-dropzone > strong { display: block; color: var(--ink); font-size: 14px; }
 .picture-dropzone.is-dragging { border-color: var(--brand); background: rgba(66, 183, 216, 0.1); }
 .optimisation-summary { align-self: end; min-height: 42px; padding: 10px 12px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 11px; line-height: 1.45; }
-.upload-progress { height: 8px; overflow: hidden; background: var(--surface); border-radius: 999px; }
+.upload-progress { position: relative; min-height: 2rem; overflow: hidden; background: var(--surface); border-radius: 8px; }
 .upload-progress span { display: block; width: 0; height: 100%; background: var(--brand); transition: width .2s ease; }
+.upload-progress output { position: absolute; inset: 0; display: grid; place-items: center; padding: 0 .5rem; color: var(--text); font-size: .75rem; font-weight: 700; }
 .picture-manager-list { display: grid; gap: 14px; margin-top: 22px; }
 .picture-row { position: relative; display: grid; grid-template-columns: 18px 150px 1fr; gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); transition: opacity .18s ease, border-color .18s ease, transform .18s ease; }
 .picture-row.is-dragging { opacity: .5; border-color: var(--brand); transform: scale(.99); }
