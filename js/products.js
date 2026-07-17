@@ -87,6 +87,31 @@ window.PTG_PRODUCTS = [
     featured: true
   },
   {
+    id: 'patagonia-fc-training-kit',
+    slug: 'patagonia-fc-training-kit',
+    name: 'Patagonia FC Training Kit',
+    price: 95,
+    category: 'kits',
+    type: 'Training Kit',
+    image: 'photos/clouth/Patagonia FC Training Kit .jpeg',
+    gallery: [
+      'photos/clouth/Patagonia FC Training Kit .jpeg',
+      'photos/clouth/Patagonia FC Training Kit - $95 - image 01.png',
+      'photos/clouth/Patagonia FC Training Kit - $95 - image 02.png',
+      'photos/clouth/Patagonia FC Training Kit - $95 - image 03.png',
+      'photos/clouth/Patagonia FC training kit Short and Socks.jpeg'
+    ],
+    description: 'Lightweight, breathable training kit for every session. Includes shirt, shorts and socks.',
+    sizes: ['8', '10', '12', 'XS'],
+    badge: 'Training',
+    personalisable: true,
+    allowPlayerName: true,
+    allowPlayerNumber: true,
+    playerNamePrice: 20,
+    playerNumberPrice: 20,
+    featured: false
+  },
+  {
     id: 'patagonia-fc-waterproof-rain-suit',
     name: 'Patagonia FC Waterproof Rain Suit',
     price: 50,
@@ -105,7 +130,7 @@ window.PTG_PRODUCTS = [
     id: 'patagonia-fc-windbreaker-jacket',
     slug: 'patagonia-fc-windbreaker-jacket',
     name: 'Patagonia FC Windbreaker Jacket',
-    price: 120,
+    price: 95,
     category: 'jackets',
     type: 'Windbreaker Jacket',
     image: 'photos/clouth/Windbreaker.jpeg',
@@ -115,7 +140,7 @@ window.PTG_PRODUCTS = [
       'photos/clouth/Windbreaker 1.png'
     ],
     description: 'Stay comfortable and protected in changing weather with the official Patagonia FC Windbreaker Jacket. Designed for training, travel and everyday wear, this lightweight jacket offers protection from wind and light showers while remaining breathable and comfortable. Constructed from a durable water-resistant outer shell, it features a soft mesh lining that improves airflow and comfort without adding unnecessary weight. The full-length front zip allows for easy layering, while the elasticated cuffs and waistband provide a secure fit. Includes two side pockets. Finished with the official Patagonia FC crest and PTG Activewear branding, this jacket combines performance with a clean, professional look. Features: water-resistant outer fabric for light rain and windy conditions; lightweight design; breathable mesh inner lining; full front zipper; two side pockets; elasticated cuffs and waistband; official Patagonia FC and PTG Activewear branding; athletic fit; suitable for players. Please note: this jacket is water-resistant and is not designed as a fully waterproof raincoat.',
-    sizes: ['XS', 'S', 'M', 'L', 'XL', '2XL'],
+    sizes: ['8', '10', '12', 'XS'],
     badge: 'New',
     featured: false
   }

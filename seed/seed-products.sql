@@ -10,7 +10,8 @@ INSERT OR IGNORE INTO products (
   ('patagonia-fc-personalised-mug', 'patagonia-fc-personalised-mug', 'Patagonia FC Personalised Mug', 'Premium ceramic mug with the Patagonia FC club logo, 2026 season design and personalised player name and number.', 'accessories', 'Mug', '', 1500, 'NZD', 1, 1, 1, 0, 0, 0, 0, 0),
   ('patagonia-fc-tournament-player-kit', 'patagonia-fc-tournament-player-kit', 'Patagonia FC Tournament Player Kit', 'Lightweight, breathable tournament kit with moisture-wicking fabric. Includes shirt, shorts and socks.', 'kits', 'Player Kit', 'Match Day', 9500, 'NZD', 1, 1, 1, 0, 1, 1, 2000, 2000),
   ('patagonia-fc-waterproof-rain-suit', 'patagonia-fc-waterproof-rain-suit', 'Patagonia FC Waterproof Rain Suit', 'Lightweight waterproof two-piece rain suit with taped seams, breathable fabric and easy overpants for wet training days.', 'rain-suits', 'Rain Suit', '', 5000, 'NZD', 1, 1, 1, 0, 0, 0, 0, 0),
-  ('patagonia-fc-windbreaker-jacket', 'patagonia-fc-windbreaker-jacket', 'Patagonia FC Windbreaker Jacket', 'Stay comfortable and protected in changing weather with the official Patagonia FC Windbreaker Jacket. Designed for training, travel and everyday wear, this lightweight jacket offers protection from wind and light showers while remaining breathable and comfortable. Constructed from a durable water-resistant outer shell, it features a soft mesh lining that improves airflow and comfort without adding unnecessary weight. The full-length front zip allows for easy layering, while the elasticated cuffs and waistband provide a secure fit. Includes two side pockets. Finished with the official Patagonia FC crest and PTG Activewear branding, this jacket combines performance with a clean, professional look. Features: water-resistant outer fabric for light rain and windy conditions; lightweight design; breathable mesh inner lining; full front zipper; two side pockets; elasticated cuffs and waistband; official Patagonia FC and PTG Activewear branding; athletic fit; suitable for players. Please note: this jacket is water-resistant and is not designed as a fully waterproof raincoat.', 'jackets', 'Windbreaker Jacket', 'New', 12000, 'NZD', 1, 1, 0, 0, 0, 0, 0, 0);
+  ('patagonia-fc-windbreaker-jacket', 'patagonia-fc-windbreaker-jacket', 'Patagonia FC Windbreaker Jacket', 'Stay comfortable and protected in changing weather with the official Patagonia FC Windbreaker Jacket. Designed for training, travel and everyday wear, this lightweight jacket offers protection from wind and light showers while remaining breathable and comfortable. Constructed from a durable water-resistant outer shell, it features a soft mesh lining that improves airflow and comfort without adding unnecessary weight. The full-length front zip allows for easy layering, while the elasticated cuffs and waistband provide a secure fit. Includes two side pockets. Finished with the official Patagonia FC crest and PTG Activewear branding, this jacket combines performance with a clean, professional look. Features: water-resistant outer fabric for light rain and windy conditions; lightweight design; breathable mesh inner lining; full front zipper; two side pockets; elasticated cuffs and waistband; official Patagonia FC and PTG Activewear branding; athletic fit; suitable for players. Please note: this jacket is water-resistant and is not designed as a fully waterproof raincoat.', 'jackets', 'Windbreaker Jacket', 'New', 9500, 'NZD', 1, 1, 0, 0, 0, 0, 0, 0),
+  ('patagonia-fc-training-kit', 'patagonia-fc-training-kit', 'Patagonia FC Training Kit', 'Designed for comfort, durability and performance, our Patagonia FC Training Kit is perfect for every training session. Includes shirt, shorts and socks.', 'kits', 'Training Kit', 'Training', 9500, 'NZD', 1, 1, 0, 0, 1, 1, 2000, 2000);
 
 INSERT OR IGNORE INTO product_variants (product_id, sku, size, colour, style, stock_quantity, active) VALUES
   ('patagonia-fc-beanie', 'PTG-PFC-BEANIE-OS', 'One Size', '', 'Without Pom Pom', 0, 1),
@@ -35,12 +36,14 @@ INSERT OR IGNORE INTO product_variants (product_id, sku, size, colour, style, st
   ('patagonia-fc-waterproof-rain-suit', 'PTG-PFC-RAIN-L', 'L', '', '', 0, 1),
   ('patagonia-fc-waterproof-rain-suit', 'PTG-PFC-RAIN-XL', 'XL', '', '', 0, 1),
   ('patagonia-fc-waterproof-rain-suit', 'PTG-PFC-RAIN-2XL', '2XL', '', '', 0, 1),
+  ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-8', '8', 'Blue', '', 0, 1),
+  ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-10', '10', 'Blue', '', 0, 1),
+  ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-12', '12', 'Blue', '', 0, 1),
   ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-XS', 'XS', 'Blue', '', 0, 1),
-  ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-S', 'S', 'Blue', '', 0, 1),
-  ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-M', 'M', 'Blue', '', 0, 1),
-  ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-L', 'L', 'Blue', '', 0, 1),
-  ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-XL', 'XL', 'Blue', '', 0, 1),
-  ('patagonia-fc-windbreaker-jacket', 'PTG-PFC-WINDBREAKER-2XL', '2XL', 'Blue', '', 0, 1);
+  ('patagonia-fc-training-kit', 'PTG-PFC-TRAINING-KIT-8', '8', '', '', 0, 1),
+  ('patagonia-fc-training-kit', 'PTG-PFC-TRAINING-KIT-10', '10', '', '', 0, 1),
+  ('patagonia-fc-training-kit', 'PTG-PFC-TRAINING-KIT-12', '12', '', '', 0, 1),
+  ('patagonia-fc-training-kit', 'PTG-PFC-TRAINING-KIT-XS', 'XS', '', '', 0, 1);
 
 INSERT OR IGNORE INTO product_images (product_id, path, alt_text, sort_order, is_primary) VALUES
   ('patagonia-fc-beanie', '/photos/clouth/binnie 1.jpeg', 'Patagonia FC Beanie without pom pom', 1, 1),
@@ -58,9 +61,24 @@ INSERT OR IGNORE INTO product_images (product_id, path, alt_text, sort_order, is
   ('patagonia-fc-waterproof-rain-suit', '/photos/clouth/Patagonia FC Waterproof Rain Suit - $50 - image 011.jpeg', 'Patagonia FC Waterproof Rain Suit alternate view', 2, 0),
   ('patagonia-fc-windbreaker-jacket', '/photos/clouth/Windbreaker.jpeg', 'Patagonia FC Windbreaker Jacket front and back views', 1, 1),
   ('patagonia-fc-windbreaker-jacket', '/photos/clouth/WindBreaker 2.png', 'Patagonia FC Windbreaker Jacket front view', 2, 0),
-  ('patagonia-fc-windbreaker-jacket', '/photos/clouth/Windbreaker 1.png', 'Patagonia FC Windbreaker Jacket back view', 3, 0);
+  ('patagonia-fc-windbreaker-jacket', '/photos/clouth/Windbreaker 1.png', 'Patagonia FC Windbreaker Jacket back view', 3, 0),
+  ('patagonia-fc-training-kit', '/photos/clouth/Patagonia FC Training Kit .jpeg', 'Patagonia FC Training Kit with player name and number printing', 1, 1),
+  ('patagonia-fc-training-kit', '/photos/clouth/Patagonia FC Training Kit - $95 - image 01.png', 'Patagonia FC Training Shirt', 2, 0),
+  ('patagonia-fc-training-kit', '/photos/clouth/Patagonia FC Training Kit - $95 - image 02.png', 'Patagonia FC Training Shorts', 3, 0),
+  ('patagonia-fc-training-kit', '/photos/clouth/Patagonia FC Training Kit - $95 - image 03.png', 'Patagonia FC Training Socks', 4, 0),
+  ('patagonia-fc-training-kit', '/photos/clouth/Patagonia FC training kit Short and Socks.jpeg', 'Patagonia FC Training Shorts and Socks', 5, 0);
 
 UPDATE product_variants SET allow_player_name = 0, allow_player_number = 0
 WHERE product_id = 'patagonia-fc-personalised-mug' AND style = 'Style 1';
 UPDATE product_variants SET allow_player_name = 1, allow_player_number = 1
 WHERE product_id = 'patagonia-fc-personalised-mug' AND style = 'Style 2';
+
+UPDATE products
+SET seo_title = 'Patagonia FC Training Kit | PTG Activewear',
+    meta_description = 'Shop the Patagonia FC Training Kit, including a breathable performance shirt, lightweight shorts and football socks. Available in sizes 8, 10, 12 and XS.'
+WHERE id = 'patagonia-fc-training-kit';
+
+UPDATE products
+SET seo_title = 'Patagonia FC Windbreaker Jacket | PTG Activewear',
+    meta_description = 'Official Patagonia FC lightweight water-resistant windbreaker jacket. Available in sizes 8, 10, 12 and XS.'
+WHERE id = 'patagonia-fc-windbreaker-jacket';

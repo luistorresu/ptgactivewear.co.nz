@@ -67,6 +67,24 @@ const SERVER_PRODUCTS = {
     variants: [],
     personalisable: false,
     available: true
+  },
+  'patagonia-fc-training-kit': {
+    id: 'patagonia-fc-training-kit',
+    name: 'Patagonia FC Training Kit',
+    unitAmountNzdCents: 9500,
+    sizes: ['8', '10', '12', 'XS'],
+    variants: [],
+    personalisable: true,
+    available: true
+  },
+  'patagonia-fc-windbreaker-jacket': {
+    id: 'patagonia-fc-windbreaker-jacket',
+    name: 'Patagonia FC Windbreaker Jacket',
+    unitAmountNzdCents: 9500,
+    sizes: ['8', '10', '12', 'XS'],
+    variants: [],
+    personalisable: false,
+    available: true
   }
 };
 

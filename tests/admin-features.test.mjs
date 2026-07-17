@@ -108,11 +108,12 @@ test('beanie exposes pom pom styles with matching image galleries', async () => 
   assert.match(migration, /INSERT OR IGNORE INTO product_variants/);
 });
 
-test('windbreaker is one NZD 120 product with six sizes and three images', async () => {
-  const [products, seed, migration] = await Promise.all([
+test('windbreaker remains one NZD 95 product with the four active sizes and three images', async () => {
+  const [products, seed, migration, updateMigration] = await Promise.all([
     readFile(new URL('js/products.js', root), 'utf8'),
     readFile(new URL('seed/seed-products.sql', root), 'utf8'),
-    readFile(new URL('migrations/0007_add_windbreaker_jacket.sql', root), 'utf8')
+    readFile(new URL('migrations/0007_add_windbreaker_jacket.sql', root), 'utf8'),
+    readFile(new URL('migrations/0010_training_kit_and_windbreaker_sizes.sql', root), 'utf8')
   ]);
   for (const source of [products, seed, migration]) {
     assert.match(source, /patagonia-fc-windbreaker-jacket/);
@@ -120,10 +121,32 @@ test('windbreaker is one NZD 120 product with six sizes and three images', async
     assert.match(source, /WindBreaker 2\.png/);
     assert.match(source, /Windbreaker 1\.png/);
   }
-  assert.match(products, /price: 120/);
-  assert.match(products, /sizes: \['XS', 'S', 'M', 'L', 'XL', '2XL'\]/);
-  assert.match(migration, /12000/);
-  assert.equal((migration.match(/PTG-PFC-WINDBREAKER-(?:XS|S|M|L|XL|2XL)'/g) || []).length, 6);
+  assert.match(products, /price: 95/);
+  assert.match(products, /sizes: \['8', '10', '12', 'XS'\]/);
+  assert.match(updateMigration, /price_cents = 9500/);
+  assert.match(updateMigration, /PTG-PFC-WINDBREAKER-(?:8|10|12)/);
+  assert.doesNotMatch(updateMigration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
+});
+
+test('training kit is one NZD 95 personalisable product with a complete kit gallery', async () => {
+  const [products, seed, migration] = await Promise.all([
+    readFile(new URL('js/products.js', root), 'utf8'),
+    readFile(new URL('seed/seed-products.sql', root), 'utf8'),
+    readFile(new URL('migrations/0010_training_kit_and_windbreaker_sizes.sql', root), 'utf8')
+  ]);
+  for (const source of [products, seed, migration]) {
+    assert.match(source, /patagonia-fc-training-kit/);
+    assert.match(source, /Patagonia FC Training Kit/);
+  }
+  for (const source of [seed, migration]) {
+    assert.match(source, /PTG-PFC-TRAINING-KIT-8/);
+    assert.match(source, /PTG-PFC-TRAINING-KIT-10/);
+    assert.match(source, /PTG-PFC-TRAINING-KIT-12/);
+    assert.match(source, /PTG-PFC-TRAINING-KIT-XS/);
+  }
+  assert.match(products, /Includes shirt, shorts and socks/);
+  assert.match(migration, /player_name_price_cents = 2000/);
+  assert.match(migration, /Patagonia FC Training Shorts and Socks/);
   assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
 });
 

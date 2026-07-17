@@ -2,6 +2,16 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-17
+
+### Added
+
+* Added the Patagonia FC Training Kit at NZD $95 with training shirt, shorts, socks, four size options, player-name and player-number personalisation, a five-image gallery, and Product SEO data.
+
+### Changed
+
+* Updated the Patagonia FC Windbreaker Jacket to NZD $95 and active sizes 8, 10, 12, and XS, while retaining superseded variant rows for historical order integrity.
+
 ## 2026-07-16
 
 ### Added
