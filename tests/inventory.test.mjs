@@ -120,4 +120,8 @@ test('admin mutations require exact same origin, safe content type and custom he
     method: 'POST', headers: { Origin: 'http://localhost:8787', 'Content-Type': 'multipart/form-data; boundary=test', 'X-PTG-Admin-Request': '1' }, body: '--test--'
   });
   assert.equal(isAdminMutationAllowed(upload), true);
+  const bodylessDelete = new Request('http://localhost:8787/api/admin/pictures/1', {
+    method: 'DELETE', headers: { Origin: 'http://localhost:8787', 'X-PTG-Admin-Request': '1' }
+  });
+  assert.equal(isAdminMutationAllowed(bodylessDelete), true);
 });

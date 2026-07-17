@@ -4,8 +4,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$state = Join-Path $env:LOCALAPPDATA 'ptgactivewear-dev-state'
-$site = Join-Path $env:LOCALAPPDATA 'ptgactivewear-dev-assets'
+$state = Join-Path $env:LOCALAPPDATA "ptgactivewear-dev-state-$Port"
+$site = Join-Path $env:LOCALAPPDATA "ptgactivewear-dev-assets-$Port"
 $localRoot = [System.IO.Path]::GetFullPath($env:LOCALAPPDATA).TrimEnd('\') + '\'
 
 foreach ($path in @($state, $site)) {
@@ -36,7 +36,15 @@ if ($npx) {
 Push-Location $repo
 try {
   & $runner @runnerPrefix d1 migrations apply ptgactivewear-catalog --local --persist-to $state
-  if ($LASTEXITCODE -ne 0) { throw 'Local D1 migration failed.' }
+  if ($LASTEXITCODE -ne 0) {
+    # Older media migrations reference the original catalogue records. A fresh
+    # local database therefore needs this minimal catalogue before retrying.
+    Write-Host 'Bootstrapping the local catalogue required by legacy migrations...'
+    & $runner @runnerPrefix d1 execute ptgactivewear-catalog --local --persist-to $state --file seed\bootstrap-catalogue.sql
+    if ($LASTEXITCODE -ne 0) { throw 'Local D1 bootstrap catalogue failed.' }
+    & $runner @runnerPrefix d1 migrations apply ptgactivewear-catalog --local --persist-to $state
+    if ($LASTEXITCODE -ne 0) { throw 'Local D1 migration failed after bootstrap.' }
+  }
 
   & $runner @runnerPrefix d1 execute ptgactivewear-catalog --local --persist-to $state --file seed\seed-products.sql
   if ($LASTEXITCODE -ne 0) { throw 'Local product seed failed.' }

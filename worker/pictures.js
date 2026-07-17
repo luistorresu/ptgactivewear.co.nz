@@ -220,6 +220,9 @@ async function uploadPicture(request, env, identity, productId) {
 
   const key = `products/${productId}/${requestId}.${upload.extension}`;
   const thumbnailKey = upload.thumbnail ? `products/${productId}/thumbnails/${requestId}.${upload.thumbnail.extension}` : '';
+  // The legacy schema requires a unique path per product. Keep this internal
+  // metadata value server-generated; public delivery continues through the picture ID.
+  const metadataPath = `r2:${key}`;
   let d1Committed = false;
   try {
     await env.PRODUCT_IMAGES.put(key, upload.bytes, {
@@ -255,10 +258,10 @@ async function uploadPicture(request, env, identity, productId) {
       const results = await env.DB.batch([
         env.DB.prepare(`INSERT INTO product_images
           (product_id, path, object_key, delivery_url, thumbnail_object_key, thumbnail_delivery_url, mime_type, file_size, width, height, alt_text, sort_order, is_primary, active, uploaded_by, variant_style, upload_request_id)
-          SELECT ?, '', ?, '', ?, '', ?, ?, ?, ?, ?, ?,
+          SELECT ?, ?, ?, '', ?, '', ?, ?, ?, ?, ?, ?,
             CASE WHEN EXISTS (SELECT 1 FROM product_images WHERE product_id = ? AND active = 1) THEN 0 ELSE 1 END,
             1, ?, ?, ?`)
-          .bind(productId, key, thumbnailKey, upload.type, upload.file.size, upload.width, upload.height,
+          .bind(productId, metadataPath, key, thumbnailKey, upload.type, upload.file.size, upload.width, upload.height,
             upload.altText || product.name, Number(max?.value || 0) + 1, productId, identity.email, upload.variantStyle, requestId),
         env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
           VALUES (?, 'upload', 'product_image', ?, ?)`).bind(identity.email, requestId, `Uploaded picture for ${product.name}; request ${requestId}`)

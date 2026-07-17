@@ -266,6 +266,7 @@ test('picture uploads are retry-safe and surface precise client errors', async (
   assert.match(pictures, /upload_request_id/);
   assert.match(pictures, /REQUEST_ID_CONFLICT/);
   assert.match(pictures, /DATABASE_COMMIT_FAILED/);
+  assert.match(pictures, /const metadataPath = `r2:\$\{key\}`/);
   assert.match(admin, /X-Upload-Request-ID/);
   assert.match(admin, /xhr\.timeout = 90000/);
   assert.match(admin, /pendingPicturePromise/);
@@ -273,14 +274,15 @@ test('picture uploads are retry-safe and surface precise client errors', async (
   assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
 });
 
-test('new product form makes Draft and Active an explicit choice', async () => {
+test('new product form has clear Draft and Publish actions', async () => {
   const [html, admin] = await Promise.all([
     readFile(new URL('admin/index.html', root), 'utf8'),
     readFile(new URL('admin/admin.js', root), 'utf8')
   ]);
-  assert.match(html, /name="createStatus"/);
-  assert.match(html, /Draft \(hidden\)/);
-  assert.match(html, /Active \(publish\)/);
+  assert.match(html, /data-create-intent="draft"/);
+  assert.match(html, /Save as Draft/);
+  assert.match(html, /data-create-intent="publish"/);
+  assert.match(html, /Publish Product/);
   assert.match(admin, /publishRequested/);
   assert.match(admin, /Choose at least one product image before publishing/);
 });

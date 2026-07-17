@@ -197,9 +197,11 @@ export function isAdminMutationAllowed(request) {
   const origin = request.headers.get('origin');
   const contentType = request.headers.get('content-type') || '';
   const adminHeader = request.headers.get('x-ptg-admin-request');
+  const bodylessDelete = request.method.toUpperCase() === 'DELETE' && !contentType;
 
   const safeContentType = contentType.toLowerCase().includes('application/json')
-    || contentType.toLowerCase().startsWith('multipart/form-data;');
+    || contentType.toLowerCase().startsWith('multipart/form-data;')
+    || bodylessDelete;
   return origin === requestUrl.origin
     && safeContentType
     && adminHeader === '1';

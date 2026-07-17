@@ -156,6 +156,8 @@ tbody tr:hover { background: #fbfdfe; }
 .toggle { min-height: 42px; padding: 9px 11px; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; font-weight: 650; }
 .toggle input { width: 17px; height: 17px; accent-color: var(--black); }
 .form-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
+.create-product-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.create-product-actions[hidden] { display: none; }
 .product-lifecycle-note { margin: 16px 0 0; padding: 11px 13px; color: var(--muted); background: var(--soft); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
 .new-product-setup { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
 .draft-variant-list { display: grid; gap: 12px; margin: 16px 0; }

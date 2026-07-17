@@ -395,7 +395,9 @@ function fillProductForm(product) {
   form.elements.playerNamePrice.value = (product.playerNamePriceCents / 100).toFixed(2);
   form.elements.playerNumberPrice.value = (product.playerNumberPriceCents / 100).toFixed(2);
   document.getElementById('product-modal-title').textContent = product.name;
-  document.querySelector('[data-product-submit]').textContent = 'Save Product';
+  document.querySelector('[data-update-product]').textContent = 'Save Product';
+  document.querySelector('[data-create-product-actions]').hidden = true;
+  document.querySelector('[data-update-product]').hidden = false;
   document.querySelector('[data-manage-current-pictures]').hidden = false;
   document.getElementById('product-variants-section').hidden = false;
   document.querySelector('[data-new-product-setup]').hidden = true;
@@ -615,7 +617,6 @@ function newProduct() {
   form.elements.active.checked = false;
   form.elements.availableForSale.checked = false;
   form.elements.featured.checked = false;
-  form.elements.createStatus.value = 'draft';
   document.getElementById('product-modal-title').textContent = 'New Product';
   document.getElementById('product-image-preview').innerHTML = '';
   document.getElementById('variant-list').innerHTML = empty('Create the draft product before adding variants and stock.');
@@ -627,7 +628,8 @@ function newProduct() {
   document.querySelector('[data-draft-variant-list]').innerHTML = '';
   addDraftVariant();
   document.querySelector('[data-manage-current-pictures]').hidden = true;
-  document.querySelector('[data-product-submit]').textContent = 'Create Product';
+  document.querySelector('[data-create-product-actions]').hidden = false;
+  document.querySelector('[data-update-product]').hidden = true;
   document.querySelector('[data-product-lifecycle-note]').hidden = true;
   modal('product', true);
   form.elements.name.focus();
@@ -689,13 +691,14 @@ async function saveProduct(event) {
   const form = event.currentTarget;
   if (!form.reportValidity()) return;
   const isCreating = !state.currentProduct;
-  const publishRequested = isCreating && form.elements.createStatus.value === 'active';
+  const publishRequested = isCreating && event.submitter?.dataset.createIntent === 'publish';
   if (publishRequested && !form.elements.initialPictures.files.length) {
-    setStatus(document.getElementById('product-modal-status'), 'error', 'Choose at least one product image before publishing. Select Draft to save without an image.');
+    setStatus(document.getElementById('product-modal-status'), 'error', 'Choose at least one product image before publishing. Use Save as Draft to create it without an image.');
     form.elements.initialPictures.focus();
     return;
   }
-  const submitButton = form.querySelector('[data-product-submit]');
+  const submitButton = event.submitter || form.querySelector('[data-update-product]');
+  const submitButtons = [...form.querySelectorAll('[data-product-submit]')];
   const originalLabel = submitButton.textContent;
   const becomesUnavailable = state.currentProduct && ((state.currentProduct.active && !form.elements.active.checked) || (state.currentProduct.availableForSale && !form.elements.availableForSale.checked));
   if (becomesUnavailable && !window.confirm('This will remove the product from sale. Continue?')) return;
@@ -721,7 +724,7 @@ async function saveProduct(event) {
   };
   if (isCreating) body.variants = collectDraftVariants();
   if (state.currentProduct) body.version = Number(form.elements.version.value);
-  submitButton.disabled = true;
+  submitButtons.forEach(button => { button.disabled = true; });
   submitButton.textContent = state.currentProduct ? 'Saving...' : 'Creating product...';
   try {
     const result = await api(isCreating ? '/products' : `/products/${encodeURIComponent(state.currentProduct.id)}`, { method: isCreating ? 'POST' : 'PUT', body: JSON.stringify(body) });
@@ -748,8 +751,8 @@ async function saveProduct(event) {
         : result.publishRequested && !files.length
           ? 'Product and variants were created as a draft. Add at least one picture, then enable the product.'
           : result.publishRequested
-            ? 'Product, variants, stock and pictures were created and the product is now live.'
-            : 'Product saved as Draft. It is available in admin and hidden from the public website.';
+            ? 'Product published successfully.'
+            : 'Product saved as draft.';
       setStatus(document.getElementById('product-modal-status'), uploadError ? 'warning' : 'success', message);
     } else {
       setStatus(document.getElementById('product-modal-status'), 'success', 'Product saved successfully.');
@@ -761,8 +764,8 @@ async function saveProduct(event) {
     setStatus(status, 'error', error.message);
     status.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
   } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = state.currentProduct ? 'Save Product' : originalLabel;
+    submitButtons.forEach(button => { button.disabled = false; });
+    submitButton.textContent = originalLabel;
   }
 }
 
