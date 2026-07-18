@@ -28,7 +28,7 @@ Required Worker variables and secrets:
 * `ADMIN_PASSWORD_HASH`: encrypted secret in `pbkdf2-sha256$iterations$salt$hash` format.
 * `SESSION_SECRET`: encrypted random secret of at least 32 characters.
 
-Passwords are derived with PBKDF2-HMAC-SHA256 and are never stored or compared as plaintext. Sessions use a signed, eight-hour `HttpOnly`, `SameSite=Strict` cookie. Production cookies are also `Secure`. The signed session ID must remain active in KV, so logout immediately invalidates it. State-changing admin requests require an in-memory CSRF token, exact same-origin requests, safe content types, and `X-PTG-Admin-Request: 1`.
+Passwords are derived with PBKDF2-HMAC-SHA256 at Cloudflare Workers' supported 100,000-iteration limit and are never stored or compared as plaintext. Sessions use a signed, eight-hour `HttpOnly`, `SameSite=Strict` cookie. Production cookies are also `Secure`. The signed session ID must remain active in KV, so logout immediately invalidates it. State-changing admin requests require an in-memory CSRF token, exact same-origin requests, safe content types, and `X-PTG-Admin-Request: 1`.
 
 Five failed logins for the same username and source address cause a 15-minute lockout. Authentication logs include safe request IDs and outcomes but never passwords, hashes, cookies, tokens, or secrets.
 

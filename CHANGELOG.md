@@ -16,6 +16,7 @@ All notable changes to this website should be documented here.
 * Allowed draft and archived products to remove their final picture while preventing active products from becoming pictureless.
 * Made picture deletion restore R2 objects if its D1 mutation cannot commit and made primary/reorder changes atomic with their audit entries.
 * Added request IDs and structured safe logs to admin authentication, product changes, and picture operations.
+* Aligned PBKDF2 password derivation with Cloudflare Workers' 100,000-iteration WebCrypto limit and made unsupported hash formats fail closed.
 
 ### Testing
 

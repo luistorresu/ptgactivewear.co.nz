@@ -83,7 +83,8 @@ async function verifyPassword(password, storedHash) {
   const match = PASSWORD_HASH_PATTERN.exec(String(storedHash || '').trim());
   if (!match) return false;
   const iterations = Number(match[1]);
-  if (!Number.isInteger(iterations) || iterations < 100000 || iterations > 1000000) return false;
+  // Cloudflare Workers currently caps WebCrypto PBKDF2 at 100,000 rounds.
+  if (iterations !== 100000) return false;
   let salt;
   let expected;
   try {
@@ -94,12 +95,16 @@ async function verifyPassword(password, storedHash) {
   }
   if (salt.length < 16 || expected.length < 32) return false;
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password || '')), 'PBKDF2', false, ['deriveBits']);
-  const derived = new Uint8Array(await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations },
-    key,
-    expected.length * 8
-  ));
-  return safeEqual(derived, expected);
+  try {
+    const derived = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', hash: 'SHA-256', salt, iterations },
+      key,
+      expected.length * 8
+    ));
+    return safeEqual(derived, expected);
+  } catch {
+    return false;
+  }
 }
 
 async function rateKey(request, username) {

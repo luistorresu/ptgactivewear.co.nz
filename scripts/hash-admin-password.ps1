@@ -1,6 +1,6 @@
 param(
-  [ValidateRange(100000, 1000000)]
-  [int]$Iterations = 310000
+  [ValidateRange(100000, 100000)]
+  [int]$Iterations = 100000
 )
 
 $ErrorActionPreference = 'Stop'
