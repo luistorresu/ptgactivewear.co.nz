@@ -1087,7 +1087,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (url.pathname.startsWith('/api/admin-auth/')) {
+    if (url.pathname === '/api/admin/login'
+      || url.pathname === '/api/admin/logout'
+      || url.pathname === '/api/admin/session'
+      || url.pathname.startsWith('/api/admin-auth/')) {
       return handleAdminAuth(request, env);
     }
 
@@ -1132,7 +1135,7 @@ export default {
       let identity = null;
       try { identity = await getAdminIdentity(request, env); } catch (error) { console.error('Admin authentication failed', { message: error.message }); }
       if (!identity) return unauthorisedAdminResponse(true);
-      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !isAdminMutationAllowed(request)) {
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !isAdminMutationAllowed(request, identity)) {
         return jsonResponse({ ok: false, error: 'Admin request verification failed.' }, 403);
       }
       if (isAdminPicturesPath(url.pathname)) {

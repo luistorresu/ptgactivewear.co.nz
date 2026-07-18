@@ -97,31 +97,33 @@ test('D1 checkout applies variant-specific mug personalisation rules', async () 
   assert.equal(styleTwo.items[0].numberAddOn, 0);
 });
 
-test('local admin identity only activates for localhost development', async () => {
+test('local development has no authentication bypass', async () => {
   const env = { ENVIRONMENT: 'development', LOCAL_ADMIN_EMAIL: 'admin@example.com' };
-  assert.equal((await getAdminIdentity(new Request('http://localhost:8787/api/admin/me'), env)).email, 'admin@example.com');
+  assert.equal(await getAdminIdentity(new Request('http://localhost:8787/api/admin/me'), env), null);
   assert.equal(await getAdminIdentity(new Request('https://ptgactivewear.co.nz/api/admin/me'), env), null);
 });
 
-test('admin mutations require exact same origin, safe content type and custom header', () => {
+test('admin mutations require exact same origin, safe content type, custom header and CSRF token', () => {
+  const identity = { csrfToken: 'test-csrf-token' };
   const valid = new Request('http://localhost:8787/api/admin/products/test', {
     method: 'PUT',
-    headers: { Origin: 'http://localhost:8787', 'Content-Type': 'application/json', 'X-PTG-Admin-Request': '1' },
+    headers: { Origin: 'http://localhost:8787', 'Content-Type': 'application/json', 'X-PTG-Admin-Request': '1', 'X-CSRF-Token': 'test-csrf-token' },
     body: '{}'
   });
   const invalid = new Request('http://localhost:8787/api/admin/products/test', {
     method: 'PUT',
-    headers: { Origin: 'https://example.com', 'Content-Type': 'application/json', 'X-PTG-Admin-Request': '1' },
+    headers: { Origin: 'https://example.com', 'Content-Type': 'application/json', 'X-PTG-Admin-Request': '1', 'X-CSRF-Token': 'test-csrf-token' },
     body: '{}'
   });
-  assert.equal(isAdminMutationAllowed(valid), true);
-  assert.equal(isAdminMutationAllowed(invalid), false);
+  assert.equal(isAdminMutationAllowed(valid, identity), true);
+  assert.equal(isAdminMutationAllowed(invalid, identity), false);
   const upload = new Request('http://localhost:8787/api/admin/products/test/pictures', {
-    method: 'POST', headers: { Origin: 'http://localhost:8787', 'Content-Type': 'multipart/form-data; boundary=test', 'X-PTG-Admin-Request': '1' }, body: '--test--'
+    method: 'POST', headers: { Origin: 'http://localhost:8787', 'Content-Type': 'multipart/form-data; boundary=test', 'X-PTG-Admin-Request': '1', 'X-CSRF-Token': 'test-csrf-token' }, body: '--test--'
   });
-  assert.equal(isAdminMutationAllowed(upload), true);
+  assert.equal(isAdminMutationAllowed(upload, identity), true);
   const bodylessDelete = new Request('http://localhost:8787/api/admin/pictures/1', {
-    method: 'DELETE', headers: { Origin: 'http://localhost:8787', 'X-PTG-Admin-Request': '1' }
+    method: 'DELETE', headers: { Origin: 'http://localhost:8787', 'X-PTG-Admin-Request': '1', 'X-CSRF-Token': 'test-csrf-token' }
   });
-  assert.equal(isAdminMutationAllowed(bodylessDelete), true);
+  assert.equal(isAdminMutationAllowed(bodylessDelete, identity), true);
+  assert.equal(isAdminMutationAllowed(valid, { csrfToken: 'wrong' }), false);
 });

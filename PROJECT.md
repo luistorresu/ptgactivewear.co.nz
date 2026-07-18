@@ -144,7 +144,7 @@ The local Phase 2 implementation adds a protected admin portal at `/admin`, D1 m
 
 Production remains unchanged until the D1 database, KV binding, Cloudflare Access applications, remote migration, staging tests, and deployment are separately approved.
 
-Required new configuration:
+Required admin configuration:
 
 * D1 binding `DB`
 * KV binding `ORDER_EVENT_STORE`
@@ -153,15 +153,15 @@ Required new configuration:
 * `CHECKOUT_ENABLED`
 * `LOW_STOCK_THRESHOLD`
 * `ENVIRONMENT`
-* `ACCESS_TEAM_DOMAIN`
-* `ACCESS_AUD`
-* `ADMIN_ALLOWED_EMAILS`
+* `ADMIN_USERNAME`
+* encrypted `ADMIN_PASSWORD_HASH`
+* encrypted `SESSION_SECRET`
 
 Operational, migration, rollback, authentication, and local-development instructions are in `ADMIN.md`.
 
 ## Operational Admin
 
-The production admin is a D1-backed operational tool for catalogue, inventory, paid Stripe order records, fulfilment history, invoices, CSV exports, and audit history. Invoice numbers use `PTG-YYYY-000001`; printable invoices use an authenticated A4 HTML view and browser Save as PDF. The admin theme preference is local browser state only and never affects the storefront.
+The production admin is a deliberately simple D1/R2-backed catalogue tool for products, variants, stock, publication state, and product pictures. Existing order, invoice, export, and audit APIs remain available for compatibility and historical records, but the rebuilt portal does not expose those complex workspaces. Authentication uses PBKDF2 password verification, signed expiring `HttpOnly` sessions, KV invalidation, CSRF protection, and login lockout. See `ADMIN.md`.
 
 Paid orders are created only from verified Stripe webhooks. Both encrypted production secrets, `STRIPE_WEBHOOK_SECRET` and `STRIPE_SECRET_KEY`, are configured. Refund event ingestion and automatic idempotent restocking are not yet enabled.
 

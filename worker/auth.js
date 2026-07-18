@@ -1,5 +1,8 @@
-let cachedKeys = null;
-let cachedKeysExpiresAt = 0;
+const SESSION_COOKIE = 'ptg_admin_session';
+const SESSION_SECONDS = 60 * 60 * 8;
+const LOGIN_WINDOW_SECONDS = 15 * 60;
+const LOGIN_MAX_FAILURES = 5;
+const PASSWORD_HASH_PATTERN = /^pbkdf2-sha256\$(\d+)\$([A-Za-z0-9_-]+)\$([A-Za-z0-9_-]+)$/;
 
 function base64UrlToBytes(value) {
   const normalised = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
@@ -8,15 +11,10 @@ function base64UrlToBytes(value) {
   return Uint8Array.from(binary, character => character.charCodeAt(0));
 }
 
-function decodeJwtPart(value) {
-  return JSON.parse(new TextDecoder().decode(base64UrlToBytes(value)));
-}
-
-function getAllowedEmails(env) {
-  return String(env.ADMIN_ALLOWED_EMAILS || '')
-    .split(',')
-    .map(email => email.trim().toLowerCase())
-    .filter(Boolean);
+function bytesToBase64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
 function cookieValue(request, name) {
@@ -26,183 +24,243 @@ function cookieValue(request, name) {
 }
 
 async function digest(value) {
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+  return bytesToBase64Url(new Uint8Array(bytes));
 }
 
-function authJson(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers }
-  });
+function safeEqual(left, right) {
+  if (!(left instanceof Uint8Array) || !(right instanceof Uint8Array) || left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index];
+  return difference === 0;
 }
 
-async function sessionIdentity(request, env) {
-  if (!env.ORDER_EVENT_STORE) return null;
-  const token = cookieValue(request, 'ptg_admin_session');
-  if (!token) return null;
-  const session = await env.ORDER_EVENT_STORE.get(`admin:session:${await digest(token)}`, 'json');
-  if (!session?.email || !getAllowedEmails(env).includes(session.email)) return null;
-  return { email: session.email, subject: 'email-code-session', expiresAt: session.expiresAt };
-}
-
-function isLocalDevelopment(request, env) {
-  const hostname = new URL(request.url).hostname;
-  return String(env.ENVIRONMENT || '').toLowerCase() === 'development'
-    && (hostname === 'localhost' || hostname === '127.0.0.1');
-}
-
-async function getAccessKeys(env) {
-  const now = Date.now();
-  if (cachedKeys && cachedKeysExpiresAt > now) return cachedKeys;
-
-  const teamDomain = String(env.ACCESS_TEAM_DOMAIN || '').trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-  if (!teamDomain) throw new Error('Cloudflare Access team domain is not configured.');
-
-  const response = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`, {
-    headers: { Accept: 'application/json' }
-  });
-
-  if (!response.ok) throw new Error('Cloudflare Access signing keys could not be loaded.');
-
-  const body = await response.json();
-  cachedKeys = Array.isArray(body.keys) ? body.keys : [];
-  cachedKeysExpiresAt = now + (60 * 60 * 1000);
-  return cachedKeys;
-}
-
-async function verifyAccessJwt(token, env) {
-  const parts = String(token || '').split('.');
-  if (parts.length !== 3) return null;
-
-  let header;
-  let payload;
-  try {
-    header = decodeJwtPart(parts[0]);
-    payload = decodeJwtPart(parts[1]);
-  } catch (error) {
-    return null;
-  }
-
-  if (header.alg !== 'RS256' || !header.kid) return null;
-
-  const keys = await getAccessKeys(env);
-  const jwk = keys.find(key => key.kid === header.kid);
-  if (!jwk) return null;
-
-  const cryptoKey = await crypto.subtle.importKey(
-    'jwk',
-    jwk,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+async function hmac(value, secret) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
     false,
-    ['verify']
+    ['sign']
   );
-  const verified = await crypto.subtle.verify(
-    'RSASSA-PKCS1-v1_5',
-    cryptoKey,
-    base64UrlToBytes(parts[2]),
-    new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+  return bytesToBase64Url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))));
+}
+
+function authJson(body, status = 200, requestId = '', headers = {}) {
+  return new Response(JSON.stringify({ ...body, requestId }), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Request-ID': requestId,
+      ...headers
+    }
+  });
+}
+
+function configured(env) {
+  return Boolean(
+    String(env.ADMIN_USERNAME || '').trim()
+    && String(env.ADMIN_PASSWORD_HASH || '').trim()
+    && String(env.SESSION_SECRET || '').length >= 32
+    && env.ORDER_EVENT_STORE
   );
+}
 
-  if (!verified) return null;
+function cookieAttributes(request, maxAge) {
+  const url = new URL(request.url);
+  const isLocalHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname);
+  return `Path=/; HttpOnly; ${isLocalHttp ? '' : 'Secure; '}SameSite=Strict; Max-Age=${maxAge}`;
+}
 
-  const now = Math.floor(Date.now() / 1000);
-  if (!payload.exp || payload.exp <= now || (payload.nbf && payload.nbf > now)) return null;
+function validSameOrigin(request) {
+  const url = new URL(request.url);
+  return request.headers.get('origin') === url.origin;
+}
 
-  const requiredAudiences = String(env.ACCESS_AUD || '').split(',').map(value => value.trim()).filter(Boolean);
-  const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-  if (!requiredAudiences.length || !requiredAudiences.some(audience => audiences.includes(audience))) return null;
+async function verifyPassword(password, storedHash) {
+  const match = PASSWORD_HASH_PATTERN.exec(String(storedHash || '').trim());
+  if (!match) return false;
+  const iterations = Number(match[1]);
+  if (!Number.isInteger(iterations) || iterations < 100000 || iterations > 1000000) return false;
+  let salt;
+  let expected;
+  try {
+    salt = base64UrlToBytes(match[2]);
+    expected = base64UrlToBytes(match[3]);
+  } catch {
+    return false;
+  }
+  if (salt.length < 16 || expected.length < 32) return false;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(password || '')), 'PBKDF2', false, ['deriveBits']);
+  const derived = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations },
+    key,
+    expected.length * 8
+  ));
+  return safeEqual(derived, expected);
+}
 
-  const email = String(payload.email || payload.sub || '').trim().toLowerCase();
-  if (!email) return null;
+async function rateKey(request, username) {
+  const address = String(request.headers.get('cf-connecting-ip') || 'unknown').slice(0, 80);
+  return `admin:login-rate:${await digest(`${String(username || '').toLowerCase()}|${address}`)}`;
+}
 
-  return { email, subject: String(payload.sub || ''), expiresAt: payload.exp };
+async function loginRateState(env, key) {
+  return (await env.ORDER_EVENT_STORE.get(key, 'json')) || { failures: 0, lockedUntil: 0 };
+}
+
+async function registerFailure(env, key, state) {
+  const failures = Number(state.failures || 0) + 1;
+  const lockedUntil = failures >= LOGIN_MAX_FAILURES ? Date.now() + LOGIN_WINDOW_SECONDS * 1000 : 0;
+  await env.ORDER_EVENT_STORE.put(key, JSON.stringify({ failures, lockedUntil }), { expirationTtl: LOGIN_WINDOW_SECONDS });
+  return { failures, lockedUntil };
+}
+
+async function createSession(request, env, username) {
+  const payload = {
+    sub: username,
+    jti: crypto.randomUUID(),
+    csrf: bytesToBase64Url(crypto.getRandomValues(new Uint8Array(24))),
+    exp: Math.floor(Date.now() / 1000) + SESSION_SECONDS
+  };
+  const encoded = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = await hmac(encoded, env.SESSION_SECRET);
+  await env.ORDER_EVENT_STORE.put(
+    `admin:session:${await digest(payload.jti)}`,
+    JSON.stringify({ username, expiresAt: payload.exp * 1000 }),
+    { expirationTtl: SESSION_SECONDS }
+  );
+  return { token: `${encoded}.${signature}`, payload };
+}
+
+async function signedSessionIdentity(request, env) {
+  if (!configured(env)) return null;
+  const token = cookieValue(request, SESSION_COOKIE);
+  const [encoded, signature, extra] = token.split('.');
+  if (!encoded || !signature || extra) return null;
+  const expectedSignature = await hmac(encoded, env.SESSION_SECRET);
+  if (!safeEqual(new TextEncoder().encode(signature), new TextEncoder().encode(expectedSignature))) return null;
+
+  let payload;
+  try { payload = JSON.parse(new TextDecoder().decode(base64UrlToBytes(encoded))); }
+  catch { return null; }
+  if (!payload?.sub || !payload?.jti || !payload?.csrf || !Number.isInteger(payload.exp)) return null;
+  if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
+  const username = String(env.ADMIN_USERNAME || '').trim();
+  if (payload.sub !== username) return null;
+  const stored = await env.ORDER_EVENT_STORE.get(`admin:session:${await digest(payload.jti)}`, 'json');
+  if (!stored || stored.username !== username || Number(stored.expiresAt || 0) <= Date.now()) return null;
+  return {
+    username,
+    email: username,
+    subject: 'password-session',
+    csrfToken: payload.csrf,
+    sessionId: payload.jti,
+    expiresAt: payload.exp * 1000
+  };
 }
 
 export async function getAdminIdentity(request, env) {
-  if (isLocalDevelopment(request, env)) {
-    const email = String(env.LOCAL_ADMIN_EMAIL || '').trim().toLowerCase();
-    if (!email) return null;
-    return { email, subject: 'local-development', expiresAt: null, local: true };
-  }
-
-  const session = await sessionIdentity(request, env);
-  if (session) return session;
-
-  const assertion = request.headers.get('cf-access-jwt-assertion') || '';
-  if (!assertion) return null;
-  const identity = await verifyAccessJwt(assertion, env);
-  if (!identity) return null;
-
-  const allowedEmails = getAllowedEmails(env);
-  if (!allowedEmails.length || !allowedEmails.includes(identity.email)) return null;
-
-  return identity;
+  return signedSessionIdentity(request, env);
 }
 
 export async function handleAdminAuth(request, env) {
-  if (!env.ORDER_EVENT_STORE) return authJson({ ok: false, error: 'Admin authentication is not configured.' }, 503);
+  const requestId = crypto.randomUUID();
   const url = new URL(request.url);
+  const action = url.pathname.split('/').filter(Boolean).at(-1) || '';
+  const startedAt = Date.now();
 
-  if (url.pathname.endsWith('/logout')) {
-    const token = cookieValue(request, 'ptg_admin_session');
-    if (token) await env.ORDER_EVENT_STORE.delete(`admin:session:${await digest(token)}`);
-    return new Response(null, { status: 302, headers: {
-      Location: '/admin/login',
-      'Set-Cookie': 'ptg_admin_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0',
-      'Cache-Control': 'no-store'
-    } });
+  if (!configured(env)) {
+    return authJson({ ok: false, code: 'ADMIN_AUTH_NOT_CONFIGURED', error: 'Admin authentication is not configured.' }, 503, requestId);
   }
 
-  if (request.method !== 'POST') return authJson({ ok: false, error: 'Method not allowed.' }, 405);
-  let body;
-  try { body = await request.json(); } catch { return authJson({ ok: false, error: 'Invalid request.' }, 400); }
-  const email = String(body.email || '').trim().toLowerCase();
-  if (!getAllowedEmails(env).includes(email)) return authJson({ ok: false, error: 'This email is not authorised.' }, 403);
-
-  if (url.pathname.endsWith('/request-code')) {
-    const rateKey = `admin:rate:${email}`;
-    if (await env.ORDER_EVENT_STORE.get(rateKey)) return authJson({ ok: false, error: 'Please wait before requesting another code.' }, 429);
-    if (!env.EMAIL_API_KEY || !env.CONTACT_FROM_EMAIL) return authJson({ ok: false, error: 'Email delivery is not configured.' }, 503);
-    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
-    await env.ORDER_EVENT_STORE.put(`admin:code:${email}`, await digest(`${email}:${code}`), { expirationTtl: 600 });
-    await env.ORDER_EVENT_STORE.put(rateKey, '1', { expirationTtl: 60 });
-    const response = await fetch('https://api.resend.com/emails', { method: 'POST', headers: {
-      Authorization: `Bearer ${env.EMAIL_API_KEY}`, 'Content-Type': 'application/json'
-    }, body: JSON.stringify({ from: env.CONTACT_FROM_EMAIL, to: [email], subject: 'Your PTG Activewear admin sign-in code',
-      text: `Your PTG Activewear admin sign-in code is ${code}. It expires in 10 minutes.` }) });
-    if (!response.ok) return authJson({ ok: false, error: 'The sign-in code could not be sent.' }, 502);
-    return authJson({ ok: true });
+  if (action === 'session' && request.method === 'GET') {
+    const identity = await signedSessionIdentity(request, env);
+    if (!identity) return authJson({ ok: false, error: 'Authentication is required.' }, 401, requestId);
+    return authJson({
+      ok: true,
+      identity: { username: identity.username },
+      csrfToken: identity.csrfToken,
+      expiresAt: identity.expiresAt
+    }, 200, requestId);
   }
 
-  if (url.pathname.endsWith('/verify-code')) {
-    const code = String(body.code || '').trim();
-    const stored = await env.ORDER_EVENT_STORE.get(`admin:code:${email}`);
-    if (!/^\d{6}$/.test(code) || !stored || stored !== await digest(`${email}:${code}`)) {
-      return authJson({ ok: false, error: 'The code is invalid or has expired.' }, 401);
+  if (request.method !== 'POST') return authJson({ ok: false, error: 'Method not allowed.' }, 405, requestId);
+  if (!validSameOrigin(request) || !String(request.headers.get('content-type') || '').toLowerCase().includes('application/json')) {
+    return authJson({ ok: false, error: 'Request verification failed.' }, 403, requestId);
+  }
+
+  if (action === 'logout') {
+    const identity = await signedSessionIdentity(request, env);
+    if (identity && request.headers.get('x-csrf-token') === identity.csrfToken) {
+      await env.ORDER_EVENT_STORE.delete(`admin:session:${await digest(identity.sessionId)}`);
+      console.log(JSON.stringify({ scope: 'admin_auth', requestId, admin: identity.username, action: 'logout', status: 'succeeded', durationMs: Date.now() - startedAt }));
     }
-    await env.ORDER_EVENT_STORE.delete(`admin:code:${email}`);
-    const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
-    const token = [...tokenBytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
-    const maxAge = 60 * 60 * 8;
-    await env.ORDER_EVENT_STORE.put(`admin:session:${await digest(token)}`, JSON.stringify({ email, expiresAt: Date.now() + maxAge * 1000 }), { expirationTtl: maxAge });
-    return authJson({ ok: true }, 200, { 'Set-Cookie': `ptg_admin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}` });
+    return authJson({ ok: true }, 200, requestId, {
+      'Set-Cookie': `${SESSION_COOKIE}=; ${cookieAttributes(request, 0)}`
+    });
   }
 
-  return authJson({ ok: false, error: 'Not found.' }, 404);
+  if (action !== 'login') return authJson({ ok: false, error: 'Not found.' }, 404, requestId);
+  let body;
+  try { body = await request.json(); }
+  catch { return authJson({ ok: false, error: 'Invalid request.' }, 400, requestId); }
+  const username = String(body?.username || '').trim();
+  const password = String(body?.password || '');
+  if (!username || !password || username.length > 160 || password.length > 1024) {
+    return authJson({ ok: false, error: 'Enter your username and password.' }, 400, requestId);
+  }
+
+  const key = await rateKey(request, username);
+  const state = await loginRateState(env, key);
+  if (Number(state.lockedUntil || 0) > Date.now()) {
+    console.log(JSON.stringify({ scope: 'admin_auth', requestId, admin: username, action: 'login', status: 'rate_limited', errorCode: 'LOGIN_LOCKED', durationMs: Date.now() - startedAt }));
+    return authJson({ ok: false, code: 'LOGIN_LOCKED', error: 'Too many attempts. Try again in 15 minutes.' }, 429, requestId);
+  }
+
+  const validPassword = await verifyPassword(password, env.ADMIN_PASSWORD_HASH);
+  const validUsername = username === String(env.ADMIN_USERNAME || '').trim();
+  if (!validUsername || !validPassword) {
+    const failed = await registerFailure(env, key, state);
+    console.log(JSON.stringify({ scope: 'admin_auth', requestId, admin: username, action: 'login', status: 'failed', errorCode: 'INVALID_CREDENTIALS', durationMs: Date.now() - startedAt }));
+    const locked = failed.lockedUntil > Date.now();
+    return authJson({
+      ok: false,
+      code: locked ? 'LOGIN_LOCKED' : 'INVALID_CREDENTIALS',
+      error: locked ? 'Too many attempts. Try again in 15 minutes.' : 'The username or password is incorrect.'
+    }, locked ? 429 : 401, requestId);
+  }
+
+  await env.ORDER_EVENT_STORE.delete(key);
+  const session = await createSession(request, env, username);
+  console.log(JSON.stringify({ scope: 'admin_auth', requestId, admin: username, action: 'login', status: 'succeeded', durationMs: Date.now() - startedAt }));
+  return authJson({ ok: true }, 200, requestId, {
+    'Set-Cookie': `${SESSION_COOKIE}=${encodeURIComponent(session.token)}; ${cookieAttributes(request, SESSION_SECONDS)}`
+  });
 }
 
-export function isAdminMutationAllowed(request) {
+export function isAdminMutationAllowed(request, identity) {
   const requestUrl = new URL(request.url);
   const origin = request.headers.get('origin');
-  const contentType = request.headers.get('content-type') || '';
-  const adminHeader = request.headers.get('x-ptg-admin-request');
+  const contentType = String(request.headers.get('content-type') || '').toLowerCase();
   const bodylessDelete = request.method.toUpperCase() === 'DELETE' && !contentType;
-
-  const safeContentType = contentType.toLowerCase().includes('application/json')
-    || contentType.toLowerCase().startsWith('multipart/form-data;')
+  const safeContentType = contentType.includes('application/json')
+    || contentType.startsWith('multipart/form-data;')
     || bodylessDelete;
-  return origin === requestUrl.origin
+  return Boolean(identity?.csrfToken)
+    && origin === requestUrl.origin
     && safeContentType
-    && adminHeader === '1';
+    && request.headers.get('x-ptg-admin-request') === '1'
+    && request.headers.get('x-csrf-token') === identity.csrfToken;
 }
+
+export const authInternals = {
+  verifyPassword,
+  safeEqual,
+  cookieAttributes,
+  LOGIN_MAX_FAILURES,
+  LOGIN_WINDOW_SECONDS,
+  SESSION_SECONDS
+};

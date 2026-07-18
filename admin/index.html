@@ -1,236 +1,253 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en-NZ">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="robots" content="noindex, nofollow">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
   <title>PTG Activewear Admin</title>
-  <link rel="icon" type="image/png" href="/favicon-ptg.png">
-  <script>document.documentElement.dataset.theme = localStorage.getItem('ptg-admin-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');</script>
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
-<body>
+<body class="admin-shell">
   <header class="admin-header">
-    <a class="admin-brand" href="/admin" aria-label="PTG Activewear admin dashboard">
-      <img src="/photos/ptg-logo-light-transparent.webp" alt="PTG Activewear">
+    <a class="admin-brand" href="/admin" aria-label="PTG Activewear admin home">
+      <img src="/photos/ptg-logo-light-transparent.webp" alt="PTG Activewear" width="188" height="66">
       <span>Admin</span>
     </a>
+    <nav class="admin-nav" aria-label="Admin navigation">
+      <button class="nav-button is-active" type="button" data-view-target="products">Products</button>
+      <button class="nav-button" type="button" data-view-target="editor">Add Product</button>
+      <button class="nav-button" type="button" data-view-target="pictures">Pictures</button>
+    </nav>
     <div class="admin-account">
-      <span id="admin-email">Authenticated user</span>
-      <button type="button" class="button button-secondary theme-toggle" data-theme-toggle aria-pressed="false" title="Switch admin colour theme"><span class="theme-icon" aria-hidden="true">&#9790;</span><span data-theme-label>Dark theme</span></button>
-      <a href="/api/admin-auth/logout" class="button button-secondary">Log out</a>
+      <span data-admin-username></span>
+      <button class="button button-quiet" type="button" data-logout>Logout</button>
     </div>
   </header>
 
-  <div class="admin-shell">
-    <nav class="admin-nav" aria-label="Admin sections">
-      <button type="button" class="nav-button is-active" data-view-button="dashboard">Dashboard</button>
-      <button type="button" class="nav-button" data-view-button="products">Products</button>
-      <button type="button" class="nav-button" data-new-product>Add Product</button>
-      <button type="button" class="nav-button" data-view-button="pictures">Pictures</button>
-      <button type="button" class="nav-button" data-view-button="orders">Orders</button>
-      <button type="button" class="nav-button" data-view-button="movements">Stock history</button>
-    </nav>
+  <main class="admin-main">
+    <div class="notice" role="status" aria-live="polite" data-notice hidden></div>
 
-    <main class="admin-main">
-      <div id="global-status" class="status is-hidden" role="status" aria-live="polite"></div>
+    <section class="admin-view" data-view="products">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">Catalogue</p>
+          <h1>Products</h1>
+          <p>Manage what appears in the PTG Activewear shop.</p>
+        </div>
+        <button class="button button-primary" type="button" data-new-product>Add Product</button>
+      </div>
 
-      <section data-view="dashboard">
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">Store overview</p>
-            <h1>Dashboard</h1>
+      <div class="toolbar" aria-label="Product filters">
+        <label class="search-field">
+          <span>Search products</span>
+          <input type="search" placeholder="Search by product name" data-product-search>
+        </label>
+        <label>
+          <span>Status</span>
+          <select data-product-filter>
+            <option value="all">All products</option>
+            <option value="active">Active</option>
+            <option value="draft">Draft</option>
+            <option value="archived">Archived</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="product-list" data-product-list aria-live="polite"></div>
+    </section>
+
+    <section class="admin-view" data-view="editor" hidden>
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow" data-editor-eyebrow>Catalogue item</p>
+          <h1 data-editor-title>Add Product</h1>
+          <p data-editor-subtitle>Create a draft first or publish after adding a valid picture and variant.</p>
+        </div>
+        <button class="button button-secondary" type="button" data-back-products>Back to Products</button>
+      </div>
+
+      <form class="editor-form" data-product-form novalidate>
+        <input type="hidden" name="productId">
+        <input type="hidden" name="version" value="1">
+        <section class="form-section">
+          <div class="section-heading">
+            <h2>Product details</h2>
+            <span class="status-pill" data-editor-status hidden></span>
           </div>
-          <button type="button" class="button button-secondary" data-refresh="dashboard">Refresh</button>
-        </div>
-        <div id="dashboard-metrics" class="metrics-grid" aria-live="polite"></div>
-        <div class="dashboard-grid">
-          <section class="data-section">
-            <div class="section-heading"><h2>Recent paid orders</h2></div>
-            <div id="dashboard-orders" class="table-wrap"></div>
-          </section>
-          <section class="data-section">
-            <div class="section-heading"><h2>Recent stock changes</h2></div>
-            <div id="dashboard-movements" class="activity-list"></div>
-          </section>
-        </div>
-      </section>
-
-      <section data-view="products" hidden>
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">Catalogue and inventory</p>
-            <h1>Products</h1>
+          <div class="form-grid two-columns">
+            <label class="field-wide">
+              <span>Product name <b aria-hidden="true">*</b></span>
+              <input name="name" required maxlength="140" autocomplete="off">
+            </label>
+            <label>
+              <span>Slug <b aria-hidden="true">*</b></span>
+              <input name="slug" required maxlength="100" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="product-name">
+              <small>Lowercase letters, numbers and hyphens.</small>
+            </label>
+            <label>
+              <span>Price (NZD) <b aria-hidden="true">*</b></span>
+              <input name="price" type="number" required min="0" max="1000000" step="0.01" inputmode="decimal">
+            </label>
+            <label class="field-wide">
+              <span>Description</span>
+              <textarea name="description" rows="7" maxlength="4000"></textarea>
+            </label>
+            <label>
+              <span>Category</span>
+              <input name="category" maxlength="80" placeholder="Teamwear">
+            </label>
+            <label>
+              <span>Product type</span>
+              <input name="productType" maxlength="80" placeholder="Jacket">
+            </label>
+            <label>
+              <span>Badge</span>
+              <input name="badge" maxlength="60" placeholder="New">
+            </label>
+            <label class="check-field">
+              <input name="featured" type="checkbox">
+              <span>Featured product</span>
+            </label>
+            <label class="check-field">
+              <input name="trackInventory" type="checkbox" checked>
+              <span>Track inventory</span>
+            </label>
           </div>
-          <div class="heading-actions"><button type="button" class="button button-primary" data-new-product><span aria-hidden="true">+</span> New Product</button><button type="button" class="button button-secondary" data-refresh="products">Refresh</button></div>
-        </div>
-        <div class="admin-toolbar" aria-label="Product filters">
-          <label class="field"><span>Search products</span><input type="search" data-product-search placeholder="Name, category or ID"></label>
-          <label class="field"><span>Status</span><select data-product-status><option value="all">All products</option><option value="active">Active</option><option value="draft">Draft or disabled</option><option value="archived">Archived</option></select></label>
-        </div>
-        <div id="products-table" class="table-wrap"></div>
-      </section>
-
-      <section data-view="pictures" hidden>
-        <div class="page-heading">
-          <div><p class="eyebrow">Product media</p><h1>Pictures</h1></div>
-          <button type="button" class="button button-secondary" data-refresh="pictures">Refresh</button>
-        </div>
-        <div id="pictures-storage-status" class="status is-hidden" role="status"></div>
-        <div id="pictures-grid" class="pictures-grid" aria-live="polite"></div>
-      </section>
-
-      <section data-view="orders" hidden>
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">Payments and fulfilment</p>
-            <h1>Orders</h1>
-          </div>
-          <div class="heading-actions"><a class="button button-secondary" href="/api/admin/exports/orders" data-export-orders>Export CSV</a><button type="button" class="button button-secondary" data-refresh="orders">Refresh</button></div>
-        </div>
-        <form id="order-filters" class="filter-bar">
-          <label class="field"><span>Search</span><input name="search" type="search" placeholder="Order, customer or email"></label>
-          <label class="field"><span>From</span><input name="from" type="date"></label>
-          <label class="field"><span>To</span><input name="to" type="date"></label>
-          <label class="field"><span>Payment</span><select name="payment"><option value="">All</option><option value="paid">Paid</option><option value="unpaid">Unpaid</option><option value="refunded">Refunded</option></select></label>
-          <label class="field"><span>Fulfilment</span><select name="fulfilment"><option value="">All</option><option value="paid">Paid</option><option value="processing">Processing</option><option value="ready_for_collection">Ready for collection</option><option value="shipped">Shipped</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="refunded">Refunded</option></select></label>
-          <button type="submit" class="button button-primary">Apply</button>
-          <button type="reset" class="button button-secondary">Clear</button>
-        </form>
-        <div id="orders-table" class="table-wrap"></div>
-      </section>
-
-      <section data-view="movements" hidden>
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">Inventory audit trail</p>
-            <h1>Stock history</h1>
-          </div>
-          <div class="heading-actions"><a class="button button-secondary" href="/api/admin/exports/stock-movements" data-export-movements>Export CSV</a><a class="button button-secondary" href="/api/admin/exports/inventory" data-export-inventory>Inventory CSV</a><button type="button" class="button button-secondary" data-refresh="movements">Refresh</button></div>
-        </div>
-        <form id="movement-filters" class="filter-bar filter-bar-compact">
-          <label class="field"><span>From</span><input name="from" type="date"></label>
-          <label class="field"><span>To</span><input name="to" type="date"></label>
-          <button type="submit" class="button button-primary">Apply</button>
-          <button type="reset" class="button button-secondary">Clear</button>
-        </form>
-        <div id="movements-table" class="table-wrap"></div>
-      </section>
-    </main>
-  </div>
-
-  <div id="product-modal" class="modal" hidden>
-    <button type="button" class="modal-backdrop" data-close-modal="product" aria-label="Close product editor"></button>
-    <section class="modal-panel modal-panel-wide" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
-      <header class="modal-header">
-        <div><p class="eyebrow">Catalogue item</p><h2 id="product-modal-title">Edit product</h2></div>
-        <button type="button" class="icon-button" data-close-modal="product" aria-label="Close product editor">&times;</button>
-      </header>
-      <div id="product-modal-status" class="status is-hidden" role="status" aria-live="polite"></div>
-      <form id="product-form" class="modal-content">
-        <input type="hidden" name="id">
-        <input type="hidden" name="version">
-        <div class="form-grid">
-          <label class="field field-wide"><span>Product name</span><input name="name" maxlength="140" required></label>
-          <label class="field"><span>URL slug</span><input name="slug" maxlength="100" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="team-training-shirt" required></label>
-          <label class="field"><span>Price (NZD)</span><input name="price" type="number" min="0" step="0.01" required></label>
-          <label class="field"><span>Currency</span><select name="currency"><option value="NZD">NZD</option></select></label>
-          <label class="field"><span>Category</span><input name="category" maxlength="80"></label>
-          <label class="field"><span>Product type</span><input name="productType" maxlength="80"></label>
-          <label class="field"><span>Badge</span><input name="badge" maxlength="60"></label>
-          <label class="field field-wide"><span>Description</span><textarea name="description" rows="4" maxlength="4000"></textarea></label>
-          <label class="field field-wide"><span>SEO title</span><input name="seoTitle" maxlength="160" placeholder="Defaults to the product name"></label>
-          <label class="field field-wide"><span>Meta description</span><textarea name="metaDescription" rows="2" maxlength="320" placeholder="Defaults to the product description"></textarea></label>
-        </div>
-        <div class="product-form-section" data-new-product-status hidden>
-          <div class="section-heading"><div><h3>Save options</h3><p>Save a hidden draft at any time, or publish after at least one image has uploaded successfully.</p></div></div>
-        </div>
-        <div class="toggle-grid" data-existing-status-controls>
-          <label class="toggle"><input name="active" type="checkbox"><span>Visible on website</span></label>
-          <label class="toggle"><input name="availableForSale" type="checkbox"><span>Available for sale</span></label>
-          <label class="toggle"><input name="featured" type="checkbox"><span>Featured product</span></label>
-          <label class="toggle"><input name="trackInventory" type="checkbox"><span>Track inventory</span></label>
-          <label class="toggle"><input name="allowPlayerName" type="checkbox"><span>Allow player name</span></label>
-          <label class="toggle"><input name="allowPlayerNumber" type="checkbox"><span>Allow player number</span></label>
-        </div>
-        <div class="form-grid">
-          <label class="field"><span>Player name price (NZD)</span><input name="playerNamePrice" type="number" min="0" step="0.01"></label>
-          <label class="field"><span>Player number price (NZD)</span><input name="playerNumberPrice" type="number" min="0" step="0.01"></label>
-        </div>
-        <section class="new-product-setup" data-new-product-setup hidden>
-          <div class="section-heading"><div><h3>Initial variants and stock</h3><p>Create sizes, colours or styles now. The product and every option are saved together.</p></div><button type="button" class="button button-secondary button-small" data-add-draft-variant>+ Add option</button></div>
-          <div class="draft-variant-list" data-draft-variant-list></div>
-          <label class="picture-dropzone field field-wide"><span>Initial product pictures</span><input name="initialPictures" type="file" accept="image/jpeg,image/png,image/webp" multiple><strong>Choose one or more images</strong><small>The first image becomes the main image. Uploads are optimised after the product and variants are safely created.</small></label>
-          <label class="field field-wide"><span>Image alt text</span><input name="initialAltText" maxlength="200" placeholder="Defaults to the product name"></label>
         </section>
-        <div id="product-image-preview" class="image-preview"></div>
-        <p class="product-lifecycle-note" data-product-lifecycle-note hidden></p>
-        <div class="form-actions">
-          <button type="button" class="button button-secondary" data-manage-current-pictures hidden>Manage Pictures</button>
-          <div class="create-product-actions" data-create-product-actions hidden>
-            <button type="submit" class="button button-secondary" data-product-submit data-create-intent="draft">Save as Draft</button>
-            <button type="submit" class="button button-primary" data-product-submit data-create-intent="publish">Publish Product</button>
+
+        <section class="form-section">
+          <div class="section-heading">
+            <div>
+              <h2>Personalisation</h2>
+              <p>Optional player details and their additional prices.</p>
+            </div>
           </div>
-          <button type="submit" class="button button-primary" data-product-submit data-update-product>Save Product</button>
+          <div class="option-grid">
+            <div class="option-card">
+              <label class="check-field"><input name="allowPlayerName" type="checkbox"><span>Allow player name</span></label>
+              <label><span>Name price (NZD)</span><input name="playerNamePrice" type="number" min="0" step="0.01" value="20.00"></label>
+            </div>
+            <div class="option-card">
+              <label class="check-field"><input name="allowPlayerNumber" type="checkbox"><span>Allow player number</span></label>
+              <label><span>Number price (NZD)</span><input name="playerNumberPrice" type="number" min="0" step="0.01" value="20.00"></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="form-section" data-create-variants-section>
+          <div class="section-heading">
+            <div>
+              <h2>Sizes, styles and stock</h2>
+              <p>Each variant needs a unique SKU and at least one size, colour or style.</p>
+            </div>
+            <button class="button button-secondary" type="button" data-add-create-variant>Add Variant</button>
+          </div>
+          <div class="variant-list" data-create-variants></div>
+        </section>
+
+        <section class="form-section" data-existing-variants-section hidden>
+          <div class="section-heading">
+            <div>
+              <h2>Variants and stock</h2>
+              <p>Save each variant after making changes. Stock updates are recorded in history.</p>
+            </div>
+          </div>
+          <div class="variant-list" data-existing-variants></div>
+          <div class="inline-add">
+            <h3>Add another variant</h3>
+            <div class="variant-row" data-add-variant-row></div>
+            <button class="button button-secondary" type="button" data-create-variant>Add Variant</button>
+          </div>
+        </section>
+
+        <section class="form-section" data-initial-pictures-section>
+          <div class="section-heading">
+            <div>
+              <h2>Pictures</h2>
+              <p>The first picture becomes the main image. Drafts can be saved without a picture.</p>
+            </div>
+          </div>
+          <label class="upload-dropzone">
+            <span>Choose JPEG, PNG or WebP pictures</span>
+            <input name="initialPictures" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+            <small>Maximum 8 MB per image.</small>
+          </label>
+          <div class="preview-grid" data-initial-previews></div>
+        </section>
+
+        <div class="form-actions" data-create-actions>
+          <button class="button button-secondary button-large" type="submit" data-submit-mode="draft">Save as Draft</button>
+          <button class="button button-primary button-large" type="submit" data-submit-mode="publish">Publish Product</button>
+        </div>
+        <div class="form-actions" data-edit-actions hidden>
+          <button class="button button-primary button-large" type="submit">Save Product</button>
+          <button class="button button-secondary" type="button" data-edit-pictures>Manage Pictures</button>
+          <a class="button button-secondary" data-view-public target="_blank" rel="noopener" hidden>View Product</a>
+          <button class="button button-secondary" type="button" data-editor-lifecycle></button>
+          <button class="button button-danger" type="button" data-editor-archive></button>
+          <button class="button button-danger" type="button" data-permanent-delete hidden>Permanently Delete</button>
         </div>
       </form>
-
-      <section id="product-variants-section" class="modal-content variants-section">
-        <div class="section-heading"><div><h3>Variants and stock</h3><p>Stock changes require a reason and are recorded permanently.</p></div></div>
-        <div id="variant-list"></div>
-        <details class="add-variant">
-          <summary>Add variant</summary>
-          <form id="add-variant-form" class="variant-create-form">
-            <label class="field"><span>SKU</span><input name="sku" maxlength="80" required></label>
-            <label class="field"><span>Size</span><input name="size" maxlength="50"></label>
-            <label class="field"><span>Colour</span><input name="colour" maxlength="80"></label>
-            <label class="field"><span>Style</span><input name="style" maxlength="80"></label>
-            <label class="field"><span>Player name</span><select name="allowPlayerName"><option value="">Inherit product</option><option value="true">Allow</option><option value="false">Disallow</option></select></label>
-            <label class="field"><span>Player number</span><select name="allowPlayerNumber"><option value="">Inherit product</option><option value="true">Allow</option><option value="false">Disallow</option></select></label>
-            <label class="toggle"><input name="active" type="checkbox" checked><span>Active</span></label>
-            <button type="submit" class="button button-secondary">Add variant</button>
-          </form>
-        </details>
-      </section>
     </section>
-  </div>
 
-  <div id="pictures-modal" class="modal" hidden>
-    <button type="button" class="modal-backdrop" data-close-modal="pictures" aria-label="Close picture manager"></button>
-    <section class="modal-panel modal-panel-wide" role="dialog" aria-modal="true" aria-labelledby="pictures-modal-title">
-      <header class="modal-header">
-        <div><p class="eyebrow">Product media</p><h2 id="pictures-modal-title">Manage Pictures</h2></div>
-        <button type="button" class="icon-button" data-close-modal="pictures" aria-label="Close picture manager">&times;</button>
-      </header>
-      <div id="pictures-modal-status" class="status is-hidden" role="status" aria-live="polite"></div>
-      <div class="modal-content">
-        <form id="picture-upload-form" class="picture-upload-form">
-          <label class="picture-dropzone field field-wide" data-picture-dropzone><span>New picture</span><input name="file" type="file" accept="image/jpeg,image/png,image/webp" required><strong>Choose or drop an image here</strong><small>Large images are resized and converted to WebP before upload. Maximum source size 8 MB.</small></label>
-          <div id="picture-upload-preview" class="picture-upload-preview" hidden></div>
-          <label class="field"><span>Crop</span><select name="crop"><option value="original">Keep original shape</option><option value="square">Square (1:1)</option><option value="portrait">Portrait (4:5)</option><option value="landscape">Landscape (4:3)</option></select></label>
-          <div class="optimisation-summary" data-optimisation-summary aria-live="polite">Optimisation details will appear after you choose an image.</div>
-          <label class="field"><span>Alt text</span><input name="altText" maxlength="200" required></label>
-          <label class="field"><span>Gallery style</span><input name="variantStyle" maxlength="80" placeholder="Optional, e.g. Style 2"></label>
-          <input name="replacePictureId" type="hidden">
-          <div class="upload-progress" hidden><span></span><output data-upload-progress-text>Preparing upload...</output></div>
-          <div class="form-actions"><button type="submit" class="button button-primary">Upload Picture</button><button type="button" class="button button-secondary" data-cancel-replace hidden>Cancel replace</button></div>
-        </form>
-        <div id="picture-manager-list" class="picture-manager-list"></div>
+    <section class="admin-view" data-view="pictures" hidden>
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">Product media</p>
+          <h1>Pictures</h1>
+          <p>Upload, order and choose the main picture for each product.</p>
+        </div>
+      </div>
+
+      <div class="picture-layout">
+        <section class="form-section picture-controls">
+          <label>
+            <span>Product</span>
+            <select data-picture-product></select>
+          </label>
+          <div class="picture-upload-preview" data-picture-preview>
+            <span>No picture selected</span>
+          </div>
+          <form data-picture-upload-form novalidate>
+            <label class="upload-dropzone compact">
+              <span data-picture-file-label>Choose a new picture</span>
+              <input name="picture" type="file" accept="image/jpeg,image/png,image/webp" required>
+              <small>JPEG, PNG or WebP, up to 8 MB.</small>
+            </label>
+            <label><span>Alt text</span><input name="altText" maxlength="200" required></label>
+            <label><span>Style or angle</span><input name="variantStyle" maxlength="80" placeholder="Front, back, Style 1"></label>
+            <input name="replacePictureId" type="hidden">
+            <div class="upload-progress" data-upload-progress hidden><span></span></div>
+            <div class="form-actions compact-actions">
+              <button class="button button-primary" type="submit" data-upload-button>Upload Picture</button>
+              <button class="button button-quiet" type="button" data-cancel-replace hidden>Cancel Replace</button>
+            </div>
+          </form>
+        </section>
+        <section class="gallery-panel">
+          <div class="section-heading">
+            <div>
+              <h2 data-gallery-title>Product pictures</h2>
+              <p>Use the arrows to change gallery order.</p>
+            </div>
+          </div>
+          <div class="gallery-grid" data-picture-gallery aria-live="polite"></div>
+        </section>
       </div>
     </section>
-  </div>
+  </main>
 
-  <div id="order-modal" class="modal" hidden>
-    <button type="button" class="modal-backdrop" data-close-modal="order" aria-label="Close order details"></button>
-    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="order-modal-title">
-      <header class="modal-header">
-        <div><p class="eyebrow">Paid order</p><h2 id="order-modal-title">Order details</h2></div>
-        <button type="button" class="icon-button" data-close-modal="order" aria-label="Close order details">&times;</button>
-      </header>
-      <div id="order-modal-content" class="modal-content"></div>
-    </section>
-  </div>
-
-  <script src="/admin/admin.js?v=20260718-admin-reliability"></script>
+  <template data-create-variant-template>
+    <div class="variant-row">
+      <label><span>SKU</span><input data-variant-field="sku" required maxlength="80" placeholder="PTG-ITEM-S"></label>
+      <label><span>Size</span><input data-variant-field="size" maxlength="50" placeholder="S"></label>
+      <label><span>Colour</span><input data-variant-field="colour" maxlength="80" placeholder="Black"></label>
+      <label><span>Style</span><input data-variant-field="style" maxlength="80" placeholder="Standard"></label>
+      <label><span>Starting stock</span><input data-variant-field="stockQuantity" type="number" min="0" step="1" value="0"></label>
+      <label class="check-field"><input data-variant-field="active" type="checkbox" checked><span>Active</span></label>
+      <button class="icon-button danger" type="button" data-remove-variant aria-label="Remove variant" title="Remove variant">&times;</button>
+    </div>
+  </template>
+  <script src="/admin/admin.js" defer></script>
 </body>
 </html>

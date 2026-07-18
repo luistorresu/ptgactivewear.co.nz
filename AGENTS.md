@@ -61,7 +61,7 @@ This repository is for the website ptgactivewear.co.nz.
 * Cloudflare D1 is the source of truth for products, variants, stock, orders, and stock movements after the approved cutover.
 * Keep `js/products.js` as the documented migration fallback until D1 has been tested and production removal is explicitly approved.
 * Never expose exact stock, admin identity configuration, customer data, or order data through public APIs.
-* Protect `/admin*` and `/api/admin/*` with Cloudflare Access and server-side JWT/email validation.
+* Protect `/admin*` and `/api/admin/*` with the server-side username/password session documented in `ADMIN.md`; Cloudflare Access may remain as an additional outer layer.
 * Product pictures must be managed through `/admin/pictures`; ordinary product updates must reject raw paths and image arrays.
 * Keep static product image references as a fallback until the `PRODUCT_IMAGES` R2 binding has been enabled and verified live.
 * Use Stripe test keys for local and staging admin/inventory work. Do not change production payment mode without explicit approval.

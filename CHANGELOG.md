@@ -2,6 +2,25 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-18
+
+### Changed
+
+* Replaced the complex admin dashboard with a focused Products, Add Product, and Pictures portal while preserving the public website and existing D1 data.
+* Replaced Resend email-code admin sign-in with PBKDF2 username/password verification, signed eight-hour `HttpOnly` sessions, KV invalidation, CSRF protection, and temporary login lockout.
+* Added explicit publish, unpublish, archive, restore, and guarded permanent-delete admin endpoints.
+* Simplified product creation into clear Save as Draft and Publish Product workflows with recoverable sequential image uploads.
+
+### Fixed
+
+* Allowed draft and archived products to remove their final picture while preventing active products from becoming pictureless.
+* Made picture deletion restore R2 objects if its D1 mutation cannot commit and made primary/reorder changes atomic with their audit entries.
+* Added request IDs and structured safe logs to admin authentication, product changes, and picture operations.
+
+### Testing
+
+* Added behavioral authentication tests and a reusable local/live admin integration flow covering login, CSRF, product validation, variants, stock, lifecycle, JPEG/PNG/WebP uploads, idempotent retries, galleries, public catalogue visibility, safe deletion, public-page regressions, and logout.
+
 ## 2026-07-17
 
 ### Added

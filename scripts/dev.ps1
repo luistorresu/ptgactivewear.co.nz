@@ -57,7 +57,6 @@ try {
     --var CATALOG_SOURCE:d1 `
     --var INVENTORY_ENFORCEMENT:d1 `
     --var ENVIRONMENT:development `
-    --var LOCAL_ADMIN_EMAIL:info@ptgactivewear.co.nz `
     --var LOW_STOCK_THRESHOLD:5 `
     --var CHECKOUT_ENABLED:true
 } finally {

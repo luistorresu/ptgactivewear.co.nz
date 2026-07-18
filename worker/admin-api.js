@@ -337,8 +337,8 @@ async function createProduct(db, body, identity) {
       `).bind(identity.email, productId, `Created draft product with ${validatedVariants.length} variant(s): ${value.name}`)
     );
     await db.batch(statements);
-    console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action: 'create', status: 'succeeded', variants: validatedVariants.length, publishRequested: value.active && value.availableForSale, durationMs: Date.now() - startedAt }));
-    return json({ ok: true, product: await getProduct(db, productId), publishRequested: value.active && value.availableForSale }, 201);
+    console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action: 'create', status: 'succeeded', variants: validatedVariants.length, publishRequested: Boolean(value.active && value.availableForSale), durationMs: Date.now() - startedAt }));
+    return json({ ok: true, product: await getProduct(db, productId), publishRequested: Boolean(value.active && value.availableForSale) }, 201);
   } catch (error) {
     console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action: 'create', status: 'failed', errorCode: 'DATABASE_WRITE_FAILED', durationMs: Date.now() - startedAt }));
     return json({ ok: false, error: 'A product with that name or URL already exists. Try a more specific name.' }, 409);
@@ -346,6 +346,8 @@ async function createProduct(db, body, identity) {
 }
 
 async function productLifecycle(db, productId, body, identity) {
+  const requestId = identity.requestId || crypto.randomUUID();
+  const startedAt = Date.now();
   const unknown = rejectUnknownFields(body, new Set(['action']));
   if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
   const action = cleanText(body.action, 20).toLowerCase();
@@ -379,7 +381,44 @@ async function productLifecycle(db, productId, body, identity) {
     db.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
       VALUES (?, ?, 'product', ?, ?)`).bind(identity.email, action === 'delete' ? 'archive' : action, productId, `${product.name} ${lifecycle.label}`)
   ]);
+  console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action, status: 'succeeded', durationMs: Date.now() - startedAt }));
   return json({ ok: true, product: await getProduct(db, productId), message: `${product.name} ${lifecycle.label}.` });
+}
+
+async function permanentlyDeleteProduct(db, productId, identity) {
+  const requestId = identity.requestId || crypto.randomUUID();
+  const startedAt = Date.now();
+  const product = await db.prepare('SELECT id, name, archived FROM products WHERE id = ?').bind(productId).first();
+  if (!product) return json({ ok: false, error: 'Product not found.' }, 404);
+  if (!product.archived) {
+    return json({ ok: false, error: 'Archive this product before permanently deleting it.' }, 409);
+  }
+  const references = await db.prepare(`SELECT
+    (SELECT COUNT(*) FROM order_items WHERE product_id = ?) AS order_items,
+    (SELECT COUNT(*) FROM stock_movements sm JOIN product_variants pv ON pv.id = sm.product_variant_id WHERE pv.product_id = ?) AS stock_movements,
+    (SELECT COUNT(*) FROM product_images WHERE product_id = ? AND active = 1) AS active_pictures
+  `).bind(productId, productId, productId).first();
+  const orderItems = Number(references?.order_items || 0);
+  const stockMovements = Number(references?.stock_movements || 0);
+  const activePictures = Number(references?.active_pictures || 0);
+  if (orderItems || stockMovements) {
+    await audit(db, identity, 'delete_rejected', 'product', productId, 'Permanent deletion rejected because historical records exist');
+    console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action: 'delete', status: 'rejected', errorCode: 'HISTORICAL_REFERENCES', durationMs: Date.now() - startedAt }));
+    return json({ ok: false, code: 'HISTORICAL_REFERENCES', error: 'This product has order or stock history and cannot be permanently deleted. Keep it archived.' }, 409);
+  }
+  if (activePictures) {
+    return json({ ok: false, code: 'ACTIVE_PICTURES', error: 'Remove this product\'s pictures before permanently deleting it.' }, 409);
+  }
+  const results = await db.batch([
+    db.prepare('DELETE FROM product_images WHERE product_id = ?').bind(productId),
+    db.prepare('DELETE FROM product_variants WHERE product_id = ?').bind(productId),
+    db.prepare('DELETE FROM products WHERE id = ? AND archived = 1').bind(productId),
+    db.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+      VALUES (?, 'delete', 'product', ?, ?)`).bind(identity.email, productId, `Permanently deleted unused product: ${product.name}`)
+  ]);
+  if (!results[2]?.meta?.changes) return json({ ok: false, error: 'The product could not be deleted.' }, 409);
+  console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action: 'delete', status: 'succeeded', durationMs: Date.now() - startedAt }));
+  return json({ ok: true, message: `${product.name} was permanently deleted.` });
 }
 
 async function duplicateProduct(db, productId, identity) {
@@ -415,6 +454,8 @@ async function duplicateProduct(db, productId, identity) {
 }
 
 async function updateProduct(db, productId, body, identity) {
+  const requestId = identity.requestId || crypto.randomUUID();
+  const startedAt = Date.now();
   const validation = validateProduct(body);
   if (validation.error) return json({ ok: false, error: validation.error }, 400);
   const value = validation.value;
@@ -445,6 +486,7 @@ async function updateProduct(db, productId, body, identity) {
   try { results = await db.batch(statements); }
   catch (error) { return json({ ok: false, error: 'That product slug is already in use.' }, 409); }
   if (!results[0]?.meta?.changes) return json({ ok: false, error: 'This product changed in another session. Refresh and try again.' }, 409);
+  console.log(JSON.stringify({ scope: 'admin_product', requestId, admin: identity.email, productId, action: 'update', status: 'succeeded', durationMs: Date.now() - startedAt }));
   return json({ ok: true, product: await getProduct(db, productId) });
 }
 
@@ -682,7 +724,7 @@ async function exportMovements(db, url, identity) {
   return csvResponse(`ptg-stock-movements-${exportDate()}.csv`, ['Date','Product','Variant','Quantity before','Quantity change','Quantity after','Reason','Reference','Changed by'], rows);
 }
 
-export async function handleAdminApi(request, env, identity) {
+async function routeAdminApi(request, env, identity) {
   if (!env.DB) return json({ ok: false, error: 'D1 database is not configured.' }, 503);
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/admin\/?/, '');
@@ -711,6 +753,14 @@ export async function handleAdminApi(request, env, identity) {
     if (method === 'POST' && segments[0] === 'products' && segments[2] === 'lifecycle' && segments.length === 3) {
       const parsed = await readBody(request);
       return parsed.error ? json({ ok: false, error: parsed.error }, 400) : productLifecycle(env.DB, segments[1], parsed.body, identity);
+    }
+    if (method === 'POST' && segments[0] === 'products' && segments.length === 3
+      && ['publish', 'unpublish', 'archive', 'restore'].includes(segments[2])) {
+      const actions = { publish: 'enable', unpublish: 'disable', archive: 'archive', restore: 'restore' };
+      return productLifecycle(env.DB, segments[1], { action: actions[segments[2]] }, identity);
+    }
+    if (method === 'DELETE' && segments[0] === 'products' && segments.length === 2) {
+      return permanentlyDeleteProduct(env.DB, segments[1], identity);
     }
     if (method === 'POST' && segments[0] === 'products' && segments[2] === 'duplicate' && segments.length === 3) {
       return duplicateProduct(env.DB, segments[1], identity);
@@ -760,4 +810,23 @@ export async function handleAdminApi(request, env, identity) {
     console.error('Admin API request failed', { method, path, message: error.message });
     return json({ ok: false, error: 'The admin request could not be completed.' }, 500);
   }
+}
+
+async function responseWithRequestId(response, requestId) {
+  const headers = new Headers(response.headers);
+  headers.set('X-Request-ID', requestId);
+  if (!String(headers.get('content-type') || '').includes('application/json')) {
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  }
+  const body = await response.json().catch(() => ({ ok: false, error: 'The admin response could not be read.' }));
+  return new Response(JSON.stringify({ ...body, requestId: body.requestId || requestId }), {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+export async function handleAdminApi(request, env, identity) {
+  const requestId = cleanText(request.headers.get('x-request-id'), 80) || crypto.randomUUID();
+  return responseWithRequestId(await routeAdminApi(request, env, { ...identity, requestId }), requestId);
 }

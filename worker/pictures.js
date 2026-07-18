@@ -300,13 +300,18 @@ async function updatePicture(request, env, identity, pictureId) {
 }
 
 async function setPrimary(env, identity, pictureId) {
+  const startedAt = Date.now();
+  const requestId = identity.requestId || crypto.randomUUID();
   const picture = await env.DB.prepare('SELECT * FROM product_images WHERE id = ? AND active = 1').bind(pictureId).first();
   if (!picture) return json({ ok: false, error: 'Picture not found.' }, 404);
-  await env.DB.batch([
+  const results = await env.DB.batch([
     env.DB.prepare('UPDATE product_images SET is_primary = 0, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?').bind(picture.product_id),
-    env.DB.prepare('UPDATE product_images SET is_primary = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(pictureId)
+    env.DB.prepare('UPDATE product_images SET is_primary = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND active = 1').bind(pictureId),
+    env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+      VALUES (?, 'set_primary', 'product_image', ?, 'Changed the main product picture')`).bind(identity.email, String(pictureId))
   ]);
-  await audit(env.DB, identity, 'set_primary', pictureId, 'Changed the main product picture');
+  if (!results[1]?.meta?.changes) return json({ ok: false, error: 'Picture not found.' }, 404);
+  console.log(JSON.stringify({ scope: 'admin_picture', requestId, admin: identity.email, productId: picture.product_id, pictureId, action: 'set_primary', status: 'succeeded', durationMs: Date.now() - startedAt }));
   return json({ ok: true, pictures: await listProductPictures(env.DB, picture.product_id) });
 }
 
@@ -316,24 +321,65 @@ async function reorder(request, env, identity, productId) {
   if (!ids.length || ids.some(id => !id) || new Set(ids).size !== ids.length) return json({ ok: false, error: 'A unique ordered picture list is required.' }, 400);
   const current = await listProductPictures(env.DB, productId);
   if (ids.length !== current.length || ids.some(id => !current.find(picture => picture.id === id))) return json({ ok: false, error: 'The picture list changed. Refresh and try again.' }, 409);
-  await env.DB.batch(ids.map((id, index) => env.DB.prepare('UPDATE product_images SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND product_id = ?').bind(index + 1, id, productId)));
-  await audit(env.DB, identity, 'reorder', productId, 'Reordered product pictures');
+  await env.DB.batch([
+    ...ids.map((id, index) => env.DB.prepare('UPDATE product_images SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND product_id = ?').bind(index + 1, id, productId)),
+    env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+      VALUES (?, 'reorder', 'product_image', ?, 'Reordered product pictures')`).bind(identity.email, String(productId))
+  ]);
   return json({ ok: true, pictures: await listProductPictures(env.DB, productId) });
 }
 
 async function removePicture(env, identity, pictureId) {
-  const picture = await env.DB.prepare('SELECT * FROM product_images WHERE id = ? AND active = 1').bind(pictureId).first();
+  const startedAt = Date.now();
+  const requestId = identity.requestId || crypto.randomUUID();
+  const picture = await env.DB.prepare(`SELECT pi.*, p.active AS product_active, p.archived AS product_archived
+    FROM product_images pi JOIN products p ON p.id = pi.product_id WHERE pi.id = ? AND pi.active = 1`).bind(pictureId).first();
   if (!picture) return json({ ok: false, error: 'Picture not found.' }, 404);
-  const count = await env.DB.prepare('SELECT COUNT(*) AS value FROM product_images WHERE product_id = ? AND active = 1').bind(picture.product_id).first();
-  if (Number(count?.value || 0) <= 1) return json({ ok: false, error: 'A product must keep at least one usable picture.' }, 409);
-  await env.DB.prepare('UPDATE product_images SET active = 0, is_primary = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(pictureId).run();
-  if (picture.is_primary) {
-    const next = await env.DB.prepare('SELECT id FROM product_images WHERE product_id = ? AND active = 1 ORDER BY sort_order, id LIMIT 1').bind(picture.product_id).first();
-    if (next) await env.DB.prepare('UPDATE product_images SET is_primary = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(next.id).run();
+  if ((picture.object_key || picture.thumbnail_object_key) && !env.PRODUCT_IMAGES) {
+    return failure('R2_NOT_CONFIGURED', 'R2 image storage is not available. Nothing was changed.', 503, requestId);
   }
-  await audit(env.DB, identity, 'remove', pictureId, 'Removed product picture');
-  if (picture.object_key && env.PRODUCT_IMAGES) await env.PRODUCT_IMAGES.delete(picture.object_key);
-  if (picture.thumbnail_object_key && env.PRODUCT_IMAGES) await env.PRODUCT_IMAGES.delete(picture.thumbnail_object_key);
+  const count = await env.DB.prepare('SELECT COUNT(*) AS value FROM product_images WHERE product_id = ? AND active = 1').bind(picture.product_id).first();
+  if (Number(count?.value || 0) <= 1 && picture.product_active && !picture.product_archived) {
+    return json({ ok: false, error: 'Unpublish this product before removing its final picture.' }, 409);
+  }
+  const next = picture.is_primary
+    ? await env.DB.prepare('SELECT id FROM product_images WHERE product_id = ? AND active = 1 AND id != ? ORDER BY sort_order, id LIMIT 1').bind(picture.product_id, pictureId).first()
+    : null;
+  const objectSnapshots = [];
+  if (env.PRODUCT_IMAGES) {
+    try {
+      for (const key of [picture.thumbnail_object_key, picture.object_key].filter(Boolean)) {
+        const object = await env.PRODUCT_IMAGES.get(key);
+        if (object) objectSnapshots.push({ key, bytes: await object.arrayBuffer(), httpMetadata: object.httpMetadata, customMetadata: object.customMetadata });
+      }
+      for (const snapshot of objectSnapshots) await env.PRODUCT_IMAGES.delete(snapshot.key);
+    } catch (error) {
+      for (const snapshot of objectSnapshots) {
+        try { await env.PRODUCT_IMAGES.put(snapshot.key, snapshot.bytes, { httpMetadata: snapshot.httpMetadata, customMetadata: snapshot.customMetadata }); } catch {}
+      }
+      console.log(JSON.stringify({ scope: 'admin_picture', requestId, admin: identity.email, productId: picture.product_id, pictureId, action: 'remove', status: 'failed', errorCode: 'R2_DELETE_FAILED', durationMs: Date.now() - startedAt }));
+      return failure('R2_DELETE_FAILED', 'The stored image could not be removed. Nothing was changed; please retry.', 502, requestId);
+    }
+  }
+  try {
+    const statements = [
+      env.DB.prepare('UPDATE product_images SET active = 0, is_primary = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND active = 1').bind(pictureId)
+    ];
+    if (next) statements.push(env.DB.prepare('UPDATE product_images SET is_primary = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(next.id));
+    statements.push(env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+      VALUES (?, 'remove', 'product_image', ?, 'Removed product picture')`).bind(identity.email, String(pictureId)));
+    const results = await env.DB.batch(statements);
+    if (!results[0]?.meta?.changes) throw new Error('D1_DELETE_NOT_COMMITTED');
+  } catch (error) {
+    if (env.PRODUCT_IMAGES) {
+      for (const snapshot of objectSnapshots) {
+        try { await env.PRODUCT_IMAGES.put(snapshot.key, snapshot.bytes, { httpMetadata: snapshot.httpMetadata, customMetadata: snapshot.customMetadata }); } catch {}
+      }
+    }
+    console.log(JSON.stringify({ scope: 'admin_picture', requestId, admin: identity.email, productId: picture.product_id, pictureId, action: 'remove', status: 'failed', errorCode: 'DATABASE_COMMIT_FAILED', durationMs: Date.now() - startedAt }));
+    return failure('DATABASE_COMMIT_FAILED', 'The image database record could not be updated. Nothing was changed; please retry.', 502, requestId);
+  }
+  console.log(JSON.stringify({ scope: 'admin_picture', requestId, admin: identity.email, productId: picture.product_id, pictureId, action: 'remove', status: 'succeeded', durationMs: Date.now() - startedAt }));
   return json({ ok: true, pictures: await listProductPictures(env.DB, picture.product_id) });
 }
 
@@ -362,7 +408,7 @@ function logUpload(event) {
   console.log(JSON.stringify({ scope: 'admin_picture', ...event }));
 }
 
-export async function handlePicturesApi(request, env, identity) {
+async function routePicturesApi(request, env, identity) {
   if (!env.DB) return json({ ok: false, error: 'D1 database is not configured.' }, 503);
   const path = new URL(request.url).pathname.replace(/^\/api\/admin\/?/, '');
   const segments = path.split('/').filter(Boolean);
@@ -391,4 +437,23 @@ export async function handlePicturesApi(request, env, identity) {
     console.error('Pictures API request failed', { method, path, message: error.message });
     return json({ ok: false, error: 'The picture request could not be completed.' }, 500);
   }
+}
+
+async function responseWithRequestId(response, requestId) {
+  const headers = new Headers(response.headers);
+  headers.set('X-Request-ID', requestId);
+  if (!String(headers.get('content-type') || '').includes('application/json')) {
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  }
+  const body = await response.json().catch(() => ({ ok: false, error: 'The picture response could not be read.' }));
+  return new Response(JSON.stringify({ ...body, requestId: body.requestId || requestId }), {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+export async function handlePicturesApi(request, env, identity) {
+  const requestId = validRequestId(request.headers.get('x-request-id')) || crypto.randomUUID();
+  return responseWithRequestId(await routePicturesApi(request, env, { ...identity, requestId }), requestId);
 }

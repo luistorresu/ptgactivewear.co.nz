@@ -12,14 +12,18 @@ test('order and invoice migration is additive and preserves existing tables', as
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_invoice_number/i);
 });
 
-test('admin theme respects system preference and persists only theme state', async () => {
-  const [html, script] = await Promise.all([
+test('admin frontend is intentionally limited to products, editing and pictures', async () => {
+  const [html, script, login] = await Promise.all([
     readFile(new URL('admin/index.html', root), 'utf8'),
-    readFile(new URL('admin/admin.js', root), 'utf8')
+    readFile(new URL('admin/admin.js', root), 'utf8'),
+    readFile(new URL('admin/login.html', root), 'utf8')
   ]);
-  assert.match(html, /prefers-color-scheme: dark/);
-  assert.match(script, /localStorage\.setItem\('ptg-admin-theme'/);
-  assert.doesNotMatch(script, /localStorage\.setItem\([^)]*(?:order|customer|token)/i);
+  assert.match(html, /data-view-target="products"/);
+  assert.match(html, /data-view-target="editor"/);
+  assert.match(html, /data-view-target="pictures"/);
+  assert.match(login, /name="username"/);
+  assert.match(login, /name="password"/);
+  assert.doesNotMatch(script, /localStorage|sessionStorage/);
 });
 
 test('invoice and CSV routes remain under authenticated admin API paths', async () => {
@@ -51,11 +55,11 @@ test('admin creates a safe product and initial variants in one validated batch',
     readFile(new URL('worker/admin-api.js', root), 'utf8')
   ]);
   assert.match(html, /data-new-product/);
-  assert.match(html, /data-draft-variant-list/);
+  assert.match(html, /data-create-variants/);
   assert.match(html, /name="initialPictures"[^>]*multiple/);
-  assert.match(script, /method: isCreating \? 'POST' : 'PUT'/);
-  assert.match(script, /collectDraftVariants/);
-  assert.match(script, /uploadInitialPicture/);
+  assert.match(script, /api\('\/api\/admin\/products', \{ method: 'POST'/);
+  assert.match(script, /createVariantPayloads/);
+  assert.match(script, /await uploadPicture\(createdProduct\.id/);
   assert.match(api, /INSERT INTO products/);
   assert.match(api, /CREATE_PRODUCT_FIELDS/);
   assert.match(api, /INSERT INTO product_variants/);
@@ -207,10 +211,11 @@ test('picture uploads create owned thumbnails and remove both R2 objects togethe
   ]);
   assert.match(pictures, /form\.get\('thumbnail'\)/);
   assert.match(pictures, /thumbnail_object_key/);
-  assert.match(pictures, /PRODUCT_IMAGES\.delete\(picture\.thumbnail_object_key\)/);
+  assert.match(pictures, /\[picture\.thumbnail_object_key, picture\.object_key\]/);
+  assert.match(pictures, /PRODUCT_IMAGES\.delete\(snapshot\.key\)/);
   assert.match(adminScript, /optimisePicture/);
   assert.match(adminScript, /image\/webp/);
-  assert.match(adminScript, /draggable/);
+  assert.match(adminScript, /data-picture-action="up"/);
   assert.match(migration, /thumbnail_delivery_url/);
 });
 
@@ -279,9 +284,9 @@ test('new product form has clear Draft and Publish actions', async () => {
     readFile(new URL('admin/index.html', root), 'utf8'),
     readFile(new URL('admin/admin.js', root), 'utf8')
   ]);
-  assert.match(html, /data-create-intent="draft"/);
+  assert.match(html, /data-submit-mode="draft"/);
   assert.match(html, /Save as Draft/);
-  assert.match(html, /data-create-intent="publish"/);
+  assert.match(html, /data-submit-mode="publish"/);
   assert.match(html, /Publish Product/);
   assert.match(admin, /publishRequested/);
   assert.match(admin, /Choose at least one product image before publishing/);

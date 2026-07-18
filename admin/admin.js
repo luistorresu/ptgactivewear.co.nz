@@ -1,1025 +1,857 @@
 const state = {
-  activeView: 'dashboard',
-  currentProduct: null,
-  currentOrder: null,
-  pictureProducts: [],
-  currentPictureProduct: null,
+  csrfToken: '',
   products: [],
-  pendingPictureFile: null,
-  pendingThumbnailFile: null,
-  pendingPictureInfo: null,
-  pendingPicturePromise: null,
+  currentProduct: null,
+  pictures: [],
+  pictureProductId: '',
+  submitting: false,
   uploadRequestId: '',
-  uploadInFlight: false,
-  productFormDirty: false
+  previewUrls: []
 };
 
-function applyTheme(theme) {
-  const selected = theme === 'dark' ? 'dark' : 'light';
-  document.documentElement.dataset.theme = selected;
-  localStorage.setItem('ptg-admin-theme', selected);
-  const button = document.querySelector('[data-theme-toggle]');
-  if (button) {
-    const isDark = selected === 'dark';
-    button.querySelector('.theme-icon').textContent = isDark ? '\u2600' : '\u263e';
-    button.querySelector('[data-theme-label]').textContent = isDark ? 'Light theme' : 'Dark theme';
-    button.setAttribute('aria-pressed', String(isDark));
-  }
-}
+const views = [...document.querySelectorAll('[data-view]')];
+const notice = document.querySelector('[data-notice]');
+const productList = document.querySelector('[data-product-list]');
+const productForm = document.querySelector('[data-product-form]');
+const createVariants = document.querySelector('[data-create-variants]');
+const createVariantTemplate = document.querySelector('[data-create-variant-template]');
+const existingVariants = document.querySelector('[data-existing-variants]');
+const pictureProduct = document.querySelector('[data-picture-product]');
+const pictureGallery = document.querySelector('[data-picture-gallery]');
+const pictureUploadForm = document.querySelector('[data-picture-upload-form]');
+const picturePreview = document.querySelector('[data-picture-preview]');
+const uploadProgress = document.querySelector('[data-upload-progress]');
+let pendingPicturePromise = null;
+let slugEdited = false;
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, character => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+  return String(value ?? '').replace(/[&<>'"]/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
   }[character]));
 }
 
-function money(cents, currency = 'NZD') {
-  return new Intl.NumberFormat('en-NZ', { style: 'currency', currency: String(currency || 'NZD').toUpperCase() }).format(Number(cents || 0) / 100);
+function formatMoney(cents) {
+  return new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(Number(cents || 0) / 100);
 }
 
-function dateTime(value) {
-  if (!value) return 'Not available';
-  const date = new Date(String(value).includes('T') ? value : `${value.replace(' ', 'T')}Z`);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-NZ', { dateStyle: 'medium', timeStyle: 'short' });
+function moneyToCents(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : NaN;
 }
 
-function setStatus(element, type, message) {
-  if (!element) return;
-  element.textContent = message;
-  element.className = `status status-${type}`;
+function slugify(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100)
+    .replace(/-+$/g, '');
 }
 
-function clearStatus(element) {
-  if (!element) return;
-  element.textContent = '';
-  element.className = 'status is-hidden';
+function productStatus(product) {
+  if (product.archived) return { key: 'archived', label: 'Archived' };
+  if (product.active && product.availableForSale) return { key: 'active', label: 'Active' };
+  return { key: 'draft', label: 'Draft' };
+}
+
+function showNotice(message, type = 'info', shouldFocus = false) {
+  notice.textContent = message;
+  notice.className = `notice${type === 'info' ? '' : ` notice-${type}`}`;
+  notice.hidden = false;
+  if (shouldFocus) notice.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+}
+
+function clearNotice() {
+  notice.hidden = true;
+  notice.textContent = '';
+}
+
+function errorMessage(error) {
+  const message = error?.message || 'The request could not be completed.';
+  return error?.requestId ? `${message} Reference: ${error.requestId}` : message;
 }
 
 async function api(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase();
   const headers = new Headers(options.headers || {});
-  if (!['GET', 'HEAD'].includes(method)) headers.set('X-PTG-Admin-Request', '1');
-  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  const response = await fetch(`/api/admin${path}`, { ...options, method, headers, credentials: 'same-origin' });
-  const result = await response.json().catch(() => ({}));
-  if (response.status === 401) throw new Error('Your admin session has expired. Refresh the page to sign in again.');
-  if (!response.ok || !result.ok) throw new Error(result.error || 'The request could not be completed.');
-  return result;
+  headers.set('Accept', 'application/json');
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    headers.set('X-PTG-Admin-Request', '1');
+    headers.set('X-CSRF-Token', state.csrfToken);
+    if (options.body !== undefined && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+  }
+  const response = await fetch(path, { ...options, method, headers, credentials: 'same-origin' });
+  if (response.status === 401) {
+    window.location.replace('/admin/login');
+    throw new Error('Your admin session has expired.');
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || 'The request could not be completed.');
+    error.code = data.code || '';
+    error.requestId = data.requestId || response.headers.get('x-request-id') || '';
+    throw error;
+  }
+  return data;
 }
 
-function badge(text, type = 'neutral') {
-  return `<span class="badge badge-${type}">${escapeHtml(text)}</span>`;
+function routeFor(viewName) {
+  if (viewName === 'pictures') return `/admin/pictures${state.pictureProductId ? `?product=${encodeURIComponent(state.pictureProductId)}` : ''}`;
+  if (viewName === 'editor') return state.currentProduct ? `/admin?edit=${encodeURIComponent(state.currentProduct.id)}` : '/admin?new=1';
+  return '/admin';
 }
 
-function empty(message) {
-  return `<div class="empty-state">${escapeHtml(message)}</div>`;
+function switchView(viewName, updateHistory = true) {
+  views.forEach(view => { view.hidden = view.dataset.view !== viewName; });
+  document.querySelectorAll('[data-view-target]').forEach(button => button.classList.toggle('is-active', button.dataset.viewTarget === viewName));
+  if (updateHistory) history.pushState({}, '', routeFor(viewName));
+  window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
-function orderRows(orders) {
-  if (!orders.length) return empty('No paid orders have been recorded yet.');
-  return `<table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Fulfilment</th><th>Invoice</th><th>Date</th><th></th></tr></thead><tbody>${orders.map(order => `
-    <tr>
-      <td><strong>${escapeHtml(order.order_number || `Order #${order.id}`)}</strong></td>
-      <td><strong>${escapeHtml(order.customer_name || 'Not provided')}</strong><br><small>${escapeHtml(order.customer_email || '')}</small></td>
-      <td>${money(order.total_cents, order.currency)}</td>
-      <td>${badge(order.payment_status, order.payment_status === 'paid' ? 'success' : 'warning')}</td>
-      <td>${badge(order.fulfilment_status, order.fulfilment_status === 'fulfilled' ? 'success' : 'neutral')}</td>
-      <td>${order.invoice_number
-        ? `<div class="invoice-actions">${badge(order.invoice_number, 'success')}<a class="button button-secondary button-small" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">View</a><a class="button button-secondary button-small" href="/admin/invoice.html?order=${Number(order.id)}&print=1" target="_blank" rel="noopener">Download PDF</a><a class="button button-secondary button-small" href="/admin/invoice.html?order=${Number(order.id)}&print=1" target="_blank" rel="noopener">Print</a></div>`
-        : `<button type="button" class="button button-secondary button-small" data-generate-invoice="${Number(order.id)}">Generate Invoice</button>`}</td>
-      <td>${escapeHtml(dateTime(order.created_at))}</td>
-      <td><button type="button" class="button button-secondary button-small" data-order-id="${Number(order.id)}">View</button></td>
-    </tr>`).join('')}</tbody></table>`;
-}
-
-function movementActivity(movements) {
-  if (!movements.length) return empty('No stock adjustments have been recorded.');
-  return movements.map(item => `
-    <div class="activity-item">
-      <strong>${escapeHtml(item.product_name)} <span class="${item.change_quantity >= 0 ? 'change-positive' : 'change-negative'}">${item.change_quantity >= 0 ? '+' : ''}${Number(item.change_quantity)}</span></strong>
-      <p>${escapeHtml(item.sku)} &middot; ${escapeHtml(item.reason)} &middot; ${escapeHtml(dateTime(item.created_at))}</p>
-    </div>`).join('');
-}
-
-async function loadIdentity() {
-  const result = await api('/me');
-  document.getElementById('admin-email').textContent = result.identity.email;
-}
-
-async function loadDashboard() {
-  const metrics = document.getElementById('dashboard-metrics');
-  metrics.innerHTML = empty('Loading dashboard...');
-  const result = await api('/dashboard');
-  const values = [
-    ['Sales today', money(result.summary.salesTodayCents)],
-    ['Sales this month', money(result.summary.salesMonthCents)],
-    ['Paid orders', result.summary.paidOrders],
-    ['Awaiting fulfilment', result.summary.awaitingFulfilment],
-    ['Low-stock variants', result.summary.lowStockVariants],
-    ['Out-of-stock variants', result.summary.outOfStockVariants]
-  ];
-  metrics.innerHTML = values.map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
-  document.getElementById('dashboard-orders').innerHTML = orderRows(result.recentOrders);
-  document.getElementById('dashboard-movements').innerHTML = movementActivity(result.recentMovements);
+async function loadSession() {
+  const response = await fetch('/api/admin/session', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+  if (!response.ok) {
+    window.location.replace('/admin/login');
+    return false;
+  }
+  const data = await response.json();
+  state.csrfToken = data.csrfToken;
+  document.querySelector('[data-admin-username]').textContent = data.identity?.username || '';
+  return Boolean(state.csrfToken);
 }
 
 async function loadProducts() {
-  const container = document.getElementById('products-table');
-  container.innerHTML = empty('Loading products...');
-  const result = await api('/products');
-  state.products = result.products;
+  const data = await api('/api/admin/products');
+  state.products = data.products || [];
   renderProducts();
+  renderPictureProductOptions();
 }
 
 function renderProducts() {
-  const container = document.getElementById('products-table');
-  const search = String(document.querySelector('[data-product-search]')?.value || '').trim().toLowerCase();
-  const status = document.querySelector('[data-product-status]')?.value || 'all';
+  const search = document.querySelector('[data-product-search]').value.trim().toLowerCase();
+  const filter = document.querySelector('[data-product-filter]').value;
   const products = state.products.filter(product => {
-    const matchesSearch = !search || [product.name, product.category, product.productType, product.id].some(value => String(value || '').toLowerCase().includes(search));
-    const matchesStatus = status === 'all'
-      || (status === 'active' && product.active && !product.archived)
-      || (status === 'draft' && !product.active && !product.archived)
-      || (status === 'archived' && product.archived);
-    return matchesSearch && matchesStatus;
+    const status = productStatus(product).key;
+    return (!search || product.name.toLowerCase().includes(search)) && (filter === 'all' || status === filter);
   });
-  if (!products.length) { container.innerHTML = empty('No products match these filters.'); return; }
-  container.innerHTML = `<table><thead><tr><th>Product</th><th>Price</th><th>Status</th><th>Inventory</th><th>Total stock</th><th>Variants</th><th>Actions</th></tr></thead><tbody>${products.map(product => `
-    <tr>
-      <td><div class="product-cell"><img src="${escapeHtml(product.primaryImage)}" alt=""><div><strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(product.id)}</span></div></div></td>
-      <td>${money(product.priceCents)}</td>
-      <td>${product.archived ? badge('Archived', 'neutral') : product.active ? badge('Active', 'success') : badge('Draft / disabled', 'warning')} ${product.availableForSale ? '' : badge('Not for sale', 'warning')}</td>
-      <td>${product.trackInventory ? badge('Tracked', 'neutral') : badge('Not tracked', 'warning')}</td>
-      <td><strong>${Number(product.totalStock)}</strong></td>
-      <td>${Number(product.variantCount)}</td>
-      <td><div class="table-actions"><button type="button" class="button button-secondary button-small" data-product-id="${escapeHtml(product.id)}">Edit</button><button type="button" class="button button-secondary button-small" data-product-pictures="${escapeHtml(product.id)}">Pictures</button><button type="button" class="button button-secondary button-small" data-duplicate-product="${escapeHtml(product.id)}">Duplicate</button>${product.archived ? `<button type="button" class="button button-secondary button-small" data-product-action="restore" data-product-action-id="${escapeHtml(product.id)}">Restore</button>` : `<button type="button" class="button button-secondary button-small" data-product-action="${product.active ? 'disable' : 'enable'}" data-product-action-id="${escapeHtml(product.id)}">${product.active ? 'Disable' : 'Enable'}</button><button type="button" class="button button-secondary button-small" data-product-action="archive" data-product-action-id="${escapeHtml(product.id)}">Archive</button><button type="button" class="button button-danger button-small" data-product-action="delete" data-product-action-id="${escapeHtml(product.id)}">Delete</button>`}</div></td>
-    </tr>`).join('')}</tbody></table>`;
-}
-
-function renderPicturesGrid() {
-  const container = document.getElementById('pictures-grid');
-  if (!state.pictureProducts.length) { container.innerHTML = empty('No products found.'); return; }
-  container.innerHTML = state.pictureProducts.map(product => {
-    const primary = product.pictures.find(picture => picture.isPrimary) || product.pictures[0];
-    return `<article class="picture-product-card">
-      <div class="picture-product-main">${primary ? `<img src="${escapeHtml(primary.url)}" alt="${escapeHtml(primary.altText)}">` : '<span>No image</span>'}</div>
-      <div class="picture-product-copy"><h2>${escapeHtml(product.name)}</h2><p>${product.pictures.length} picture${product.pictures.length === 1 ? '' : 's'} &middot; ${product.pictures.some(picture => picture.storage === 'R2') ? 'R2 + fallback' : 'Static fallback'}</p></div>
-      <button type="button" class="button button-secondary" data-manage-pictures="${escapeHtml(product.id)}">Manage Pictures</button>
+  if (!products.length) {
+    productList.innerHTML = '<div class="empty-state"><p>No products match this search and status filter.</p></div>';
+    return;
+  }
+  productList.innerHTML = products.map(product => {
+    const status = productStatus(product);
+    const lifecycleAction = status.key === 'active' ? 'unpublish' : status.key === 'archived' ? 'restore' : 'publish';
+    const lifecycleLabel = status.key === 'active' ? 'Unpublish' : status.key === 'archived' ? 'Restore' : 'Publish';
+    return `<article class="product-row" data-product-id="${escapeHtml(product.id)}">
+      <div class="product-thumb">${product.primaryImage ? `<img src="${escapeHtml(product.primaryImage)}" alt="" loading="lazy">` : '<span>No picture</span>'}</div>
+      <div class="product-name"><strong>${escapeHtml(product.name)}</strong><small>/${escapeHtml(product.slug)}</small></div>
+      <div class="product-meta"><span>Price</span><strong>${formatMoney(product.priceCents)}</strong></div>
+      <div class="product-meta"><span>Status</span><span class="status-pill status-${status.key}">${status.label}</span></div>
+      <div class="product-meta"><span>Stock</span><strong>${Number(product.totalStock || 0)} across ${Number(product.variantCount || 0)} variant${Number(product.variantCount || 0) === 1 ? '' : 's'}</strong></div>
+      <div class="row-actions">
+        <button class="button button-secondary" type="button" data-product-action="edit">Edit</button>
+        <button class="button button-secondary" type="button" data-product-action="pictures">Pictures</button>
+        <button class="button button-secondary" type="button" data-product-action="${lifecycleAction}">${lifecycleLabel}</button>
+        ${status.key !== 'archived' ? '<button class="button button-danger" type="button" data-product-action="archive">Archive</button>' : ''}
+      </div>
     </article>`;
   }).join('');
 }
 
-async function loadPictures() {
-  const container = document.getElementById('pictures-grid');
-  container.innerHTML = empty('Loading pictures...');
-  const result = await api('/pictures');
-  state.pictureProducts = result.products;
-  const status = document.getElementById('pictures-storage-status');
-  if (result.storageReady) clearStatus(status);
-  else setStatus(status, 'warning', 'Existing static pictures are safe. New uploads will become available after the PRODUCT_IMAGES R2 binding is enabled.');
-  renderPicturesGrid();
+function clearPreviewUrls() {
+  state.previewUrls.forEach(url => URL.revokeObjectURL(url));
+  state.previewUrls = [];
 }
 
-function renderPictureManager() {
-  const product = state.currentPictureProduct;
-  const container = document.getElementById('picture-manager-list');
-  if (!product || !product.pictures.length) { container.innerHTML = empty('No pictures are available.'); return; }
-  container.innerHTML = product.pictures.map((picture, index) => `<article class="picture-row" data-picture-row="${Number(picture.id)}" draggable="true" tabindex="0" aria-label="Gallery image ${index + 1}; drag to reorder">
-    <div class="picture-drag-handle" aria-hidden="true">&#8942;&#8942;</div>
-    <img src="${escapeHtml(picture.thumbnailUrl || picture.url)}" alt="${escapeHtml(picture.altText)}">
-    <form class="picture-meta-form" data-picture-meta="${Number(picture.id)}">
-      <label class="field"><span>Alt text</span><input name="altText" value="${escapeHtml(picture.altText)}" maxlength="200" required></label>
-      <label class="field"><span>Gallery style</span><input name="variantStyle" value="${escapeHtml(picture.variantStyle)}" maxlength="80" placeholder="Optional"></label>
-      <div class="picture-badges">${picture.isPrimary ? badge('Main image', 'success') : ''} ${badge(picture.storage, 'neutral')}</div>
-      <div class="picture-actions">
-        <button type="submit" class="button button-secondary button-small">Save details</button>
-        ${picture.isPrimary ? '' : `<button type="button" class="button button-secondary button-small" data-set-primary="${Number(picture.id)}">Set as main</button>`}
-        <button type="button" class="icon-button" data-move-picture="${Number(picture.id)}" data-direction="-1" aria-label="Move picture earlier" ${index === 0 ? 'disabled' : ''}>&uarr;</button>
-        <button type="button" class="icon-button" data-move-picture="${Number(picture.id)}" data-direction="1" aria-label="Move picture later" ${index === product.pictures.length - 1 ? 'disabled' : ''}>&darr;</button>
-        ${picture.storage === 'R2' ? `<button type="button" class="button button-secondary button-small" data-replace-picture="${Number(picture.id)}">Replace</button>` : ''}
-        <button type="button" class="button button-danger button-small" data-remove-picture="${Number(picture.id)}">Remove</button>
-      </div>
-    </form>
-  </article>`).join('');
+function addCreateVariant(values = {}) {
+  const row = createVariantTemplate.content.firstElementChild.cloneNode(true);
+  for (const [field, value] of Object.entries(values)) {
+    const input = row.querySelector(`[data-variant-field="${field}"]`);
+    if (!input) continue;
+    if (input.type === 'checkbox') input.checked = Boolean(value);
+    else input.value = value;
+  }
+  row.querySelector('[data-remove-variant]').addEventListener('click', () => row.remove());
+  createVariants.append(row);
 }
 
-function openPicturesManager(productId) {
-  const product = state.pictureProducts.find(item => item.id === productId);
-  if (!product) return;
-  state.currentPictureProduct = product;
-  document.getElementById('pictures-modal-title').textContent = product.name;
-  const form = document.getElementById('picture-upload-form');
-  form.reset(); form.elements.replacePictureId.value = '';
-  form.elements.altText.value = product.name;
-  form.querySelector('[type="submit"]').textContent = 'Upload Picture';
-  form.querySelector('[data-cancel-replace]').hidden = true;
-  document.getElementById('picture-upload-preview').hidden = true;
-  state.pendingPictureFile = null;
-  state.pendingThumbnailFile = null;
-  state.pendingPictureInfo = null;
-  state.pendingPicturePromise = null;
-  state.uploadRequestId = '';
-  document.querySelector('[data-optimisation-summary]').textContent = 'Optimisation details will appear after you choose an image.';
-  clearStatus(document.getElementById('pictures-modal-status'));
-  renderPictureManager();
-  modal('pictures', true);
+function setField(name, value) {
+  const field = productForm.elements.namedItem(name);
+  if (!field) return;
+  if (field.type === 'checkbox') field.checked = Boolean(value);
+  else field.value = value ?? '';
 }
 
-function syncCurrentPictures(pictures) {
-  state.currentPictureProduct.pictures = pictures;
-  const index = state.pictureProducts.findIndex(product => product.id === state.currentPictureProduct.id);
-  if (index >= 0) state.pictureProducts[index] = state.currentPictureProduct;
-  renderPictureManager();
-  renderPicturesGrid();
+function resetProductForm() {
+  productForm.reset();
+  state.currentProduct = null;
+  slugEdited = false;
+  setField('version', 1);
+  setField('playerNamePrice', '20.00');
+  setField('playerNumberPrice', '20.00');
+  setField('trackInventory', true);
+  createVariants.replaceChildren();
+  addCreateVariant({ active: true, stockQuantity: 0 });
+  existingVariants.replaceChildren();
+  clearPreviewUrls();
+  document.querySelector('[data-initial-previews]').replaceChildren();
+  document.querySelector('[data-editor-title]').textContent = 'Add Product';
+  document.querySelector('[data-editor-subtitle]').textContent = 'Create a draft first or publish after adding a valid picture and variant.';
+  document.querySelector('[data-editor-status]').hidden = true;
+  document.querySelector('[data-create-variants-section]').hidden = false;
+  document.querySelector('[data-existing-variants-section]').hidden = true;
+  document.querySelector('[data-initial-pictures-section]').hidden = false;
+  document.querySelector('[data-create-actions]').hidden = false;
+  document.querySelector('[data-edit-actions]').hidden = true;
 }
 
-function uploadPicture(form) {
-  return new Promise((resolve, reject) => {
-    if (state.uploadInFlight) return reject(new Error('An image upload is already in progress.'));
-    const xhr = new XMLHttpRequest();
-    const progress = form.querySelector('.upload-progress');
-    const bar = progress.querySelector('span');
-    const button = form.querySelector('[type="submit"]');
-    const progressText = form.querySelector('[data-upload-progress-text]');
-    state.uploadInFlight = true;
-    progress.hidden = false; bar.style.width = '0%'; button.disabled = true;
-    if (progressText) progressText.textContent = 'Preparing upload...';
-    xhr.open('POST', `/api/admin/products/${encodeURIComponent(state.currentPictureProduct.id)}/pictures`);
-    xhr.withCredentials = true;
-    xhr.timeout = 90000;
-    xhr.setRequestHeader('X-PTG-Admin-Request', '1');
-    xhr.setRequestHeader('X-Upload-Request-ID', state.uploadRequestId);
-    xhr.upload.addEventListener('progress', event => {
-      if (!event.lengthComputable) return;
-      const percent = Math.round(event.loaded / event.total * 100);
-      bar.style.width = `${percent}%`;
-      if (progressText) progressText.textContent = percent < 100 ? `Uploading ${percent}%` : 'Finalising in R2 and D1...';
-    });
-    xhr.addEventListener('load', () => {
-      button.disabled = false; state.uploadInFlight = false;
-      const result = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
-      if (xhr.status >= 200 && xhr.status < 300 && result.ok) {
-        if (progressText) progressText.textContent = 'Upload complete.';
-        resolve(result);
-      } else if (xhr.status === 401) reject(new Error('Your admin session expired. Refresh the page and sign in before retrying.'));
-      else if (xhr.status === 403) reject(new Error('Your account is not permitted to upload product images.'));
-      else reject(new Error(result.error || `The picture could not be uploaded (${result.code || xhr.status}).`));
-    });
-    xhr.addEventListener('error', () => { button.disabled = false; state.uploadInFlight = false; reject(new Error('The network interrupted the image upload. Your product was not changed.')); });
-    xhr.addEventListener('timeout', () => { button.disabled = false; state.uploadInFlight = false; reject(new Error('The image upload timed out after 90 seconds. Check your connection and retry.')); });
-    xhr.addEventListener('abort', () => { button.disabled = false; state.uploadInFlight = false; reject(new Error('The image upload was cancelled.')); });
-    const data = new FormData(form);
-    data.delete('crop');
-    data.set('requestId', state.uploadRequestId);
-    if (state.pendingPictureFile) data.set('file', state.pendingPictureFile, state.pendingPictureFile.name);
-    if (state.pendingThumbnailFile) data.set('thumbnail', state.pendingThumbnailFile, state.pendingThumbnailFile.name);
-    xhr.send(data);
-  });
+function showNewProduct(updateHistory = true) {
+  clearNotice();
+  resetProductForm();
+  switchView('editor', updateHistory);
+  productForm.elements.name.focus();
 }
 
-async function savePictureMeta(form) {
-  const result = await api(`/pictures/${Number(form.dataset.pictureMeta)}`, { method: 'PUT', body: JSON.stringify({ altText: form.elements.altText.value, variantStyle: form.elements.variantStyle.value }) });
-  syncCurrentPictures(result.pictures);
-  setStatus(document.getElementById('pictures-modal-status'), 'success', 'Picture details saved.');
-}
-
-async function reorderPicture(pictureId, direction) {
-  const pictures = [...state.currentPictureProduct.pictures];
-  const index = pictures.findIndex(picture => picture.id === pictureId);
-  const target = index + direction;
-  if (index < 0 || target < 0 || target >= pictures.length) return;
-  [pictures[index], pictures[target]] = [pictures[target], pictures[index]];
-  const result = await api(`/products/${encodeURIComponent(state.currentPictureProduct.id)}/pictures/reorder`, { method: 'POST', body: JSON.stringify({ pictureIds: pictures.map(picture => picture.id) }) });
-  syncCurrentPictures(result.pictures);
-}
-
-async function generateInvoice(orderId) {
-  await api(`/orders/${orderId}/invoice`, { method: 'POST', body: '{}' });
-  await loadOrders();
-  if (state.activeView === 'dashboard') await loadDashboard();
-}
-
-async function loadOrders() {
-  const container = document.getElementById('orders-table');
-  container.innerHTML = empty('Loading orders...');
-  const form = document.getElementById('order-filters');
-  const params = new URLSearchParams(new FormData(form));
-  for (const [key, value] of [...params]) if (!value) params.delete(key);
-  document.querySelector('[data-export-orders]').href = `/api/admin/exports/orders?${params}`;
-  const result = await api(`/orders?${params}`);
-  container.innerHTML = orderRows(result.orders);
-}
-
-async function loadMovements() {
-  const container = document.getElementById('movements-table');
-  container.innerHTML = empty('Loading stock history...');
-  const form = document.getElementById('movement-filters');
-  const params = new URLSearchParams(new FormData(form));
-  for (const [key, value] of [...params]) if (!value) params.delete(key);
-  document.querySelector('[data-export-movements]').href = `/api/admin/exports/stock-movements?${params}`;
-  document.querySelector('[data-export-inventory]').href = `/api/admin/exports/inventory?${params}`;
-  const result = await api(`/stock-movements?${params}`);
-  if (!result.movements.length) { container.innerHTML = empty('No stock adjustments have been recorded.'); return; }
-  container.innerHTML = `<table><thead><tr><th>Date</th><th>Product</th><th>SKU / option</th><th>Change</th><th>Before</th><th>After</th><th>Reason</th><th>Changed by</th></tr></thead><tbody>${result.movements.map(item => `
-    <tr>
-      <td>${escapeHtml(dateTime(item.created_at))}</td>
-      <td>${escapeHtml(item.product_name)}</td>
-      <td><strong>${escapeHtml(item.sku)}</strong><br><small>${escapeHtml([item.size, item.colour, item.style].filter(Boolean).join(' / '))}</small></td>
-      <td class="${item.change_quantity >= 0 ? 'change-positive' : 'change-negative'}"><strong>${item.change_quantity >= 0 ? '+' : ''}${Number(item.change_quantity)}</strong></td>
-      <td>${Number(item.quantity_before)}</td><td>${Number(item.quantity_after)}</td>
-      <td>${escapeHtml(item.reason)}</td><td>${escapeHtml(item.changed_by)}</td>
-    </tr>`).join('')}</tbody></table>`;
-}
-
-async function showView(view) {
-  state.activeView = view;
-  document.querySelectorAll('[data-view]').forEach(section => { section.hidden = section.dataset.view !== view; });
-  document.querySelectorAll('[data-view-button]').forEach(button => button.classList.toggle('is-active', button.dataset.viewButton === view));
-  const loaders = { dashboard: loadDashboard, products: loadProducts, pictures: loadPictures, orders: loadOrders, movements: loadMovements };
-  try { await loaders[view](); } catch (error) { setStatus(document.getElementById('global-status'), 'error', error.message); }
-}
-
-function modal(name, open) {
-  const element = document.getElementById(`${name}-modal`);
-  element.hidden = !open;
-  document.body.style.overflow = open ? 'hidden' : '';
-}
-
-function renderVariantList(product) {
-  const container = document.getElementById('variant-list');
-  if (!product.variants.length) { container.innerHTML = empty('No variants. Add one before enabling inventory tracking.'); return; }
-  container.innerHTML = product.variants.map(variant => `
-    <article class="variant-card" data-variant-card="${Number(variant.id)}">
-      <form class="variant-edit-grid" data-variant-form="${Number(variant.id)}">
-        <input type="hidden" name="version" value="${Number(variant.version)}">
-        <label class="field"><span>SKU</span><input name="sku" value="${escapeHtml(variant.sku)}" required></label>
-        <label class="field"><span>Size</span><input name="size" value="${escapeHtml(variant.size)}"></label>
-        <label class="field"><span>Colour</span><input name="colour" value="${escapeHtml(variant.colour)}"></label>
-        <label class="field"><span>Style</span><input name="style" value="${escapeHtml(variant.style)}"></label>
-        <label class="field"><span>Player name</span><select name="allowPlayerName"><option value="" ${variant.allowPlayerName === null ? 'selected' : ''}>Inherit product</option><option value="true" ${variant.allowPlayerName === true ? 'selected' : ''}>Allow</option><option value="false" ${variant.allowPlayerName === false ? 'selected' : ''}>Disallow</option></select></label>
-        <label class="field"><span>Player number</span><select name="allowPlayerNumber"><option value="" ${variant.allowPlayerNumber === null ? 'selected' : ''}>Inherit product</option><option value="true" ${variant.allowPlayerNumber === true ? 'selected' : ''}>Allow</option><option value="false" ${variant.allowPlayerNumber === false ? 'selected' : ''}>Disallow</option></select></label>
-        <label class="toggle"><input name="active" type="checkbox" ${variant.active ? 'checked' : ''}><span>Active</span></label>
-        <button type="submit" class="button button-secondary">Save option</button>
-      </form>
-      <form class="stock-adjust" data-stock-form="${Number(variant.id)}">
-        <input type="hidden" name="version" value="${Number(variant.version)}">
-        <div><p class="stock-current">Current stock<br><strong>${Number(variant.stockQuantity)}</strong></p></div>
-        <label class="field"><span>Adjustment</span><select name="type"><option value="set">Set exact</option><option value="increase">Increase</option><option value="decrease">Decrease</option></select></label>
-        <label class="field"><span>Quantity</span><input name="quantity" type="number" min="0" step="1" required></label>
-        <label class="field"><span>Reason</span><input name="reason" maxlength="300" placeholder="Stock count, new delivery..." required></label>
-        <button type="submit" class="button button-primary">Update stock</button>
-      </form>
-    </article>`).join('');
-}
-
-function fillProductForm(product) {
-  const form = document.getElementById('product-form');
-  form.elements.id.value = product.id;
-  form.elements.version.value = product.version;
-  form.elements.name.value = product.name;
-  form.elements.slug.value = product.slug;
-  form.elements.description.value = product.description;
-  form.elements.category.value = product.category;
-  form.elements.productType.value = product.productType;
-  form.elements.badge.value = product.badge;
-  form.elements.price.value = (product.priceCents / 100).toFixed(2);
-  form.elements.currency.value = product.currency || 'NZD';
-  form.elements.seoTitle.value = product.seoTitle || '';
-  form.elements.metaDescription.value = product.metaDescription || '';
-  form.elements.active.checked = product.active;
-  form.elements.availableForSale.checked = product.availableForSale;
-  form.elements.featured.checked = product.featured;
-  form.elements.trackInventory.checked = product.trackInventory;
-  form.elements.allowPlayerName.checked = product.allowPlayerName;
-  form.elements.allowPlayerNumber.checked = product.allowPlayerNumber;
-  form.elements.playerNamePrice.value = (product.playerNamePriceCents / 100).toFixed(2);
-  form.elements.playerNumberPrice.value = (product.playerNumberPriceCents / 100).toFixed(2);
-  document.getElementById('product-modal-title').textContent = product.name;
-  document.querySelector('[data-update-product]').textContent = 'Save Product';
-  document.querySelector('[data-create-product-actions]').hidden = true;
-  document.querySelector('[data-update-product]').hidden = false;
-  document.querySelector('[data-manage-current-pictures]').hidden = false;
-  document.getElementById('product-variants-section').hidden = false;
-  document.querySelector('[data-new-product-setup]').hidden = true;
-  document.querySelector('[data-new-product-status]').hidden = true;
-  document.querySelector('[data-existing-status-controls]').hidden = false;
-  const lifecycleNote = document.querySelector('[data-product-lifecycle-note]');
-  lifecycleNote.hidden = false;
-  lifecycleNote.textContent = product.archived ? 'Archived product. Restore it before editing availability.' : product.active ? 'Active on the public website.' : 'Draft or disabled. Review pictures, variants and stock before enabling.';
-  const preview = document.getElementById('product-image-preview');
-  preview.innerHTML = product.images[0] ? `<img src="${escapeHtml(product.images[0].path)}" alt="${escapeHtml(product.name)} preview">` : '';
-  renderVariantList(product);
-}
-
-function adminSlug(value) {
-  return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '');
-}
-
-function draftVariantRow(values = {}) {
-  return `<div class="draft-variant-row" data-draft-variant-row>
-    <label class="field"><span>SKU</span><input data-draft-sku maxlength="80" value="${escapeHtml(values.sku || '')}" required></label>
-    <label class="field"><span>Size</span><input data-draft-size maxlength="50" value="${escapeHtml(values.size ?? 'One Size')}"></label>
-    <label class="field"><span>Colour</span><input data-draft-colour maxlength="80" value="${escapeHtml(values.colour || '')}"></label>
-    <label class="field"><span>Style</span><input data-draft-style maxlength="80" value="${escapeHtml(values.style || '')}"></label>
-    <label class="field"><span>Starting stock</span><input data-draft-stock type="number" min="0" max="1000000" step="1" value="${Number(values.stockQuantity || 0)}" required></label>
-    <label class="field"><span>Player name</span><select data-draft-player-name><option value="">Inherit product</option><option value="true">Allow</option><option value="false">Disallow</option></select></label>
-    <label class="field"><span>Player number</span><select data-draft-player-number><option value="">Inherit product</option><option value="true">Allow</option><option value="false">Disallow</option></select></label>
-    <label class="toggle"><input data-draft-active type="checkbox" checked><span>Active option</span></label>
-    <button type="button" class="icon-button draft-variant-remove" data-remove-draft-variant aria-label="Remove this option">&times;</button>
-  </div>`;
-}
-
-function addDraftVariant(values = {}) {
-  document.querySelector('[data-draft-variant-list]').insertAdjacentHTML('beforeend', draftVariantRow(values));
-}
-
-function collectDraftVariants() {
-  return [...document.querySelectorAll('[data-draft-variant-row]')].map(row => ({
-    sku: row.querySelector('[data-draft-sku]').value,
-    size: row.querySelector('[data-draft-size]').value,
-    colour: row.querySelector('[data-draft-colour]').value,
-    style: row.querySelector('[data-draft-style]').value,
-    stockQuantity: Number(row.querySelector('[data-draft-stock]').value),
-    active: row.querySelector('[data-draft-active]').checked,
-    allowPlayerName: row.querySelector('[data-draft-player-name]').value === '' ? null : row.querySelector('[data-draft-player-name]').value === 'true',
-    allowPlayerNumber: row.querySelector('[data-draft-player-number]').value === '' ? null : row.querySelector('[data-draft-player-number]').value === 'true'
+function createVariantPayloads() {
+  return [...createVariants.querySelectorAll('.variant-row')].map(row => ({
+    sku: row.querySelector('[data-variant-field="sku"]').value.trim(),
+    size: row.querySelector('[data-variant-field="size"]').value.trim(),
+    colour: row.querySelector('[data-variant-field="colour"]').value.trim(),
+    style: row.querySelector('[data-variant-field="style"]').value.trim(),
+    stockQuantity: Number(row.querySelector('[data-variant-field="stockQuantity"]').value || 0),
+    active: row.querySelector('[data-variant-field="active"]').checked,
+    allowPlayerName: null,
+    allowPlayerNumber: null
   }));
 }
 
-async function uploadInitialPicture(productId, file, altText) {
-  const optimised = await optimisePicture(file, 'original');
-  const requestId = crypto.randomUUID();
-  const data = new FormData();
-  data.set('file', optimised.main, optimised.main.name);
-  data.set('thumbnail', optimised.thumbnail, optimised.thumbnail.name);
-  data.set('altText', altText);
-  data.set('variantStyle', '');
-  data.set('requestId', requestId);
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 90000);
-  let response;
-  try {
-    response = await fetch(`/api/admin/products/${encodeURIComponent(productId)}/pictures`, {
-      method: 'POST', headers: { 'X-PTG-Admin-Request': '1', 'X-Upload-Request-ID': requestId }, credentials: 'same-origin', body: data, signal: controller.signal
-    });
-  } catch (error) {
-    if (error.name === 'AbortError') throw new Error('Image upload timed out after 90 seconds. The product remains safely saved.');
-    throw new Error('The network interrupted the image upload. The product remains safely saved.');
-  } finally {
-    window.clearTimeout(timeout);
-  }
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || !result.ok) throw new Error(result.error || 'The picture could not be uploaded.');
-  return result;
-}
-
-async function reorderPictureTo(sourceId, targetId) {
-  const pictures = [...state.currentPictureProduct.pictures];
-  const sourceIndex = pictures.findIndex(picture => picture.id === sourceId);
-  const targetIndex = pictures.findIndex(picture => picture.id === targetId);
-  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
-  const [moved] = pictures.splice(sourceIndex, 1);
-  pictures.splice(targetIndex, 0, moved);
-  const result = await api(`/products/${encodeURIComponent(state.currentPictureProduct.id)}/pictures/reorder`, { method: 'POST', body: JSON.stringify({ pictureIds: pictures.map(picture => picture.id) }) });
-  syncCurrentPictures(result.pictures);
-  setStatus(document.getElementById('pictures-modal-status'), 'success', 'Gallery order saved.');
-}
-
-function canvasBlob(canvas, type, quality) {
-  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Image conversion failed.')), type, quality));
-}
-
-function fileSize(bytes) {
-  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
-
-async function decodePicture(file) {
-  if (typeof createImageBitmap === 'function') {
-    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
-    catch (error) { /* Fall through to the broadly supported image decoder. */ }
-  }
-  const url = URL.createObjectURL(file);
-  try {
-    const image = new Image();
-    image.decoding = 'async';
-    image.src = url;
-    await image.decode();
-    return image;
-  } catch (error) {
-    throw new Error('This image could not be decoded. Export it as a standard JPEG, PNG or WebP and try again.');
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-async function optimisePicture(file, crop) {
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-  if (!file) throw new Error('Choose an image to upload.');
-  if (!allowedTypes.includes(file.type)) throw new Error('Unsupported file type. Choose a JPEG, PNG or WebP image.');
-  if (file.size > 8 * 1024 * 1024) throw new Error('File too large. Choose an image no larger than 8 MB.');
-  const bitmap = await decodePicture(file);
-  const bitmapWidth = bitmap.width || bitmap.naturalWidth;
-  const bitmapHeight = bitmap.height || bitmap.naturalHeight;
-  if (!bitmapWidth || !bitmapHeight) throw new Error('The image dimensions could not be read.');
-  const ratios = { square: 1, portrait: 4 / 5, landscape: 4 / 3 };
-  const targetRatio = ratios[crop] || bitmapWidth / bitmapHeight;
-  let sourceWidth = bitmapWidth;
-  let sourceHeight = bitmapHeight;
-  let sourceX = 0;
-  let sourceY = 0;
-  if (crop !== 'original') {
-    if (bitmapWidth / bitmapHeight > targetRatio) {
-      sourceWidth = Math.round(bitmapHeight * targetRatio);
-      sourceX = Math.round((bitmapWidth - sourceWidth) / 2);
-    } else {
-      sourceHeight = Math.round(bitmapWidth / targetRatio);
-      sourceY = Math.round((bitmapHeight - sourceHeight) / 2);
-    }
-  }
-  const scale = Math.min(1, 2400 / Math.max(sourceWidth, sourceHeight));
-  const width = Math.max(1, Math.round(sourceWidth * scale));
-  const height = Math.max(1, Math.round(sourceHeight * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { alpha: true });
-  if (!context) throw new Error('Your browser could not prepare this image. Try a smaller file or another browser.');
-  context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, width, height);
-  const mainBlob = await canvasBlob(canvas, 'image/webp', 0.86);
-  const thumbScale = Math.min(1, 480 / Math.max(width, height));
-  const thumb = document.createElement('canvas');
-  thumb.width = Math.max(1, Math.round(width * thumbScale));
-  thumb.height = Math.max(1, Math.round(height * thumbScale));
-  const thumbnailContext = thumb.getContext('2d', { alpha: true });
-  if (!thumbnailContext) throw new Error('Your browser could not generate the image thumbnail.');
-  thumbnailContext.drawImage(canvas, 0, 0, thumb.width, thumb.height);
-  const thumbnailBlob = await canvasBlob(thumb, 'image/webp', 0.78);
-  if (typeof bitmap.close === 'function') bitmap.close();
-  const base = file.name.replace(/\.[^.]+$/, '').slice(0, 80) || 'product-picture';
+function productPayload(publishRequested = false) {
+  const product = state.currentProduct;
   return {
-    main: new File([mainBlob], `${base}.webp`, { type: 'image/webp' }),
-    thumbnail: new File([thumbnailBlob], `${base}-thumb.webp`, { type: 'image/webp' }),
-    width,
-    height,
-    sourceWidth: bitmapWidth,
-    sourceHeight: bitmapHeight,
-    sourceType: file.type,
-    sourceName: file.name,
-    originalBytes: file.size
+    name: productForm.elements.name.value.trim(),
+    slug: productForm.elements.slug.value.trim(),
+    description: productForm.elements.description.value.trim(),
+    category: productForm.elements.category.value.trim(),
+    productType: productForm.elements.productType.value.trim(),
+    badge: productForm.elements.badge.value.trim(),
+    priceCents: moneyToCents(productForm.elements.price.value),
+    currency: 'NZD',
+    seoTitle: product?.seoTitle || '',
+    metaDescription: product?.metaDescription || '',
+    active: product ? product.active : publishRequested,
+    availableForSale: product ? product.availableForSale : publishRequested,
+    featured: productForm.elements.featured.checked,
+    trackInventory: productForm.elements.trackInventory.checked,
+    allowPlayerName: productForm.elements.allowPlayerName.checked,
+    allowPlayerNumber: productForm.elements.allowPlayerNumber.checked,
+    playerNamePriceCents: moneyToCents(productForm.elements.playerNamePrice.value || 0),
+    playerNumberPriceCents: moneyToCents(productForm.elements.playerNumberPrice.value || 0),
+    version: Number(productForm.elements.version.value || 1)
   };
 }
 
-async function preparePicture(file) {
-  const form = document.getElementById('picture-upload-form');
-  const preview = document.getElementById('picture-upload-preview');
-  const summary = document.querySelector('[data-optimisation-summary]');
-  if (!file) { preview.hidden = true; state.pendingPictureFile = null; state.pendingThumbnailFile = null; state.pendingPictureInfo = null; return; }
-  summary.textContent = 'Optimising image...';
-  state.uploadRequestId = crypto.randomUUID();
-  try {
-    const result = await optimisePicture(file, form.elements.crop.value);
-    state.pendingPictureFile = result.main;
-    state.pendingThumbnailFile = result.thumbnail;
-    state.pendingPictureInfo = result;
-    const url = URL.createObjectURL(result.main);
-    preview.innerHTML = `<img src="${url}" alt="Optimised picture preview">`;
-    preview.hidden = false;
-    preview.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
-    const reduction = Math.max(0, Math.round((1 - result.main.size / result.originalBytes) * 100));
-    const primary = form.elements.replacePictureId.value
-      ? state.currentPictureProduct.pictures.find(picture => picture.id === Number(form.elements.replacePictureId.value))?.isPrimary
-      : !state.currentPictureProduct.pictures.length;
-    summary.textContent = `${result.sourceName} | ${result.sourceType.replace('image/', '').toUpperCase()} | ${fileSize(result.originalBytes)} | ${result.sourceWidth} x ${result.sourceHeight}. Upload: ${result.width} x ${result.height} WebP, ${fileSize(result.main.size)}${reduction ? ` (${reduction}% smaller)` : ''}. Product: ${state.currentPictureProduct.name}. ${primary ? 'Main image.' : 'Gallery image.'}`;
-  } catch (error) {
-    state.pendingPictureFile = null;
-    state.pendingThumbnailFile = null;
-    state.pendingPictureInfo = null;
-    preview.hidden = true;
-    summary.textContent = error.message;
-    setStatus(document.getElementById('pictures-modal-status'), 'error', error.message);
+function validateNewProduct(publishRequested, files, variants) {
+  if (!productForm.reportValidity()) return 'Complete the required product fields.';
+  if (publishRequested && !files.length) return 'Choose at least one product image before publishing.';
+  if (publishRequested && !variants.length) return 'Add at least one variant before publishing.';
+  for (const [index, variant] of variants.entries()) {
+    if (!variant.sku) return `Variant ${index + 1} needs a SKU.`;
+    if (!variant.size && !variant.colour && !variant.style) return `Variant ${index + 1} needs a size, colour or style.`;
+    if (!Number.isInteger(variant.stockQuantity) || variant.stockQuantity < 0) return `Variant ${index + 1} stock must be a non-negative whole number.`;
+  }
+  for (const file of files) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return `${file.name} is not a supported JPEG, PNG or WebP image.`;
+    if (file.size > 8 * 1024 * 1024) return `${file.name} is larger than 8 MB.`;
+  }
+  return '';
+}
+
+function renderInitialPreviews(files) {
+  clearPreviewUrls();
+  const container = document.querySelector('[data-initial-previews]');
+  container.replaceChildren();
+  for (const file of files) {
+    const url = URL.createObjectURL(file);
+    state.previewUrls.push(url);
+    const item = document.createElement('div');
+    item.className = 'preview-item';
+    item.innerHTML = `<img src="${url}" alt="Preview of ${escapeHtml(file.name)}">`;
+    container.append(item);
   }
 }
 
-function newProduct() {
-  state.currentProduct = null;
-  clearStatus(document.getElementById('product-modal-status'));
-  const form = document.getElementById('product-form');
-  form.reset();
-  form.elements.id.value = '';
-  form.elements.version.value = '';
-  form.elements.price.value = '0.00';
-  form.elements.slug.value = '';
-  delete form.elements.slug.dataset.edited;
-  form.elements.currency.value = 'NZD';
-  form.elements.playerNamePrice.value = '0.00';
-  form.elements.playerNumberPrice.value = '0.00';
-  form.elements.active.checked = false;
-  form.elements.availableForSale.checked = false;
-  form.elements.featured.checked = false;
-  document.getElementById('product-modal-title').textContent = 'New Product';
-  document.getElementById('product-image-preview').innerHTML = '';
-  document.getElementById('variant-list').innerHTML = empty('Create the draft product before adding variants and stock.');
-  document.getElementById('product-variants-section').hidden = true;
-  const setup = document.querySelector('[data-new-product-setup]');
-  setup.hidden = false;
-  document.querySelector('[data-new-product-status]').hidden = false;
-  document.querySelector('[data-existing-status-controls]').hidden = true;
-  document.querySelector('[data-draft-variant-list]').innerHTML = '';
-  addDraftVariant();
-  document.querySelector('[data-manage-current-pictures]').hidden = true;
-  document.querySelector('[data-create-product-actions]').hidden = false;
-  document.querySelector('[data-update-product]').hidden = true;
-  document.querySelector('[data-product-lifecycle-note]').hidden = true;
-  modal('product', true);
-  form.elements.name.focus();
+function renderExistingVariants(product) {
+  if (!product.variants.length) {
+    existingVariants.innerHTML = '<div class="empty-state"><p>No variants yet. Add one below.</p></div>';
+  } else {
+    existingVariants.innerHTML = product.variants.map(variant => `<div class="variant-row" data-existing-variant-id="${variant.id}">
+      <label><span>SKU</span><input data-field="sku" value="${escapeHtml(variant.sku)}"></label>
+      <label><span>Size</span><input data-field="size" value="${escapeHtml(variant.size)}"></label>
+      <label><span>Colour</span><input data-field="colour" value="${escapeHtml(variant.colour)}"></label>
+      <label><span>Style</span><input data-field="style" value="${escapeHtml(variant.style)}"></label>
+      <label><span>Stock</span><input data-field="stock" type="number" min="0" step="1" value="${Number(variant.stockQuantity)}"></label>
+      <label class="check-field"><input data-field="active" type="checkbox" ${variant.active ? 'checked' : ''}><span>Active</span></label>
+      <button class="button button-secondary" type="button" data-save-variant>Save</button>
+    </div>`).join('');
+  }
+  const addRow = document.querySelector('[data-add-variant-row]');
+  addRow.innerHTML = `<label><span>SKU</span><input data-field="sku" maxlength="80"></label>
+    <label><span>Size</span><input data-field="size" maxlength="50"></label>
+    <label><span>Colour</span><input data-field="colour" maxlength="80"></label>
+    <label><span>Style</span><input data-field="style" maxlength="80"></label>
+    <label><span>Starting stock</span><input data-field="stock" type="number" min="0" step="1" value="0"></label>
+    <label class="check-field"><input data-field="active" type="checkbox" checked><span>Active</span></label>`;
 }
 
-async function changeProductLifecycle(productId, action) {
-  const labels = {
-    archive: 'Archive this product? It will disappear from the shop but remain available in admin and order history.',
-    delete: 'Delete this product? For safety it will be archived, not permanently erased.',
-    disable: 'Disable this product and remove it from sale?',
-    enable: 'Enable this product on the website?',
-    restore: 'Restore this product as a disabled draft?'
-  };
-  if (!window.confirm(labels[action])) return;
-  const result = await api(`/products/${encodeURIComponent(productId)}/lifecycle`, { method: 'POST', body: JSON.stringify({ action }) });
-  setStatus(document.getElementById('global-status'), 'success', result.message);
+function populateProductForm(product) {
+  state.currentProduct = product;
+  setField('productId', product.id);
+  setField('version', product.version);
+  setField('name', product.name);
+  setField('slug', product.slug);
+  setField('description', product.description);
+  setField('category', product.category);
+  setField('productType', product.productType);
+  setField('badge', product.badge);
+  setField('price', (product.priceCents / 100).toFixed(2));
+  setField('featured', product.featured);
+  setField('trackInventory', product.trackInventory);
+  setField('allowPlayerName', product.allowPlayerName);
+  setField('allowPlayerNumber', product.allowPlayerNumber);
+  setField('playerNamePrice', (product.playerNamePriceCents / 100).toFixed(2));
+  setField('playerNumberPrice', (product.playerNumberPriceCents / 100).toFixed(2));
+  document.querySelector('[data-editor-title]').textContent = product.name;
+  document.querySelector('[data-editor-subtitle]').textContent = 'Update product information, variants, stock and availability.';
+  const status = productStatus(product);
+  const statusElement = document.querySelector('[data-editor-status]');
+  statusElement.textContent = status.label;
+  statusElement.className = `status-pill status-${status.key}`;
+  statusElement.hidden = false;
+  document.querySelector('[data-create-variants-section]').hidden = true;
+  document.querySelector('[data-existing-variants-section]').hidden = false;
+  document.querySelector('[data-initial-pictures-section]').hidden = true;
+  document.querySelector('[data-create-actions]').hidden = true;
+  document.querySelector('[data-edit-actions]').hidden = false;
+  const publicLink = document.querySelector('[data-view-public]');
+  publicLink.href = `/products/${encodeURIComponent(product.slug)}`;
+  publicLink.hidden = status.key !== 'active';
+  const lifecycleButton = document.querySelector('[data-editor-lifecycle]');
+  lifecycleButton.dataset.action = status.key === 'active' ? 'unpublish' : 'publish';
+  lifecycleButton.textContent = status.key === 'active' ? 'Unpublish' : 'Publish';
+  lifecycleButton.hidden = status.key === 'archived';
+  const archiveButton = document.querySelector('[data-editor-archive]');
+  archiveButton.dataset.action = status.key === 'archived' ? 'restore' : 'archive';
+  archiveButton.textContent = status.key === 'archived' ? 'Restore Product' : 'Archive Product';
+  document.querySelector('[data-permanent-delete]').hidden = status.key !== 'archived';
+  renderExistingVariants(product);
+}
+
+async function openEditor(productId, updateHistory = true) {
+  clearNotice();
+  const data = await api(`/api/admin/products/${encodeURIComponent(productId)}`);
+  populateProductForm(data.product);
+  switchView('editor', updateHistory);
+}
+
+async function productLifecycle(productId, action) {
+  const labels = { publish: 'publish', unpublish: 'unpublish', archive: 'archive', restore: 'restore' };
+  if (action === 'archive' && !confirm('Archive this product? It will be removed from the public shop but its history will be kept.')) return;
+  const data = await api(`/api/admin/products/${encodeURIComponent(productId)}/${action}`, { method: 'POST', body: '{}' });
   await loadProducts();
+  if (state.currentProduct?.id === productId) populateProductForm(data.product);
+  showNotice(data.message || `Product ${labels[action]}d.`, 'success');
 }
 
-async function duplicateProduct(productId) {
-  if (!window.confirm('Create a hidden draft copy with the same details and options? Stock starts at zero and pictures must be added separately.')) return;
-  const result = await api(`/products/${encodeURIComponent(productId)}/duplicate`, { method: 'POST', body: '{}' });
-  setStatus(document.getElementById('global-status'), 'success', result.message);
-  await loadProducts();
-  await openProduct(result.product.id);
-}
-
-async function manageProductPictures(productId) {
-  if (!state.pictureProducts.length || !state.pictureProducts.find(product => product.id === productId)) {
-    const result = await api('/pictures');
-    state.pictureProducts = result.products;
-  }
-  modal('product', false);
-  openPicturesManager(productId);
-}
-
-async function openProduct(productId) {
-  clearStatus(document.getElementById('product-modal-status'));
-  modal('product', true);
-  document.getElementById('product-modal-title').textContent = 'Loading product...';
-  try {
-    const result = await api(`/products/${encodeURIComponent(productId)}`);
-    state.currentProduct = result.product;
-    fillProductForm(result.product);
-  } catch (error) {
-    setStatus(document.getElementById('product-modal-status'), 'error', error.message);
-  }
-}
-
-async function refreshCurrentProduct(message = '') {
-  const result = await api(`/products/${encodeURIComponent(state.currentProduct.id)}`);
-  state.currentProduct = result.product;
-  fillProductForm(result.product);
-  if (message) setStatus(document.getElementById('product-modal-status'), 'success', message);
-}
-
-async function saveProduct(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  if (!form.reportValidity()) return;
-  const isCreating = !state.currentProduct;
-  const publishRequested = isCreating && event.submitter?.dataset.createIntent === 'publish';
-  if (publishRequested && !form.elements.initialPictures.files.length) {
-    setStatus(document.getElementById('product-modal-status'), 'error', 'Choose at least one product image before publishing. Use Save as Draft to create it without an image.');
-    form.elements.initialPictures.focus();
+async function saveNewProduct(publishRequested, submitter) {
+  const files = [...productForm.elements.initialPictures.files];
+  const variants = createVariantPayloads();
+  const clientError = validateNewProduct(publishRequested, files, variants);
+  if (clientError) {
+    showNotice(clientError, 'error', true);
     return;
   }
-  const submitButton = event.submitter || form.querySelector('[data-update-product]');
-  const submitButtons = [...form.querySelectorAll('[data-product-submit]')];
-  const originalLabel = submitButton.textContent;
-  const becomesUnavailable = state.currentProduct && ((state.currentProduct.active && !form.elements.active.checked) || (state.currentProduct.availableForSale && !form.elements.availableForSale.checked));
-  if (becomesUnavailable && !window.confirm('This will remove the product from sale. Continue?')) return;
-  const body = {
-    slug: form.elements.slug.value,
-    name: form.elements.name.value,
-    description: form.elements.description.value,
-    category: form.elements.category.value,
-    productType: form.elements.productType.value,
-    badge: form.elements.badge.value,
-    priceCents: Math.round(Number(form.elements.price.value) * 100),
-    currency: form.elements.currency.value,
-    seoTitle: form.elements.seoTitle.value,
-    metaDescription: form.elements.metaDescription.value,
-    active: isCreating ? publishRequested : form.elements.active.checked,
-    availableForSale: isCreating ? publishRequested : form.elements.availableForSale.checked,
-    featured: form.elements.featured.checked,
-    trackInventory: form.elements.trackInventory.checked,
-    allowPlayerName: form.elements.allowPlayerName.checked,
-    allowPlayerNumber: form.elements.allowPlayerNumber.checked,
-    playerNamePriceCents: Math.round(Number(form.elements.playerNamePrice.value || 0) * 100),
-    playerNumberPriceCents: Math.round(Number(form.elements.playerNumberPrice.value || 0) * 100)
-  };
-  if (isCreating) body.variants = collectDraftVariants();
-  if (state.currentProduct) body.version = Number(form.elements.version.value);
-  submitButtons.forEach(button => { button.disabled = true; });
-  submitButton.textContent = state.currentProduct ? 'Saving...' : 'Creating product...';
+  const originalText = submitter.textContent;
+  submitter.disabled = true;
+  submitter.textContent = publishRequested ? 'Publishing...' : 'Saving Draft...';
+  state.submitting = true;
+  let createdProduct;
   try {
-    const result = await api(isCreating ? '/products' : `/products/${encodeURIComponent(state.currentProduct.id)}`, { method: isCreating ? 'POST' : 'PUT', body: JSON.stringify(body) });
-    state.currentProduct = result.product;
-    fillProductForm(result.product);
-    if (isCreating) {
-      const files = [...form.elements.initialPictures.files];
-      const altText = form.elements.initialAltText.value.trim() || result.product.name;
-      let uploadError = null;
-      for (const [index, file] of files.entries()) {
-        setStatus(document.getElementById('product-modal-status'), 'warning', `Product created. Optimising and uploading picture ${index + 1} of ${files.length}...`);
-        try { await uploadInitialPicture(result.product.id, file, files.length > 1 ? `${altText} image ${index + 1}` : altText); }
-        catch (error) { uploadError = error; break; }
-      }
-      if (!uploadError && result.publishRequested && files.length) {
-        const enabled = await api(`/products/${encodeURIComponent(result.product.id)}/lifecycle`, { method: 'POST', body: JSON.stringify({ action: 'enable' }) });
-        state.currentProduct = enabled.product;
-        fillProductForm(enabled.product);
-      } else {
-        await refreshCurrentProduct();
-      }
-      const message = uploadError
-        ? `Product and variants were created safely, but an image could not be uploaded: ${uploadError.message} Open Manage Pictures to retry; do not create the product again.`
-        : result.publishRequested && !files.length
-          ? 'Product and variants were created as a draft. Add at least one picture, then enable the product.'
-          : result.publishRequested
-            ? 'Product published successfully.'
-            : 'Product saved as draft.';
-      setStatus(document.getElementById('product-modal-status'), uploadError ? 'warning' : 'success', message);
-    } else {
-      setStatus(document.getElementById('product-modal-status'), 'success', 'Product saved successfully.');
+    const payload = { ...productPayload(publishRequested), variants };
+    const result = await api('/api/admin/products', { method: 'POST', body: JSON.stringify(payload) });
+    createdProduct = result.product;
+    for (const [index, file] of files.entries()) {
+      submitter.textContent = `Uploading picture ${index + 1} of ${files.length}...`;
+      await uploadPicture(createdProduct.id, file, createdProduct.name, '', '', () => {});
+      state.uploadRequestId = '';
+    }
+    if (publishRequested) {
+      submitter.textContent = 'Publishing...';
+      const published = await api(`/api/admin/products/${encodeURIComponent(createdProduct.id)}/publish`, { method: 'POST', body: '{}' });
+      createdProduct = published.product;
     }
     await loadProducts();
-    await loadDashboard();
+    await openEditor(createdProduct.id);
+    showNotice(publishRequested ? 'Product published successfully.' : 'Draft product saved successfully.', 'success');
   } catch (error) {
-    const status = document.getElementById('product-modal-status');
-    setStatus(status, 'error', error.message);
-    status.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
-  } finally {
-    submitButtons.forEach(button => { button.disabled = false; });
-    submitButton.textContent = originalLabel;
-  }
-}
-
-async function saveVariant(form) {
-  const variantId = Number(form.dataset.variantForm);
-  const body = {
-    version: Number(form.elements.version.value), sku: form.elements.sku.value,
-    size: form.elements.size.value, colour: form.elements.colour.value,
-    style: form.elements.style.value, active: form.elements.active.checked,
-    allowPlayerName: form.elements.allowPlayerName.value === '' ? null : form.elements.allowPlayerName.value === 'true',
-    allowPlayerNumber: form.elements.allowPlayerNumber.value === '' ? null : form.elements.allowPlayerNumber.value === 'true'
-  };
-  if (!body.active && !window.confirm('This option will no longer be selectable. Continue?')) return;
-  await api(`/variants/${variantId}`, { method: 'PUT', body: JSON.stringify(body) });
-  await refreshCurrentProduct('Variant saved successfully.');
-}
-
-async function adjustStock(form) {
-  const variantId = Number(form.dataset.stockForm);
-  const body = {
-    version: Number(form.elements.version.value), type: form.elements.type.value,
-    quantity: Number(form.elements.quantity.value), reason: form.elements.reason.value
-  };
-  await api(`/variants/${variantId}/adjust-stock`, { method: 'POST', body: JSON.stringify(body) });
-  await refreshCurrentProduct('Stock updated and recorded in the audit history.');
-}
-
-async function addVariant(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const body = { sku: form.elements.sku.value, size: form.elements.size.value, colour: form.elements.colour.value, style: form.elements.style.value, active: form.elements.active.checked, allowPlayerName: form.elements.allowPlayerName.value === '' ? null : form.elements.allowPlayerName.value === 'true', allowPlayerNumber: form.elements.allowPlayerNumber.value === '' ? null : form.elements.allowPlayerNumber.value === 'true' };
-  await api(`/products/${encodeURIComponent(state.currentProduct.id)}/variants`, { method: 'POST', body: JSON.stringify(body) });
-  form.reset(); form.elements.active.checked = true;
-  await refreshCurrentProduct('Variant added successfully.');
-}
-
-function technicalReference(label, value, stripeType) {
-  if (!value) return '';
-  const text = String(value);
-  const masked = `${text.slice(0, Math.min(text.indexOf('_') + 1 || 4, 8))}${'\u2022'.repeat(12)}${text.slice(-4)}`;
-  const mode = text.includes('_test_') ? 'test/' : '';
-  const stripeUrl = stripeType === 'payment'
-    ? `https://dashboard.stripe.com/${mode}payments/${encodeURIComponent(text)}`
-    : stripeType === 'event'
-      ? `https://dashboard.stripe.com/${mode}events/${encodeURIComponent(text)}`
-      : `https://dashboard.stripe.com/${mode}checkout/sessions/${encodeURIComponent(text)}`;
-  return `<div class="technical-reference"><span>${escapeHtml(label)}</span><code data-masked="${escapeHtml(masked)}" data-full="${escapeHtml(text)}">${escapeHtml(masked)}</code><div><button type="button" class="button button-secondary button-small" data-show-reference>Show</button><button type="button" class="button button-secondary button-small" data-copy-reference="${escapeHtml(text)}">Copy</button><a class="button button-secondary button-small" href="${stripeUrl}" target="_blank" rel="noopener">Open in Stripe</a></div></div>`;
-}
-
-async function openOrder(orderId) {
-  modal('order', true);
-  const container = document.getElementById('order-modal-content');
-  container.innerHTML = empty('Loading order...');
-  try {
-    const result = await api(`/orders/${orderId}`);
-    const order = result.order;
-    state.currentOrder = order;
-    document.getElementById('order-modal-title').textContent = order.order_number || `Order #${order.id}`;
-    const address = order.shipping_address || {};
-    const billing = order.billing_address || {};
-    const formatAddress = value => [value.line1, value.line2, value.city, value.state, value.postal_code, value.country].filter(Boolean).join(', ') || 'Not provided';
-    container.innerHTML = `
-      <div class="order-actions">${order.invoice_number
-        ? `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">View Invoice</a><a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}&print=1" target="_blank" rel="noopener">Download PDF</a><a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}&print=1" target="_blank" rel="noopener">Print</a>`
-        : `<button type="button" class="button button-primary" data-generate-invoice="${Number(order.id)}">Generate Invoice</button>`}</div>
-      <div class="order-summary">
-        <div><span>Order number</span><strong>${escapeHtml(order.order_number || 'Pending')}</strong></div>
-        <div><span>Invoice</span><strong>${escapeHtml(order.invoice_number || 'Created when viewed')}</strong></div>
-        <div><span>Placed</span><strong>${escapeHtml(dateTime(order.created_at))}</strong></div>
-        <div><span>Paid</span><strong>${escapeHtml(dateTime(order.payment_date))}</strong></div>
-        <div><span>Customer</span><strong>${escapeHtml(order.customer_name || 'Not provided')}</strong></div>
-        <div><span>Email</span><strong>${escapeHtml(order.customer_email || 'Not provided')}</strong></div>
-        <div><span>Phone</span><strong>${escapeHtml(order.customer_phone || 'Not provided')}</strong></div>
-        <div><span>Total</span><strong>${money(order.total_cents, order.currency)}</strong></div>
-        <div><span>Payment</span><strong>${escapeHtml(order.payment_status)}</strong></div>
-        <div><span>Shipping address</span><strong>${escapeHtml(formatAddress(address))}</strong></div>
-        <div><span>Billing address</span><strong>${escapeHtml(formatAddress(billing))}</strong></div>
-        <div><span>Refund</span><strong>${escapeHtml(order.refund_status)}</strong></div>
-      </div>
-      <details class="technical-details"><summary>Payment Technical Details</summary><div class="technical-details-content">
-        ${technicalReference('Checkout Session', order.stripe_checkout_session_id, 'session')}
-        ${technicalReference('Payment Intent', order.stripe_payment_intent_id, 'payment')}
-        ${technicalReference('Stripe Event', order.stripe_event_id, 'event')}
-        <div class="technical-reference"><span>Payment status</span><strong>${escapeHtml(order.payment_status)}</strong></div>
-        <div class="technical-reference"><span>Payment date</span><strong>${escapeHtml(dateTime(order.payment_date))}</strong></div>
-      </div></details>
-      <div class="order-items"><h3>Items</h3>${(order.items || []).map(item => `<div class="order-item"><strong>${Number(item.quantity)} &times; ${escapeHtml(item.product_name)}</strong><br>${escapeHtml(item.sku)}${item.size ? `<br>Size: ${escapeHtml(item.size)}` : ''}${item.colour || item.style ? `<br>Colour/style: ${escapeHtml([item.colour,item.style].filter(Boolean).join(' / '))}` : ''}${item.player_name ? `<br>Player name: ${escapeHtml(item.player_name)}` : ''}${item.player_number ? `<br>Player number: ${escapeHtml(item.player_number)}` : ''}<br>Personalisation: ${money(item.customisation_total_cents, order.currency)}<br>${money(item.item_total_cents, order.currency)}</div>`).join('') || empty('No order items found.')}</div>
-      <form id="fulfilment-form" class="fulfilment-form">
-        <label class="field"><span>Fulfilment status</span><select name="status">${['paid','processing','ready_for_collection','shipped','completed','cancelled','refunded'].map(status => `<option value="${status}" ${order.fulfilment_status === status ? 'selected' : ''}>${status.replace(/_/g, ' ')}</option>`).join('')}</select></label>
-        <label class="field"><span>Reason or note</span><input name="reason" maxlength="500" placeholder="Optional status note"></label>
-        <label class="field field-wide"><span>Internal notes</span><textarea name="internalNotes" rows="3" maxlength="4000">${escapeHtml(order.internal_notes || '')}</textarea></label>
-        <button type="submit" class="button button-primary">Update fulfilment</button>
-      </form>
-      <div class="order-history"><h3>Fulfilment history</h3>${(order.fulfilment_history || []).map(item => `<p><strong>${escapeHtml(item.previous_status)} &rarr; ${escapeHtml(item.new_status)}</strong><br>${escapeHtml(item.reason || 'No note')} &middot; ${escapeHtml(item.changed_by)} &middot; ${escapeHtml(dateTime(item.created_at))}</p>`).join('') || empty('No status changes recorded.')}</div>
-      <div class="order-history"><h3>Related stock movements</h3>${(order.stock_movements || []).map(item => `<p><strong>${escapeHtml(item.product_name)} ${Number(item.change_quantity)}</strong><br>${escapeHtml(item.reason)} &middot; ${escapeHtml(dateTime(item.created_at))}</p>`).join('') || empty('No related stock movements.')}</div>`;
-  } catch (error) { container.innerHTML = empty(error.message); }
-}
-
-async function saveFulfilment(form) {
-  const result = await api(`/orders/${state.currentOrder.id}`, { method: 'PUT', body: JSON.stringify({ fulfilmentStatus: form.elements.status.value, reason: form.elements.reason.value, internalNotes: form.elements.internalNotes.value }) });
-  state.currentOrder = result.order;
-  setStatus(document.getElementById('global-status'), 'success', 'Order fulfilment status updated.');
-  modal('order', false);
-  await loadOrders();
-}
-
-document.addEventListener('click', event => {
-  const themeButton = event.target.closest('[data-theme-toggle]');
-  if (themeButton) applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-  const viewButton = event.target.closest('[data-view-button]');
-  if (viewButton) showView(viewButton.dataset.viewButton);
-  const refreshButton = event.target.closest('[data-refresh]');
-  if (refreshButton) showView(refreshButton.dataset.refresh);
-  const productButton = event.target.closest('[data-product-id]');
-  if (productButton) openProduct(productButton.dataset.productId);
-  const newProductButton = event.target.closest('[data-new-product]');
-  if (newProductButton) newProduct();
-  const addDraftVariantButton = event.target.closest('[data-add-draft-variant]');
-  if (addDraftVariantButton) addDraftVariant();
-  const removeDraftVariantButton = event.target.closest('[data-remove-draft-variant]');
-  if (removeDraftVariantButton) removeDraftVariantButton.closest('[data-draft-variant-row]')?.remove();
-  const duplicateButton = event.target.closest('[data-duplicate-product]');
-  if (duplicateButton) duplicateProduct(duplicateButton.dataset.duplicateProduct).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
-  const lifecycleButton = event.target.closest('[data-product-action]');
-  if (lifecycleButton) changeProductLifecycle(lifecycleButton.dataset.productActionId, lifecycleButton.dataset.productAction).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
-  const productPictures = event.target.closest('[data-product-pictures]');
-  if (productPictures) manageProductPictures(productPictures.dataset.productPictures).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
-  const currentPictures = event.target.closest('[data-manage-current-pictures]');
-  if (currentPictures && state.currentProduct) manageProductPictures(state.currentProduct.id).catch(error => setStatus(document.getElementById('product-modal-status'), 'error', error.message));
-  const orderButton = event.target.closest('[data-order-id]');
-  if (orderButton) openOrder(Number(orderButton.dataset.orderId));
-  const invoiceButton = event.target.closest('[data-generate-invoice]');
-  if (invoiceButton) generateInvoice(Number(invoiceButton.dataset.generateInvoice)).catch(error => setStatus(document.getElementById('global-status'), 'error', error.message));
-  const managePictures = event.target.closest('[data-manage-pictures]');
-  if (managePictures) openPicturesManager(managePictures.dataset.managePictures);
-  const setPrimary = event.target.closest('[data-set-primary]');
-  if (setPrimary) api(`/pictures/${Number(setPrimary.dataset.setPrimary)}/set-primary`, { method: 'POST', body: '{}' }).then(result => { syncCurrentPictures(result.pictures); setStatus(document.getElementById('pictures-modal-status'), 'success', 'Main picture updated.'); }).catch(error => setStatus(document.getElementById('pictures-modal-status'), 'error', error.message));
-  const movePicture = event.target.closest('[data-move-picture]');
-  if (movePicture) reorderPicture(Number(movePicture.dataset.movePicture), Number(movePicture.dataset.direction)).catch(error => setStatus(document.getElementById('pictures-modal-status'), 'error', error.message));
-  const replacePicture = event.target.closest('[data-replace-picture]');
-  if (replacePicture) {
-    const form = document.getElementById('picture-upload-form');
-    form.elements.replacePictureId.value = replacePicture.dataset.replacePicture;
-    form.querySelector('[type="submit"]').textContent = 'Replace Picture';
-    form.querySelector('[data-cancel-replace]').hidden = false;
-    form.elements.file.focus();
-  }
-  const cancelReplace = event.target.closest('[data-cancel-replace]');
-  if (cancelReplace) { const form = document.getElementById('picture-upload-form'); form.elements.replacePictureId.value = ''; form.querySelector('[type="submit"]').textContent = 'Upload Picture'; cancelReplace.hidden = true; }
-  const removePicture = event.target.closest('[data-remove-picture]');
-  if (removePicture && window.confirm('Remove this picture from the product gallery?')) api(`/pictures/${Number(removePicture.dataset.removePicture)}`, { method: 'DELETE', body: '{}' }).then(result => { syncCurrentPictures(result.pictures); setStatus(document.getElementById('pictures-modal-status'), 'success', 'Picture removed.'); }).catch(error => setStatus(document.getElementById('pictures-modal-status'), 'error', error.message));
-  const showReference = event.target.closest('[data-show-reference]');
-  if (showReference) { const code = showReference.closest('.technical-reference').querySelector('code'); const showing = showReference.textContent === 'Hide'; code.textContent = showing ? code.dataset.masked : code.dataset.full; showReference.textContent = showing ? 'Show' : 'Hide'; }
-  const copyReference = event.target.closest('[data-copy-reference]');
-  if (copyReference) navigator.clipboard.writeText(copyReference.dataset.copyReference).then(() => { copyReference.textContent = 'Copied'; setTimeout(() => { copyReference.textContent = 'Copy'; }, 1400); });
-  const closeButton = event.target.closest('[data-close-modal]');
-  if (closeButton) modal(closeButton.dataset.closeModal, false);
-});
-
-document.addEventListener('submit', async event => {
-  try {
-    if (event.target.id === 'product-form') return await saveProduct(event);
-    if (event.target.id === 'picture-upload-form') {
-      event.preventDefault();
-      if (state.pendingPicturePromise) await state.pendingPicturePromise;
-      if (!state.pendingPictureFile || !state.pendingThumbnailFile) throw new Error('Wait for a valid image preview before uploading.');
-      const result = await uploadPicture(event.target);
-      syncCurrentPictures(result.pictures);
-      event.target.reset();
-      event.target.elements.altText.value = state.currentPictureProduct.name;
-      event.target.elements.replacePictureId.value = '';
-      event.target.querySelector('[type="submit"]').textContent = 'Upload Picture';
-      event.target.querySelector('[data-cancel-replace]').hidden = true;
-      event.target.querySelector('.upload-progress').hidden = true;
-      document.getElementById('picture-upload-preview').hidden = true;
-      state.pendingPictureFile = null;
-      state.pendingThumbnailFile = null;
-      state.pendingPictureInfo = null;
-      state.pendingPicturePromise = null;
-      state.uploadRequestId = '';
-      document.querySelector('[data-optimisation-summary]').textContent = 'Optimisation details will appear after you choose an image.';
-      return setStatus(document.getElementById('pictures-modal-status'), 'success', result.idempotent ? 'This image was already saved; the gallery is up to date.' : 'Picture optimised and saved successfully.');
+    if (createdProduct) {
+      await loadProducts().catch(() => {});
+      await openEditor(createdProduct.id).catch(() => {});
+      showNotice(`The product was saved safely as a draft, but the remaining step failed. ${errorMessage(error)}`, 'error', true);
+    } else {
+      showNotice(errorMessage(error), 'error', true);
     }
-    if (event.target.matches('[data-picture-meta]')) { event.preventDefault(); return await savePictureMeta(event.target); }
-    if (event.target.id === 'add-variant-form') return await addVariant(event);
-    if (event.target.id === 'fulfilment-form') { event.preventDefault(); return await saveFulfilment(event.target); }
-    if (event.target.id === 'order-filters') { event.preventDefault(); return await loadOrders(); }
-    if (event.target.id === 'movement-filters') { event.preventDefault(); return await loadMovements(); }
-    if (event.target.matches('[data-variant-form]')) { event.preventDefault(); return await saveVariant(event.target); }
-    if (event.target.matches('[data-stock-form]')) { event.preventDefault(); return await adjustStock(event.target); }
-  } catch (error) {
-    event.preventDefault();
-    const status = event.target.id === 'picture-upload-form'
-      ? document.getElementById('pictures-modal-status')
-      : document.getElementById('product-modal-status');
-    setStatus(status, 'error', error.message);
+  } finally {
+    state.submitting = false;
+    submitter.disabled = false;
+    submitter.textContent = originalText;
   }
-});
+}
 
-document.getElementById('order-filters').addEventListener('reset', () => setTimeout(loadOrders, 0));
-document.getElementById('movement-filters').addEventListener('reset', () => setTimeout(loadMovements, 0));
-document.querySelector('[data-product-search]').addEventListener('input', renderProducts);
-document.querySelector('[data-product-status]').addEventListener('change', renderProducts);
-document.getElementById('product-form').elements.name.addEventListener('input', event => {
-  if (!state.currentProduct) {
-    const slugInput = event.currentTarget.form.elements.slug;
-    if (!slugInput.dataset.edited) slugInput.value = adminSlug(event.currentTarget.value);
-  }
-});
-document.getElementById('product-form').elements.slug.addEventListener('input', event => {
-  event.currentTarget.dataset.edited = event.currentTarget.value ? 'true' : '';
-});
-const pictureForm = document.getElementById('picture-upload-form');
-pictureForm.elements.file.addEventListener('change', event => { state.pendingPicturePromise = preparePicture(event.target.files[0]); });
-pictureForm.elements.crop.addEventListener('change', () => { state.pendingPicturePromise = preparePicture(pictureForm.elements.file.files[0]); });
-const dropzone = document.querySelector('[data-picture-dropzone]');
-for (const eventName of ['dragenter', 'dragover']) dropzone.addEventListener(eventName, event => { event.preventDefault(); dropzone.classList.add('is-dragging'); });
-for (const eventName of ['dragleave', 'drop']) dropzone.addEventListener(eventName, event => { event.preventDefault(); dropzone.classList.remove('is-dragging'); });
-dropzone.addEventListener('drop', event => {
-  const file = [...event.dataTransfer.files].find(item => item.type.startsWith('image/'));
-  if (!file) return;
-  const transfer = new DataTransfer();
-  transfer.items.add(file);
-  pictureForm.elements.file.files = transfer.files;
-  state.pendingPicturePromise = preparePicture(file);
-});
-
-let draggedPictureId = null;
-document.addEventListener('dragstart', event => {
-  const row = event.target.closest('[data-picture-row]');
-  if (!row) return;
-  draggedPictureId = Number(row.dataset.pictureRow);
-  row.classList.add('is-dragging');
-  event.dataTransfer.effectAllowed = 'move';
-});
-document.addEventListener('dragend', event => { event.target.closest('[data-picture-row]')?.classList.remove('is-dragging'); draggedPictureId = null; });
-document.addEventListener('dragover', event => { if (draggedPictureId && event.target.closest('[data-picture-row]')) event.preventDefault(); });
-document.addEventListener('drop', event => {
-  const row = event.target.closest('[data-picture-row]');
-  if (!row || !draggedPictureId) return;
-  event.preventDefault();
-  reorderPictureTo(draggedPictureId, Number(row.dataset.pictureRow)).catch(error => setStatus(document.getElementById('pictures-modal-status'), 'error', error.message));
-});
-
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') { modal('product', false); modal('order', false); }
-});
-
-(async function initialise() {
-  applyTheme(document.documentElement.dataset.theme);
+async function saveExistingProduct(submitter) {
+  if (!productForm.reportValidity()) return;
+  const originalText = submitter.textContent;
+  submitter.disabled = true;
+  submitter.textContent = 'Saving...';
+  state.submitting = true;
   try {
-    await loadIdentity();
-    await showView('dashboard');
+    const result = await api(`/api/admin/products/${encodeURIComponent(state.currentProduct.id)}`, {
+      method: 'PUT', body: JSON.stringify(productPayload())
+    });
+    populateProductForm(result.product);
+    await loadProducts();
+    history.replaceState({}, '', routeFor('editor'));
+    showNotice('Product details saved successfully.', 'success');
   } catch (error) {
-    setStatus(document.getElementById('global-status'), 'error', error.message);
+    showNotice(errorMessage(error), 'error', true);
+  } finally {
+    state.submitting = false;
+    submitter.disabled = false;
+    submitter.textContent = originalText;
   }
-})();
+}
+
+async function saveExistingVariant(row, button) {
+  const variantId = Number(row.dataset.existingVariantId);
+  const current = state.currentProduct.variants.find(variant => variant.id === variantId);
+  const desiredStock = Number(row.querySelector('[data-field="stock"]').value);
+  if (!Number.isInteger(desiredStock) || desiredStock < 0) {
+    showNotice('Stock must be a non-negative whole number.', 'error');
+    return;
+  }
+  button.disabled = true;
+  button.textContent = 'Saving...';
+  try {
+    const result = await api(`/api/admin/variants/${variantId}`, { method: 'PUT', body: JSON.stringify({
+      sku: row.querySelector('[data-field="sku"]').value.trim(),
+      size: row.querySelector('[data-field="size"]').value.trim(),
+      colour: row.querySelector('[data-field="colour"]').value.trim(),
+      style: row.querySelector('[data-field="style"]').value.trim(),
+      active: row.querySelector('[data-field="active"]').checked,
+      allowPlayerName: current.allowPlayerName,
+      allowPlayerNumber: current.allowPlayerNumber,
+      version: current.version
+    }) });
+    if (desiredStock !== current.stockQuantity) {
+      await api(`/api/admin/variants/${variantId}/adjust-stock`, { method: 'POST', body: JSON.stringify({
+        type: 'set', quantity: desiredStock, reason: 'Admin product editor update', version: result.variant.version
+      }) });
+    }
+    await openEditor(state.currentProduct.id, false);
+    await loadProducts();
+    showNotice('Variant and stock saved successfully.', 'success');
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+    button.disabled = false;
+    button.textContent = 'Save';
+  }
+}
+
+async function addExistingVariant(button) {
+  const row = document.querySelector('[data-add-variant-row]');
+  const stock = Number(row.querySelector('[data-field="stock"]').value || 0);
+  if (!Number.isInteger(stock) || stock < 0) {
+    showNotice('Starting stock must be a non-negative whole number.', 'error');
+    return;
+  }
+  button.disabled = true;
+  try {
+    const result = await api(`/api/admin/products/${encodeURIComponent(state.currentProduct.id)}/variants`, { method: 'POST', body: JSON.stringify({
+      sku: row.querySelector('[data-field="sku"]').value.trim(),
+      size: row.querySelector('[data-field="size"]').value.trim(),
+      colour: row.querySelector('[data-field="colour"]').value.trim(),
+      style: row.querySelector('[data-field="style"]').value.trim(),
+      active: row.querySelector('[data-field="active"]').checked,
+      allowPlayerName: null,
+      allowPlayerNumber: null
+    }) });
+    const created = result.product.variants.find(variant => variant.sku === row.querySelector('[data-field="sku"]').value.trim().toUpperCase());
+    if (stock && created) {
+      await api(`/api/admin/variants/${created.id}/adjust-stock`, { method: 'POST', body: JSON.stringify({
+        type: 'set', quantity: stock, reason: 'Initial stock from admin product editor', version: created.version
+      }) });
+    }
+    await openEditor(state.currentProduct.id, false);
+    await loadProducts();
+    showNotice('Variant added successfully.', 'success');
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+    button.disabled = false;
+  }
+}
+
+function renderPictureProductOptions() {
+  const current = state.pictureProductId || pictureProduct.value;
+  pictureProduct.innerHTML = state.products.map(product => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.name)} (${productStatus(product).label})</option>`).join('');
+  if (state.products.some(product => product.id === current)) pictureProduct.value = current;
+  else if (state.products.length) pictureProduct.value = state.products[0].id;
+}
+
+async function openPictures(productId = '', updateHistory = true) {
+  clearNotice();
+  renderPictureProductOptions();
+  state.pictureProductId = productId && state.products.some(product => product.id === productId) ? productId : pictureProduct.value;
+  pictureProduct.value = state.pictureProductId;
+  switchView('pictures', updateHistory);
+  await loadPictures();
+}
+
+async function loadPictures() {
+  if (!state.pictureProductId) {
+    pictureGallery.innerHTML = '<div class="empty-state"><p>Create a product before uploading pictures.</p></div>';
+    return;
+  }
+  const data = await api(`/api/admin/products/${encodeURIComponent(state.pictureProductId)}/pictures`);
+  state.pictures = data.pictures || [];
+  document.querySelector('[data-gallery-title]').textContent = data.product?.name || 'Product pictures';
+  pictureUploadForm.elements.altText.value ||= data.product?.name || '';
+  renderPictureGallery();
+  history.replaceState({}, '', routeFor('pictures'));
+}
+
+function renderPictureGallery() {
+  if (!state.pictures.length) {
+    pictureGallery.innerHTML = '<div class="empty-state"><p>No pictures yet. Upload the first picture using the form.</p></div>';
+    return;
+  }
+  pictureGallery.innerHTML = state.pictures.map((picture, index) => `<article class="gallery-card" data-picture-id="${picture.id}">
+    <div class="gallery-image">
+      <img src="${escapeHtml(picture.thumbnailUrl || picture.url)}" alt="${escapeHtml(picture.altText)}" loading="lazy">
+      ${picture.isPrimary ? '<span class="status-pill status-active">Main picture</span>' : ''}
+    </div>
+    <div class="gallery-details">
+      <strong>${escapeHtml(picture.altText || 'Product picture')}</strong>
+      <small>${escapeHtml(picture.variantStyle || 'Gallery image')} | ${picture.storage}</small>
+      <div class="gallery-actions">
+        ${picture.isPrimary ? '' : '<button class="button button-secondary" type="button" data-picture-action="primary">Set Main</button>'}
+        <button class="button button-secondary" type="button" data-picture-action="up" ${index === 0 ? 'disabled' : ''}>Move Up</button>
+        <button class="button button-secondary" type="button" data-picture-action="down" ${index === state.pictures.length - 1 ? 'disabled' : ''}>Move Down</button>
+        <button class="button button-secondary" type="button" data-picture-action="replace">Replace</button>
+        <button class="button button-danger" type="button" data-picture-action="delete">Delete</button>
+      </div>
+    </div>
+  </article>`).join('');
+}
+
+function resetPictureUpload() {
+  pictureUploadForm.reset();
+  pictureUploadForm.elements.replacePictureId.value = '';
+  document.querySelector('[data-picture-file-label]').textContent = 'Choose a new picture';
+  document.querySelector('[data-upload-button]').textContent = 'Upload Picture';
+  document.querySelector('[data-cancel-replace]').hidden = true;
+  picturePreview.innerHTML = '<span>No picture selected</span>';
+  state.uploadRequestId = '';
+  uploadProgress.hidden = true;
+  uploadProgress.firstElementChild.style.width = '0%';
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('The selected image could not be read.')); };
+    image.src = url;
+  });
+}
+
+async function optimisePicture(file) {
+  const image = await loadImage(file);
+  const scale = Math.min(1, 480 / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.82));
+  return blob ? new File([blob], 'thumbnail.webp', { type: 'image/webp' }) : null;
+}
+
+async function uploadPicture(productId, file, altText, variantStyle, replacePictureId, onProgress) {
+  if (!state.uploadRequestId) state.uploadRequestId = crypto.randomUUID();
+  const requestId = state.uploadRequestId;
+  const thumbnail = await optimisePicture(file);
+  const form = new FormData();
+  form.append('file', file);
+  if (thumbnail) form.append('thumbnail', thumbnail);
+  form.append('requestId', requestId);
+  form.append('altText', altText);
+  form.append('variantStyle', variantStyle);
+  if (replacePictureId) form.append('replacePictureId', replacePictureId);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/admin/products/${encodeURIComponent(productId)}/pictures`);
+    xhr.timeout = 90000;
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.setRequestHeader('X-PTG-Admin-Request', '1');
+    xhr.setRequestHeader('X-CSRF-Token', state.csrfToken);
+    xhr.setRequestHeader('X-Upload-Request-ID', requestId);
+    xhr.setRequestHeader('X-Request-ID', requestId);
+    xhr.upload.addEventListener('progress', event => {
+      if (event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100));
+    });
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 401) {
+        window.location.replace('/admin/login');
+        reject(new Error('Your admin session has expired.'));
+        return;
+      }
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const error = new Error(data.error || 'The picture upload could not be completed.');
+        error.code = data.code || '';
+        error.requestId = data.requestId || requestId;
+        reject(error);
+        return;
+      }
+      resolve(data);
+    });
+    xhr.addEventListener('timeout', () => {
+      const error = new Error('The upload timed out. Check your connection and retry; the same upload reference will be reused safely.');
+      error.requestId = requestId;
+      reject(error);
+    });
+    xhr.addEventListener('error', () => {
+      const error = new Error('A network error interrupted the upload. Please retry.');
+      error.requestId = requestId;
+      reject(error);
+    });
+    xhr.send(form);
+  });
+}
+
+async function submitPictureUpload() {
+  if (pendingPicturePromise) return pendingPicturePromise;
+  const file = pictureUploadForm.elements.picture.files[0];
+  if (!file) {
+    showNotice('Choose a picture to upload.', 'error');
+    return;
+  }
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    showNotice('Only JPEG, PNG and WebP pictures are supported.', 'error');
+    return;
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    showNotice('The selected picture is larger than 8 MB.', 'error');
+    return;
+  }
+  const button = document.querySelector('[data-upload-button]');
+  const originalText = button.textContent;
+  const replacing = Boolean(pictureUploadForm.elements.replacePictureId.value);
+  button.disabled = true;
+  button.textContent = 'Uploading...';
+  uploadProgress.hidden = false;
+  const promise = uploadPicture(
+    state.pictureProductId,
+    file,
+    pictureUploadForm.elements.altText.value.trim(),
+    pictureUploadForm.elements.variantStyle.value.trim(),
+    pictureUploadForm.elements.replacePictureId.value,
+    percentage => { uploadProgress.firstElementChild.style.width = `${percentage}%`; }
+  );
+  pendingPicturePromise = promise;
+  try {
+    await promise;
+    state.uploadRequestId = '';
+    resetPictureUpload();
+    await loadPictures();
+    await loadProducts();
+    showNotice(replacing ? 'Picture replaced successfully.' : 'Picture uploaded successfully.', 'success');
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+  } finally {
+    pendingPicturePromise = null;
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+async function handlePictureAction(pictureId, action) {
+  const picture = state.pictures.find(item => item.id === pictureId);
+  if (!picture) return;
+  try {
+    if (action === 'primary') await api(`/api/admin/pictures/${pictureId}/set-primary`, { method: 'POST', body: '{}' });
+    if (action === 'delete') {
+      if (!confirm('Delete this picture? This cannot be undone.')) return;
+      await api(`/api/admin/pictures/${pictureId}`, { method: 'DELETE' });
+    }
+    if (action === 'replace') {
+      pictureUploadForm.elements.replacePictureId.value = String(pictureId);
+      pictureUploadForm.elements.altText.value = picture.altText;
+      pictureUploadForm.elements.variantStyle.value = picture.variantStyle;
+      document.querySelector('[data-picture-file-label]').textContent = 'Choose the replacement picture';
+      document.querySelector('[data-upload-button]').textContent = 'Replace Picture';
+      document.querySelector('[data-cancel-replace]').hidden = false;
+      pictureUploadForm.elements.picture.focus();
+      return;
+    }
+    if (action === 'up' || action === 'down') {
+      const ids = state.pictures.map(item => item.id);
+      const index = ids.indexOf(pictureId);
+      const other = action === 'up' ? index - 1 : index + 1;
+      if (other < 0 || other >= ids.length) return;
+      [ids[index], ids[other]] = [ids[other], ids[index]];
+      await api(`/api/admin/products/${encodeURIComponent(state.pictureProductId)}/pictures/reorder`, {
+        method: 'POST', body: JSON.stringify({ pictureIds: ids })
+      });
+    }
+    await loadPictures();
+    await loadProducts();
+    showNotice(action === 'delete' ? 'Picture deleted successfully.' : action === 'primary' ? 'Main picture updated.' : 'Picture order updated.', 'success');
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+  }
+}
+
+async function permanentlyDeleteCurrentProduct() {
+  const product = state.currentProduct;
+  if (!product?.archived) return;
+  const confirmation = prompt(`Type DELETE to permanently remove ${product.name}. This is only allowed when it has no order or stock history and no active pictures.`);
+  if (confirmation !== 'DELETE') return;
+  try {
+    const result = await api(`/api/admin/products/${encodeURIComponent(product.id)}`, { method: 'DELETE' });
+    state.currentProduct = null;
+    await loadProducts();
+    switchView('products');
+    showNotice(result.message || 'Product permanently deleted.', 'success');
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+  }
+}
+
+document.querySelectorAll('[data-new-product]').forEach(button => button.addEventListener('click', () => showNewProduct()));
+document.querySelector('[data-back-products]').addEventListener('click', () => switchView('products'));
+document.querySelector('[data-add-create-variant]').addEventListener('click', () => addCreateVariant({ active: true, stockQuantity: 0 }));
+document.querySelector('[data-product-search]').addEventListener('input', renderProducts);
+document.querySelector('[data-product-filter]').addEventListener('change', renderProducts);
+
+document.querySelectorAll('[data-view-target]').forEach(button => button.addEventListener('click', () => {
+  const target = button.dataset.viewTarget;
+  if (target === 'editor') showNewProduct();
+  else if (target === 'pictures') openPictures();
+  else switchView(target);
+}));
+
+productList.addEventListener('click', async event => {
+  const button = event.target.closest('[data-product-action]');
+  const row = event.target.closest('[data-product-id]');
+  if (!button || !row) return;
+  button.disabled = true;
+  try {
+    if (button.dataset.productAction === 'edit') await openEditor(row.dataset.productId);
+    else if (button.dataset.productAction === 'pictures') await openPictures(row.dataset.productId);
+    else await productLifecycle(row.dataset.productId, button.dataset.productAction);
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+productForm.elements.name.addEventListener('input', () => {
+  if (!state.currentProduct && !slugEdited) productForm.elements.slug.value = slugify(productForm.elements.name.value);
+});
+productForm.elements.slug.addEventListener('input', () => { slugEdited = true; });
+productForm.elements.initialPictures.addEventListener('change', event => renderInitialPreviews([...event.target.files]));
+
+productForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (state.submitting) return;
+  clearNotice();
+  if (state.currentProduct) await saveExistingProduct(event.submitter);
+  else await saveNewProduct(event.submitter?.dataset.submitMode === 'publish', event.submitter);
+});
+
+existingVariants.addEventListener('click', event => {
+  const button = event.target.closest('[data-save-variant]');
+  const row = event.target.closest('[data-existing-variant-id]');
+  if (button && row) saveExistingVariant(row, button);
+});
+document.querySelector('[data-create-variant]').addEventListener('click', event => addExistingVariant(event.currentTarget));
+document.querySelector('[data-edit-pictures]').addEventListener('click', () => openPictures(state.currentProduct.id));
+document.querySelector('[data-editor-lifecycle]').addEventListener('click', event => productLifecycle(state.currentProduct.id, event.currentTarget.dataset.action));
+document.querySelector('[data-editor-archive]').addEventListener('click', event => productLifecycle(state.currentProduct.id, event.currentTarget.dataset.action));
+document.querySelector('[data-permanent-delete]').addEventListener('click', permanentlyDeleteCurrentProduct);
+
+pictureProduct.addEventListener('change', async () => {
+  state.pictureProductId = pictureProduct.value;
+  resetPictureUpload();
+  await loadPictures().catch(error => showNotice(errorMessage(error), 'error'));
+});
+pictureUploadForm.elements.picture.addEventListener('change', event => {
+  const file = event.target.files[0];
+  state.uploadRequestId = crypto.randomUUID();
+  if (!file) {
+    picturePreview.innerHTML = '<span>No picture selected</span>';
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  picturePreview.innerHTML = `<img src="${url}" alt="Selected picture preview">`;
+  picturePreview.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+});
+pictureUploadForm.addEventListener('submit', event => {
+  event.preventDefault();
+  submitPictureUpload();
+});
+document.querySelector('[data-cancel-replace]').addEventListener('click', resetPictureUpload);
+pictureGallery.addEventListener('click', event => {
+  const button = event.target.closest('[data-picture-action]');
+  const card = event.target.closest('[data-picture-id]');
+  if (button && card) handlePictureAction(Number(card.dataset.pictureId), button.dataset.pictureAction);
+});
+
+document.querySelector('[data-logout]').addEventListener('click', async event => {
+  event.currentTarget.disabled = true;
+  try { await api('/api/admin/logout', { method: 'POST', body: '{}' }); }
+  finally { window.location.replace('/admin/login'); }
+});
+
+window.addEventListener('popstate', () => initialiseRoute(false));
+
+async function initialiseRoute(updateHistory = false) {
+  const url = new URL(window.location.href);
+  if (url.pathname === '/admin/pictures') {
+    await openPictures(url.searchParams.get('product') || '', updateHistory);
+  } else if (url.searchParams.get('edit')) {
+    await openEditor(url.searchParams.get('edit'), updateHistory);
+  } else if (url.searchParams.has('new')) {
+    showNewProduct(updateHistory);
+  } else {
+    switchView('products', updateHistory);
+  }
+}
+
+async function initialise() {
+  try {
+    if (!await loadSession()) return;
+    await loadProducts();
+    await initialiseRoute(false);
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+  }
+}
+
+initialise();

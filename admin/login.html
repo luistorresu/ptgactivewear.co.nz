@@ -1,22 +1,29 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-NZ">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <title>Admin Sign In | PTG Activewear</title>
+  <title>Admin Login | PTG Activewear</title>
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
 <body class="login-page">
-  <main class="login-panel">
-    <img src="/photos/ptg-logo-dark-transparent.webp" alt="PTG Activewear" class="login-logo">
-    <h1>Admin sign in</h1>
-    <p>Use an approved email address. We will send you a secure six-digit code.</p>
-    <form id="login-form">
-      <label class="field"><span>Email</span><input id="email" name="email" type="email" autocomplete="email" required></label>
-      <label class="field" id="code-field" hidden><span>Sign-in code</span><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"></label>
-      <p id="login-status" class="status is-hidden" role="status"></p>
-      <button class="button button-primary" id="login-submit" type="submit">Send sign-in code</button>
+  <main class="login-card">
+    <img class="login-logo" src="/photos/ptg-logo-dark-transparent.webp" alt="PTG Activewear" width="230" height="80">
+    <p class="eyebrow">Secure administration</p>
+    <h1>Admin login</h1>
+    <p>Enter your PTG Activewear admin credentials.</p>
+    <div class="notice" role="alert" aria-live="polite" data-login-notice hidden></div>
+    <form class="login-form" data-login-form novalidate>
+      <label>
+        <span>Username</span>
+        <input name="username" autocomplete="username" maxlength="160" required autofocus>
+      </label>
+      <label>
+        <span>Password</span>
+        <input name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+      </label>
+      <button class="button button-primary button-large" type="submit" data-login-button>Log In</button>
     </form>
   </main>
   <script src="/admin/login.js" defer></script>
