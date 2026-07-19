@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getAdminIdentity, isAdminMutationAllowed } from '../worker/auth.js';
-import { validateD1CheckoutPayload } from '../worker/inventory.js';
+import { validateD1CheckoutPayload, verifyStripeCheckoutSnapshot } from '../worker/inventory.js';
 
 function mockDatabase(overrides = {}) {
   const product = {
@@ -101,6 +101,26 @@ test('local development has no authentication bypass', async () => {
   const env = { ENVIRONMENT: 'development', LOCAL_ADMIN_EMAIL: 'admin@example.com' };
   assert.equal(await getAdminIdentity(new Request('http://localhost:8787/api/admin/me'), env), null);
   assert.equal(await getAdminIdentity(new Request('https://ptgactivewear.co.nz/api/admin/me'), env), null);
+});
+
+test('paid order snapshot rejects any one-cent mismatch', () => {
+  const metadata = {
+    subtotal_cents: '9500', personalisation_cents: '4000', shipping_cents: '0',
+    payment_surcharge_cents: '282', payment_surcharge_enabled: '1', payment_surcharge_percent: '2.65',
+    payment_surcharge_fixed_cents: '30', payment_surcharge_label: 'Card processing surcharge',
+    payment_surcharge_description: 'Processing cost', total_cents: '13782'
+  };
+  const product = item_kind => ({ metadata: { item_kind } });
+  const lines = [
+    { amount_total: 9500, price: { product: product('base_product') } },
+    { amount_total: 2000, price: { product: product('player_name_addon') } },
+    { amount_total: 2000, price: { product: product('player_number_addon') } },
+    { amount_total: 282, price: { product: product('payment_surcharge') } }
+  ];
+  const session = { metadata, amount_subtotal: 13782, amount_total: 13782, total_details: { amount_shipping: 0 } };
+  assert.equal(verifyStripeCheckoutSnapshot(session, lines, 4000).paymentSurchargeCents, 282);
+  assert.throws(() => verifyStripeCheckoutSnapshot({ ...session, amount_total: 13781 }, lines, 4000), /paid total/i);
+  assert.throws(() => verifyStripeCheckoutSnapshot(session, [...lines.slice(0, 3), { ...lines[3], amount_total: 281 }], 4000), /surcharge/i);
 });
 
 test('admin mutations require exact same origin, safe content type, custom header and CSRF token', () => {

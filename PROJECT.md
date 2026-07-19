@@ -68,6 +68,12 @@ Required Cloudflare Worker variables/secrets:
 * `EMAIL_API_KEY` - encrypted Resend secret.
 * `CONTACT_TO_EMAIL` - `info@ptgactivewear.co.nz`.
 * `CONTACT_FROM_EMAIL` - `info@ptgactivewear.co.nz`.
+* `PAYMENT_SURCHARGE_ENABLED` - `false` until account pricing and a surcharge-free alternative are confirmed.
+* `PAYMENT_SURCHARGE_PERCENT` - configured percentage with at most two decimal places, currently `2.65`.
+* `PAYMENT_SURCHARGE_FIXED_CENTS` - fixed NZD cents component, currently `30`.
+* `PAYMENT_SURCHARGE_LABEL` - customer-facing fee label.
+* `PAYMENT_SURCHARGE_DESCRIPTION` - customer-facing explanation.
+* `NZ_SHIPPING_CENTS` and `NZ_SHIPPING_LABEL` - trusted server-side shipping configuration.
 
 Optional:
 
@@ -161,9 +167,19 @@ Operational, migration, rollback, authentication, and local-development instruct
 
 ## Operational Admin
 
-The production admin is a deliberately simple D1/R2-backed catalogue tool for products, variants, stock, publication state, and product pictures. Existing order, invoice, export, and audit APIs remain available for compatibility and historical records, but the rebuilt portal does not expose those complex workspaces. Authentication uses PBKDF2 password verification, signed expiring `HttpOnly` sessions, KV invalidation, CSRF protection, and login lockout. See `ADMIN.md`.
+The production admin is a deliberately simple D1/R2-backed tool for products, variants, stock, orders, and product pictures. The Orders view exposes payment breakdowns without permitting browser-side total edits. Existing invoice, export, and audit APIs remain available for compatibility and historical records. Authentication uses PBKDF2 password verification, signed expiring `HttpOnly` sessions, KV invalidation, CSRF protection, and login lockout. See `ADMIN.md`.
 
-Paid orders are created only from verified Stripe webhooks. Both encrypted production secrets, `STRIPE_WEBHOOK_SECRET` and `STRIPE_SECRET_KEY`, are configured. Refund event ingestion and automatic idempotent restocking are not yet enabled.
+Paid orders are created only from verified Stripe webhooks. Both encrypted production secrets, `STRIPE_WEBHOOK_SECRET` and `STRIPE_SECRET_KEY`, are configured. Refund amounts are ingested from idempotent `charge.refunded` events; automatic inventory restocking is not enabled.
+
+## Payment Processing Surcharge
+
+Checkout supports an optional server-calculated card processing surcharge. Money calculations use integer cents and the percentage is represented internally as basis points. The browser sends product selections and quantities; `/api/checkout-summary` and `/api/create-checkout-session` both recalculate merchandise, personalisation, shipping, surcharge, and total from D1.
+
+When enabled, the surcharge is one separate Stripe Checkout line item and Checkout is restricted to card payments. The exact configuration is copied into Stripe metadata and stored on the paid D1 order by the verified webhook. Historical orders keep their original totals and empty/zero surcharge snapshot fields.
+
+Production remains disabled because the connected account's negotiated pricing cannot be read through the available Stripe API and the website does not yet provide a confirmed surcharge-free online payment option. Before enabling, review the Stripe Dashboard payment-fee report, provide a surcharge-free option where feasible, and confirm the configured amount does not exceed actual incremental acceptance cost.
+
+A full refund records the full surcharge as refunded. A partial refund preserves the original surcharge and records a surcharge component only when Stripe Refund metadata explicitly supplies `payment_surcharge_refund_cents`.
 
 This admin system is an operational order and stock-management tool. It is not a replacement for professional accounting software or statutory tax advice.
 

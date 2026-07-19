@@ -1,6 +1,8 @@
 const state = {
   csrfToken: '',
   products: [],
+  orders: [],
+  currentOrder: null,
   currentProduct: null,
   pictures: [],
   pictureProductId: '',
@@ -12,6 +14,8 @@ const state = {
 const views = [...document.querySelectorAll('[data-view]')];
 const notice = document.querySelector('[data-notice]');
 const productList = document.querySelector('[data-product-list]');
+const orderList = document.querySelector('[data-order-list]');
+const orderDetail = document.querySelector('[data-order-detail]');
 const productForm = document.querySelector('[data-product-form]');
 const createVariants = document.querySelector('[data-create-variants]');
 const createVariantTemplate = document.querySelector('[data-create-variant-template]');
@@ -99,8 +103,52 @@ async function api(path, options = {}) {
 
 function routeFor(viewName) {
   if (viewName === 'pictures') return `/admin/pictures${state.pictureProductId ? `?product=${encodeURIComponent(state.pictureProductId)}` : ''}`;
+  if (viewName === 'orders') return '/admin/orders';
   if (viewName === 'editor') return state.currentProduct ? `/admin?edit=${encodeURIComponent(state.currentProduct.id)}` : '/admin?new=1';
   return '/admin';
+}
+
+async function loadOrders() {
+  const search = document.querySelector('[data-order-search]').value.trim();
+  const data = await api(`/api/admin/orders?limit=100${search ? `&search=${encodeURIComponent(search)}` : ''}`);
+  state.orders = data.orders || [];
+  renderOrders();
+}
+
+function renderOrders() {
+  if (!state.orders.length) {
+    orderList.innerHTML = '<div class="empty-state"><p>No orders match this search.</p></div>';
+    return;
+  }
+  orderList.innerHTML = state.orders.map(order => `<button class="order-row${state.currentOrder?.id === order.id ? ' is-active' : ''}" type="button" data-order-id="${Number(order.id)}">
+    <span><strong>${escapeHtml(order.order_number || `Order ${order.id}`)}</strong><small>${escapeHtml(order.customer_name || order.customer_email || 'Customer')}</small></span>
+    <span><strong>${formatMoney(order.total_cents)}</strong><small>${escapeHtml(order.payment_status)} · ${escapeHtml(order.refund_status || 'not_refunded')}</small></span>
+  </button>`).join('');
+}
+
+function orderAddress(address = {}) {
+  return [address.line1, address.line2, address.city, address.state, address.postal_code, address.country].filter(Boolean).map(escapeHtml).join(', ') || 'Not provided';
+}
+
+async function openOrder(orderId) {
+  const data = await api(`/api/admin/orders/${Number(orderId)}`);
+  const order = data.order;
+  state.currentOrder = order;
+  renderOrders();
+  const hasSnapshot = Boolean(order.payment_surcharge_label);
+  const surchargeApplied = Number(order.payment_surcharge_enabled) === 1;
+  orderDetail.innerHTML = `
+    <div class="section-heading"><div><p class="eyebrow">Order details</p><h2>${escapeHtml(order.order_number || `Order ${order.id}`)}</h2></div>${order.invoice_number ? `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">Open Invoice</a>` : `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">Create Invoice</a>`}</div>
+    <dl class="order-facts"><div><dt>Customer</dt><dd>${escapeHtml(order.customer_name || 'Not provided')}<br>${escapeHtml(order.customer_email || '')}</dd></div><div><dt>Ship to</dt><dd>${orderAddress(order.shipping_address)}</dd></div><div><dt>Payment</dt><dd>${escapeHtml(order.payment_status)}<br>${escapeHtml(order.payment_method_label || 'Method not recorded')}</dd></div><div><dt>Fulfilment</dt><dd>${escapeHtml(order.fulfilment_status)}</dd></div></dl>
+    <div class="order-items"><h3>Items</h3>${order.items.map(item => `<div><span><strong>${Number(item.quantity)} × ${escapeHtml(item.product_name)}</strong><small>${escapeHtml([item.size, item.colour, item.style].filter(Boolean).join(' / '))}${item.player_name ? ` · Name: ${escapeHtml(item.player_name)}` : ''}${item.player_number ? ` · Number: ${escapeHtml(item.player_number)}` : ''}</small></span><strong>${formatMoney(item.item_total_cents)}</strong></div>`).join('')}</div>
+    <dl class="order-totals">
+      <div><dt>${hasSnapshot ? 'Merchandise subtotal' : 'Subtotal'}</dt><dd>${formatMoney(order.subtotal_cents)}</dd></div>
+      ${hasSnapshot ? `<div><dt>Personalisation</dt><dd>${formatMoney(order.personalisation_cents)}</dd></div>` : ''}
+      <div><dt>Shipping</dt><dd>${formatMoney(order.shipping_cents)}</dd></div>
+      ${surchargeApplied ? `<div><dt>${escapeHtml(order.payment_surcharge_label)}</dt><dd>${formatMoney(order.payment_surcharge_cents)}</dd></div><div class="order-config"><dt>Configuration used</dt><dd>${escapeHtml(order.payment_surcharge_percent)}% + ${formatMoney(order.payment_surcharge_fixed_cents)}</dd></div>` : hasSnapshot ? '<div class="order-config"><dt>Card surcharge</dt><dd>Disabled for this order</dd></div>' : ''}
+      <div class="grand"><dt>Total paid</dt><dd>${formatMoney(order.total_cents)}</dd></div>
+      ${order.refunded_cents ? `<div><dt>Refunded</dt><dd>-${formatMoney(order.refunded_cents)}</dd></div>${surchargeApplied ? `<div><dt>Surcharge refunded</dt><dd>${formatMoney(order.payment_surcharge_refunded_cents)}</dd></div>` : ''}` : ''}
+    </dl>`;
 }
 
 function switchView(viewName, updateHistory = true) {
@@ -747,11 +795,19 @@ document.querySelector('[data-back-products]').addEventListener('click', () => s
 document.querySelector('[data-add-create-variant]').addEventListener('click', () => addCreateVariant({ active: true, stockQuantity: 0 }));
 document.querySelector('[data-product-search]').addEventListener('input', renderProducts);
 document.querySelector('[data-product-filter]').addEventListener('change', renderProducts);
+document.querySelector('[data-order-search]').addEventListener('change', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
+document.querySelector('[data-order-search]').addEventListener('search', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
+document.querySelector('[data-refresh-orders]').addEventListener('click', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
+orderList.addEventListener('click', event => {
+  const row = event.target.closest('[data-order-id]');
+  if (row) openOrder(Number(row.dataset.orderId)).catch(error => showNotice(errorMessage(error), 'error', true));
+});
 
 document.querySelectorAll('[data-view-target]').forEach(button => button.addEventListener('click', () => {
   const target = button.dataset.viewTarget;
   if (target === 'editor') showNewProduct();
   else if (target === 'pictures') openPictures();
+  else if (target === 'orders') loadOrders().then(() => switchView('orders')).catch(error => showNotice(errorMessage(error), 'error'));
   else switchView(target);
 }));
 
@@ -835,6 +891,9 @@ async function initialiseRoute(updateHistory = false) {
   const url = new URL(window.location.href);
   if (url.pathname === '/admin/pictures') {
     await openPictures(url.searchParams.get('product') || '', updateHistory);
+  } else if (url.pathname === '/admin/orders') {
+    await loadOrders();
+    switchView('orders', updateHistory);
   } else if (url.searchParams.get('edit')) {
     await openEditor(url.searchParams.get('edit'), updateHistory);
   } else if (url.searchParams.has('new')) {

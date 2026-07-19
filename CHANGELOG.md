@@ -2,6 +2,25 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-19
+
+### Added
+
+* Added a configurable, server-calculated card processing surcharge with a pre-Stripe cart breakdown and one separate Stripe line item.
+* Added additive D1 order snapshots for surcharge configuration and cumulative refund amounts.
+* Added protected admin order list/details with surcharge, total, refund, and invoice visibility.
+* Added surcharge details to order emails, CSV exports, HTML/print-to-PDF invoices, and Stripe metadata.
+* Added local endpoint and responsive visual smoke tests for checkout summaries.
+
+### Security
+
+* Recalculate every checkout total from trusted catalogue data, use integer cents, reject one-cent webhook mismatches, and use Stripe idempotency keys for repeated Checkout Session requests.
+* Restrict enabled surcharge sessions to card payments and retain a 4% code-level safety limit.
+
+### Operations
+
+* Configured the production surcharge at 2.65% plus NZ$0.30 but left it disabled pending account-specific pricing confirmation and a surcharge-free online payment option.
+
 ## 2026-07-18
 
 ### Changed

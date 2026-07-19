@@ -12,7 +12,7 @@ test('order and invoice migration is additive and preserves existing tables', as
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_invoice_number/i);
 });
 
-test('admin frontend is intentionally limited to products, editing and pictures', async () => {
+test('admin frontend keeps catalogue tools and exposes protected order totals', async () => {
   const [html, script, login] = await Promise.all([
     readFile(new URL('admin/index.html', root), 'utf8'),
     readFile(new URL('admin/admin.js', root), 'utf8'),
@@ -21,6 +21,8 @@ test('admin frontend is intentionally limited to products, editing and pictures'
   assert.match(html, /data-view-target="products"/);
   assert.match(html, /data-view-target="editor"/);
   assert.match(html, /data-view-target="pictures"/);
+  assert.match(html, /data-view-target="orders"/);
+  assert.match(script, /payment_surcharge_cents/);
   assert.match(login, /name="username"/);
   assert.match(login, /name="password"/);
   assert.doesNotMatch(script, /localStorage|sessionStorage/);
@@ -34,6 +36,7 @@ test('invoice and CSV routes remain under authenticated admin API paths', async 
   assert.match(worker, /startsWith\('\/api\/admin\/'\)/);
   assert.match(api, /segments\[2\] === 'invoice'/);
   assert.match(api, /segments\[0\] === 'exports'/);
+  assert.match(await readFile(new URL('admin/invoice.js', root), 'utf8'), /'X-CSRF-Token': session\.csrfToken/);
   assert.match(api, /if \(\/\^\[=\+\\-@\\t\\r\]\//);
 });
 

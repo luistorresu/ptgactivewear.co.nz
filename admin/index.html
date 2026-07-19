@@ -15,6 +15,7 @@
     </a>
     <nav class="admin-nav" aria-label="Admin navigation">
       <button class="nav-button is-active" type="button" data-view-target="products">Products</button>
+      <button class="nav-button" type="button" data-view-target="orders">Orders</button>
       <button class="nav-button" type="button" data-view-target="editor">Add Product</button>
       <button class="nav-button" type="button" data-view-target="pictures">Pictures</button>
     </nav>
@@ -54,6 +55,29 @@
       </div>
 
       <div class="product-list" data-product-list aria-live="polite"></div>
+    </section>
+
+    <section class="admin-view" data-view="orders" hidden>
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">Sales</p>
+          <h1>Orders</h1>
+          <p>Review paid totals, processing surcharges, refunds and invoice details.</p>
+        </div>
+        <button class="button button-secondary" type="button" data-refresh-orders>Refresh</button>
+      </div>
+      <div class="toolbar" aria-label="Order filters">
+        <label class="search-field">
+          <span>Search orders</span>
+          <input type="search" placeholder="Order number, customer or email" data-order-search>
+        </label>
+      </div>
+      <div class="order-layout">
+        <div class="order-list" data-order-list aria-live="polite"></div>
+        <section class="form-section order-detail" data-order-detail aria-live="polite">
+          <div class="empty-state"><p>Select an order to review its payment breakdown.</p></div>
+        </section>
+      </div>
     </section>
 
     <section class="admin-view" data-view="editor" hidden>

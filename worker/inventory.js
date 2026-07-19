@@ -1,3 +1,5 @@
+import { calculateRefundBreakdown } from './surcharge.js';
+
 const MAX_ITEM_QUANTITY = 20;
 
 function cleanText(value, maxLength) {
@@ -89,6 +91,73 @@ function lineMetadata(lineItem) {
   return lineItem?.price?.product?.metadata || {};
 }
 
+function metadataInteger(metadata, key) {
+  const value = String(metadata?.[key] ?? '');
+  if (!/^\d+$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) ? number : null;
+}
+
+function surchargeLineTotal(lineItems) {
+  return lineItems.reduce((total, item) => lineMetadata(item).item_kind === 'payment_surcharge'
+    ? total + Number(item.amount_total || 0)
+    : total, 0);
+}
+
+export function verifyStripeCheckoutSnapshot(session, lineItems, personalisationCents) {
+  const metadata = session.metadata || {};
+  const hasSnapshot = metadata.subtotal_cents !== undefined || metadata.payment_surcharge_cents !== undefined;
+  if (!hasSnapshot) {
+    return {
+      subtotalCents: Number(session.amount_subtotal || 0),
+      personalisationCents,
+      shippingCents: Number(session.total_details?.amount_shipping || 0),
+      paymentSurchargeCents: 0,
+      paymentSurchargeEnabled: false,
+      paymentSurchargePercent: '0',
+      paymentSurchargeFixedCents: 0,
+      paymentSurchargeLabel: '',
+      paymentSurchargeDescription: '',
+      totalCents: Number(session.amount_total || 0)
+    };
+  }
+
+  const subtotalCents = metadataInteger(metadata, 'subtotal_cents');
+  const storedPersonalisationCents = metadataInteger(metadata, 'personalisation_cents');
+  const shippingCents = metadataInteger(metadata, 'shipping_cents');
+  const paymentSurchargeCents = metadataInteger(metadata, 'payment_surcharge_cents');
+  const paymentSurchargeEnabled = metadataInteger(metadata, 'payment_surcharge_enabled');
+  const paymentSurchargeFixedCents = metadataInteger(metadata, 'payment_surcharge_fixed_cents');
+  const totalCents = metadataInteger(metadata, 'total_cents');
+  if ([subtotalCents, storedPersonalisationCents, shippingCents, paymentSurchargeCents, paymentSurchargeEnabled, paymentSurchargeFixedCents, totalCents].some(value => value === null)
+    || ![0, 1].includes(paymentSurchargeEnabled)) {
+    throw new Error('Checkout total metadata is invalid.');
+  }
+  if (storedPersonalisationCents !== personalisationCents) throw new Error('Checkout personalisation total does not match Stripe line items.');
+  if (paymentSurchargeCents !== surchargeLineTotal(lineItems)) throw new Error('Checkout surcharge does not match Stripe line items.');
+  if (Number(session.amount_subtotal || 0) !== subtotalCents + personalisationCents + paymentSurchargeCents) {
+    throw new Error('Checkout subtotal does not match Stripe line items.');
+  }
+  if (Number(session.total_details?.amount_shipping || 0) !== shippingCents) throw new Error('Checkout shipping total does not match Stripe.');
+  if (Number(session.amount_total || 0) !== totalCents
+    || totalCents !== subtotalCents + personalisationCents + shippingCents + paymentSurchargeCents) {
+    throw new Error('Checkout paid total does not match the server snapshot.');
+  }
+
+  return {
+    subtotalCents,
+    personalisationCents,
+    shippingCents,
+    paymentSurchargeCents,
+    paymentSurchargeEnabled: paymentSurchargeEnabled === 1,
+    paymentSurchargePercent: cleanText(metadata.payment_surcharge_percent, 12) || '0',
+    paymentSurchargeFixedCents,
+    paymentSurchargeLabel: cleanText(metadata.payment_surcharge_label, 80),
+    paymentSurchargeDescription: cleanText(metadata.payment_surcharge_description, 240),
+    totalCents
+  };
+}
+
 function groupStripeItems(lineItems) {
   const groups = new Map();
   for (const lineItem of lineItems) {
@@ -152,6 +221,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
 
   const customer = session.customer_details || {};
   const personalisationCents = catalogue.reduce((sum, item) => sum + item.customisationAmountTotal, 0);
+  const snapshot = verifyStripeCheckoutSnapshot(session, lineItems, personalisationCents);
   const statements = [
     env.DB.prepare(`
       INSERT INTO stripe_events (event_id, event_type, stripe_checkout_session_id, status)
@@ -163,8 +233,10 @@ export async function commitPaidOrder(env, event, session, lineItems) {
         customer_name, customer_email, customer_phone, shipping_address_json,
         subtotal_cents, shipping_cents, total_cents, currency, payment_status,
         fulfilment_status, email_status, billing_address_json, payment_date,
-        personalisation_cents, discount_cents, tax_cents, refund_status, payment_method_label
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?)
+        personalisation_cents, discount_cents, tax_cents, refund_status, payment_method_label,
+        payment_surcharge_cents, payment_surcharge_enabled, payment_surcharge_percent, payment_surcharge_fixed_cents,
+        payment_surcharge_label, payment_surcharge_description
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       session.id,
       typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
@@ -173,16 +245,22 @@ export async function commitPaidOrder(env, event, session, lineItems) {
       cleanText(customer.email || session.customer_email, 254),
       cleanText(customer.phone, 50),
       JSON.stringify(sessionAddress(session)),
-      Number(session.amount_subtotal || 0),
-      Number(session.total_details?.amount_shipping || 0),
-      Number(session.amount_total || 0),
+      snapshot.subtotalCents,
+      snapshot.shippingCents,
+      snapshot.totalCents,
       String(session.currency || 'nzd').toUpperCase(),
       cleanText(session.payment_status || 'paid', 30),
       JSON.stringify(customer.address || {}),
-      personalisationCents,
+      snapshot.personalisationCents,
       Number(session.total_details?.amount_discount || 0),
       Number(session.total_details?.amount_tax || 0),
-      cleanText(Array.isArray(session.payment_method_types) ? session.payment_method_types.join(', ') : '', 100)
+      cleanText(Array.isArray(session.payment_method_types) ? session.payment_method_types.join(', ') : '', 100),
+      snapshot.paymentSurchargeCents,
+      snapshot.paymentSurchargeEnabled ? 1 : 0,
+      snapshot.paymentSurchargePercent,
+      snapshot.paymentSurchargeFixedCents,
+      snapshot.paymentSurchargeLabel,
+      snapshot.paymentSurchargeDescription
     )
   ];
 
@@ -246,6 +324,38 @@ export async function commitPaidOrder(env, event, session, lineItems) {
   const order = await existingOrder(env.DB, session.id);
   await env.DB.prepare(`UPDATE orders SET order_number = printf('PTG-ORD-%s-%06d', strftime('%Y', created_at), id), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND order_number IS NULL`).bind(order.id).run();
   return { orderId: order.id, duplicate: false, emailStatus: order.email_status };
+}
+
+export async function recordStripeRefund(env, event, charge) {
+  const paymentIntentId = typeof charge?.payment_intent === 'string' ? charge.payment_intent : charge?.payment_intent?.id;
+  if (!paymentIntentId) return { matched: false };
+  const order = await env.DB.prepare(`
+    SELECT id, stripe_checkout_session_id, total_cents, payment_surcharge_cents
+    FROM orders WHERE stripe_payment_intent_id = ?
+  `).bind(paymentIntentId).first();
+  if (!order) return { matched: false };
+
+  const explicitSurchargeRefundedCents = (charge.refunds?.data || []).reduce((total, refund) => {
+    const value = metadataInteger(refund.metadata || {}, 'payment_surcharge_refund_cents');
+    return total + (value || 0);
+  }, 0);
+  const refund = calculateRefundBreakdown(
+    Number(order.total_cents || 0),
+    Number(order.payment_surcharge_cents || 0),
+    Number(charge.amount_refunded || 0),
+    explicitSurchargeRefundedCents
+  );
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE orders SET refund_status = ?, refunded_cents = ?, payment_surcharge_refunded_cents = ?,
+        updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).bind(refund.refundStatus, refund.refundedCents, refund.paymentSurchargeRefundedCents, order.id),
+    env.DB.prepare(`
+      INSERT OR IGNORE INTO stripe_events (event_id, event_type, stripe_checkout_session_id, status, processed_at)
+      VALUES (?, ?, ?, 'processed', CURRENT_TIMESTAMP)
+    `).bind(event.id, event.type, order.stripe_checkout_session_id)
+  ]);
+  return { matched: true, orderId: order.id, ...refund };
 }
 
 export async function markOrderEmailResult(env, orderId, eventId, sent, errorMessage = '') {

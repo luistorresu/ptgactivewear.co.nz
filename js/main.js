@@ -7,6 +7,8 @@ try {
   cart = [];
 }
 const PERSONALISATION_ADDON_PRICE = 20;
+let checkoutSummaryTimer = 0;
+let checkoutSummaryRequest = 0;
 
 function saveCart() {
   localStorage.setItem('ptg-cart', JSON.stringify(cart));
@@ -119,6 +121,7 @@ function updateCartUI() {
       }).join('');
     }
   }
+  scheduleCheckoutSummary();
 }
 
 // ── Cart actions ─────────────────────────────────────────────────────────────
@@ -240,6 +243,89 @@ function buildCheckoutPayload() {
   };
 }
 
+function formatCents(cents) {
+  return new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(Number(cents || 0) / 100);
+}
+
+function getCartSummaryElements() {
+  const totalEl = document.getElementById('cart-total');
+  if (!totalEl) return {};
+  const checkoutButton = document.querySelector('[data-checkout-button]');
+  if (checkoutButton?.nextElementSibling?.tagName === 'P') {
+    checkoutButton.nextElementSibling.textContent = 'Secure payment powered by Stripe';
+  }
+  const totalRow = totalEl.parentElement;
+  let breakdown = document.querySelector('[data-cart-breakdown]');
+  if (!breakdown) {
+    breakdown = document.createElement('div');
+    breakdown.dataset.cartBreakdown = '';
+    breakdown.className = 'cart-breakdown';
+    breakdown.innerHTML = `
+      <div><span>Merchandise subtotal</span><strong data-summary-merchandise>$0.00</strong></div>
+      <div data-summary-personalisation-row><span>Personalisation</span><strong data-summary-personalisation>$0.00</strong></div>
+      <div><span>Shipping</span><strong data-summary-shipping>$0.00</strong></div>
+      <div data-summary-surcharge-row hidden><span data-summary-surcharge-label>Card processing surcharge</span><strong data-summary-surcharge>$0.00</strong></div>
+      <p data-summary-surcharge-note hidden></p>`;
+    totalRow.before(breakdown);
+  }
+  return { totalEl, totalRow, breakdown };
+}
+
+function renderCheckoutSummary(summary) {
+  const { totalEl, totalRow, breakdown } = getCartSummaryElements();
+  if (!totalEl || !breakdown) return;
+  const personalisationRow = breakdown.querySelector('[data-summary-personalisation-row]');
+  const surchargeRow = breakdown.querySelector('[data-summary-surcharge-row]');
+  const surchargeNote = breakdown.querySelector('[data-summary-surcharge-note]');
+  breakdown.querySelector('[data-summary-merchandise]').textContent = formatCents(summary.merchandiseSubtotalCents);
+  breakdown.querySelector('[data-summary-personalisation]').textContent = formatCents(summary.personalisationCents);
+  breakdown.querySelector('[data-summary-shipping]').textContent = summary.shippingCents ? formatCents(summary.shippingCents) : 'Free';
+  personalisationRow.hidden = summary.personalisationCents === 0;
+  surchargeRow.hidden = !summary.surcharge.enabled;
+  surchargeNote.hidden = !summary.surcharge.enabled;
+  if (summary.surcharge.enabled) {
+    breakdown.querySelector('[data-summary-surcharge-label]').textContent = summary.surcharge.label;
+    breakdown.querySelector('[data-summary-surcharge]').textContent = formatCents(summary.paymentSurchargeCents);
+    surchargeNote.textContent = 'Card payments include a processing surcharge to help cover payment-processing costs.';
+  }
+  totalRow.querySelector('span').textContent = 'Total';
+  totalEl.textContent = formatCents(summary.totalCents);
+}
+
+async function fetchCheckoutSummary(payload = buildCheckoutPayload(), shouldRender = true) {
+  const response = await fetch('/api/checkout-summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.ok || !result.summary) throw new Error(result.error || 'Checkout totals could not be calculated.');
+  if (shouldRender) renderCheckoutSummary(result.summary);
+  return result.summary;
+}
+
+function scheduleCheckoutSummary() {
+  clearTimeout(checkoutSummaryTimer);
+  const requestNumber = ++checkoutSummaryRequest;
+  const { totalRow, breakdown } = getCartSummaryElements();
+  if (!cart.length) {
+    if (breakdown) breakdown.hidden = true;
+    if (totalRow) totalRow.querySelector('span').textContent = 'Subtotal';
+    return;
+  }
+  if (breakdown) breakdown.hidden = false;
+  checkoutSummaryTimer = setTimeout(async () => {
+    try {
+      const summary = await fetchCheckoutSummary(buildCheckoutPayload(), false);
+      if (requestNumber !== checkoutSummaryRequest) return;
+      renderCheckoutSummary(summary);
+    } catch {
+      if (breakdown) breakdown.hidden = true;
+      if (totalRow) totalRow.querySelector('span').textContent = 'Subtotal';
+    }
+  }, 180);
+}
+
 function setCheckoutLoading(isLoading) {
   document.querySelectorAll('[data-checkout-button]').forEach(button => {
     button.disabled = isLoading;
@@ -276,6 +362,8 @@ function setupCheckout() {
       setCheckoutLoading(true);
 
       try {
+        await fetchCheckoutSummary(payload);
+        payload.checkoutRequestId = crypto.randomUUID();
         const response = await fetch('/api/create-checkout-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

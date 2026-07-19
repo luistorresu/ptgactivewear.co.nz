@@ -1,8 +1,9 @@
 import { getAdminIdentity, handleAdminAuth, isAdminMutationAllowed } from './worker/auth.js';
 import { handleAdminApi } from './worker/admin-api.js';
 import { getPublicProductBySlug, getPublicProducts, isD1CatalogueEnabled } from './worker/catalog.js';
-import { commitPaidOrder, markOrderEmailResult, validateD1CheckoutPayload } from './worker/inventory.js';
+import { commitPaidOrder, markOrderEmailResult, recordStripeRefund, validateD1CheckoutPayload } from './worker/inventory.js';
 import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
+import { buildTrustedOrderSummary } from './worker/surcharge.js';
 
 const MAX_FIELD_LENGTHS = {
   name: 100,
@@ -16,11 +17,17 @@ const MAX_CART_ITEMS = 30;
 const MAX_ITEM_QUANTITY = 20;
 const SITE_ORIGIN = 'https://ptgactivewear.co.nz';
 
-// Temporary test-mode shipping setup. Change this amount when final NZ shipping is approved.
-const NZ_SHIPPING_RATE = {
-  displayName: 'New Zealand shipping (test)',
-  amountNzdCents: 0
-};
+function getNzShippingRate(env = {}) {
+  const configuredCents = String(env.NZ_SHIPPING_CENTS ?? '0').trim();
+  const amountNzdCents = /^\d+$/.test(configuredCents) ? Number(configuredCents) : NaN;
+  if (!Number.isSafeInteger(amountNzdCents) || amountNzdCents < 0 || amountNzdCents > 100000) {
+    throw new Error('Shipping configuration is invalid.');
+  }
+  return {
+    displayName: cleanText(env.NZ_SHIPPING_LABEL || 'New Zealand shipping', 80) || 'New Zealand shipping',
+    amountNzdCents
+  };
+}
 
 const SERVER_PRODUCTS = {
   'patagonia-fc-beanie': {
@@ -405,7 +412,7 @@ function appendStripeLineItem(params, index, line) {
   });
 }
 
-function buildStripeLineItems(validatedItems) {
+function buildStripeLineItems(validatedItems, summary) {
   const lines = [];
 
   validatedItems.forEach(item => {
@@ -451,17 +458,29 @@ function buildStripeLineItems(validatedItems) {
     }
   });
 
+  if (summary.paymentSurchargeCents > 0) {
+    lines.push({
+      name: summary.surcharge.label,
+      description: summary.surcharge.description,
+      unitAmount: summary.paymentSurchargeCents,
+      quantity: 1,
+      metadata: { item_kind: 'payment_surcharge' }
+    });
+  }
+
   return lines;
 }
 
-async function createStripeCheckoutSession(env, sessionParams) {
+async function createStripeCheckoutSession(env, sessionParams, idempotencyKey = '') {
+  const headers = {
+    Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Stripe-Version': STRIPE_API_VERSION
+  };
+  if (idempotencyKey) headers['Idempotency-Key'] = `ptg-checkout-${idempotencyKey}`;
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Stripe-Version': STRIPE_API_VERSION
-    },
+    headers,
     body: sessionParams
   });
 
@@ -485,6 +504,48 @@ async function createStripeCheckoutSession(env, sessionParams) {
   return body;
 }
 
+function publicCheckoutSummary(summary) {
+  return {
+    currency: summary.currency,
+    merchandiseSubtotalCents: summary.merchandiseSubtotalCents,
+    personalisationCents: summary.personalisationCents,
+    shippingCents: summary.shippingCents,
+    paymentSurchargeCents: summary.paymentSurchargeCents,
+    totalCents: summary.totalCents,
+    surcharge: {
+      enabled: summary.surcharge.enabled,
+      label: summary.surcharge.label,
+      description: summary.surcharge.description,
+      percent: summary.surcharge.percent,
+      fixedCents: summary.surcharge.fixedCents
+    }
+  };
+}
+
+async function validateAndSummariseCheckout(payload, env) {
+  const useD1Inventory = Boolean(env.DB) && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1';
+  const validation = useD1Inventory
+    ? await validateD1CheckoutPayload(payload, env)
+    : validateCheckoutPayload(payload);
+  if (validation.error) return validation;
+  try {
+    const shipping = getNzShippingRate(env);
+    return { ...validation, shipping, summary: buildTrustedOrderSummary(validation.items, shipping.amountNzdCents, env) };
+  } catch (error) {
+    console.error('Checkout total configuration failed', { message: error.message });
+    return { error: 'Checkout totals are temporarily unavailable.', configurationError: true };
+  }
+}
+
+async function handleCheckoutSummary(request, env) {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: jsonHeaders });
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  if (!requireJsonRequest(request)) return jsonResponse({ ok: false, error: 'JSON content type is required.' }, 415);
+  const validation = await validateAndSummariseCheckout(await readJson(request), env);
+  if (validation.error) return jsonResponse({ ok: false, error: validation.error }, validation.configurationError ? 503 : 400);
+  return jsonResponse({ ok: true, summary: publicCheckoutSummary(validation.summary) });
+}
+
 async function handleCreateCheckoutSession(request, env) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: jsonHeaders });
@@ -503,13 +564,10 @@ async function handleCreateCheckoutSession(request, env) {
   }
 
   const payload = await readJson(request);
-  const useD1Inventory = Boolean(env.DB) && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1';
-  const validation = useD1Inventory
-    ? await validateD1CheckoutPayload(payload, env)
-    : validateCheckoutPayload(payload);
+  const validation = await validateAndSummariseCheckout(payload, env);
 
   if (validation.error) {
-    return jsonResponse({ ok: false, error: validation.error }, 400);
+    return jsonResponse({ ok: false, error: validation.error }, validation.configurationError ? 503 : 400);
   }
 
   if (!env.STRIPE_SECRET_KEY) {
@@ -517,10 +575,11 @@ async function handleCreateCheckoutSession(request, env) {
   }
 
   const siteUrl = getApprovedSiteUrl(request, env);
-  const lineItems = buildStripeLineItems(validation.items);
+  const lineItems = buildStripeLineItems(validation.items, validation.summary);
   const params = new URLSearchParams();
 
   params.append('mode', 'payment');
+  if (validation.summary.surcharge.enabled) params.append('payment_method_types[0]', 'card');
   params.append('success_url', `${siteUrl}/order-success?session_id={CHECKOUT_SESSION_ID}`);
   params.append('cancel_url', `${siteUrl}/cart?checkout=cancelled`);
   params.append('billing_address_collection', 'required');
@@ -528,17 +587,28 @@ async function handleCreateCheckoutSession(request, env) {
   params.append('phone_number_collection[enabled]', 'true');
   params.append('shipping_address_collection[allowed_countries][0]', 'NZ');
   params.append('shipping_options[0][shipping_rate_data][type]', 'fixed_amount');
-  params.append('shipping_options[0][shipping_rate_data][fixed_amount][amount]', String(NZ_SHIPPING_RATE.amountNzdCents));
+  params.append('shipping_options[0][shipping_rate_data][fixed_amount][amount]', String(validation.shipping.amountNzdCents));
   params.append('shipping_options[0][shipping_rate_data][fixed_amount][currency]', 'nzd');
-  params.append('shipping_options[0][shipping_rate_data][display_name]', NZ_SHIPPING_RATE.displayName);
+  params.append('shipping_options[0][shipping_rate_data][display_name]', validation.shipping.displayName);
   params.append('metadata[source]', 'ptgactivewear.co.nz');
-  params.append('metadata[shipping_setup]', `${NZ_SHIPPING_RATE.displayName}: ${NZ_SHIPPING_RATE.amountNzdCents}`);
+  params.append('metadata[shipping_setup]', `${validation.shipping.displayName}: ${validation.shipping.amountNzdCents}`);
+  params.append('metadata[subtotal_cents]', String(validation.summary.merchandiseSubtotalCents));
+  params.append('metadata[personalisation_cents]', String(validation.summary.personalisationCents));
+  params.append('metadata[shipping_cents]', String(validation.summary.shippingCents));
+  params.append('metadata[payment_surcharge_cents]', String(validation.summary.paymentSurchargeCents));
+  params.append('metadata[payment_surcharge_enabled]', validation.summary.surcharge.enabled ? '1' : '0');
+  params.append('metadata[payment_surcharge_percent]', validation.summary.surcharge.percent);
+  params.append('metadata[payment_surcharge_fixed_cents]', String(validation.summary.surcharge.fixedCents));
+  params.append('metadata[payment_surcharge_label]', validation.summary.surcharge.label);
+  params.append('metadata[payment_surcharge_description]', validation.summary.surcharge.description);
+  params.append('metadata[total_cents]', String(validation.summary.totalCents));
 
   lineItems.forEach((line, index) => appendStripeLineItem(params, index, line));
 
   try {
-    const session = await createStripeCheckoutSession(env, params);
-    return jsonResponse({ ok: true, url: session.url });
+    const requestId = /^[A-Za-z0-9_-]{8,64}$/.test(String(payload.checkoutRequestId || '')) ? String(payload.checkoutRequestId) : '';
+    const session = await createStripeCheckoutSession(env, params, requestId);
+    return jsonResponse({ ok: true, url: session.url, summary: publicCheckoutSummary(validation.summary) });
   } catch (error) {
     return jsonResponse({ ok: false, error: 'Checkout could not be started. Please try again.' }, 502);
   }
@@ -664,15 +734,19 @@ function describeStripeLineItem(item) {
     name: item.description || product.name || 'PTG Activewear item',
     quantity: item.quantity || 1,
     amountTotal: item.amount_total || 0,
-    details
+    details,
+    itemKind: metadata.item_kind || 'base_product'
   };
 }
 
-function buildOrderEmailData(session, lineItems) {
+export function buildOrderEmailData(session, lineItems) {
   const customer = session.customer_details || {};
   const shipping = session.shipping_details || {};
   const shippingAddress = shipping.address || customer.address || {};
-  const items = lineItems.map(describeStripeLineItem);
+  const describedItems = lineItems.map(describeStripeLineItem);
+  const items = describedItems.filter(item => item.itemKind !== 'payment_surcharge');
+  const metadata = session.metadata || {};
+  const metadataCents = key => /^\d+$/.test(String(metadata[key] || '')) ? Number(metadata[key]) : 0;
 
   return {
     sessionId: session.id,
@@ -683,13 +757,21 @@ function buildOrderEmailData(session, lineItems) {
     phone: customer.phone || '',
     shippingAddress: formatStripeAddress(shippingAddress),
     items,
-    shippingAmount: session.total_details?.amount_shipping || 0,
+    merchandiseSubtotal: metadataCents('subtotal_cents') || describedItems.filter(item => item.itemKind === 'base_product').reduce((sum, item) => sum + Number(item.amountTotal || 0), 0),
+    personalisationAmount: metadataCents('personalisation_cents') || describedItems.filter(item => item.itemKind === 'player_name_addon' || item.itemKind === 'player_number_addon').reduce((sum, item) => sum + Number(item.amountTotal || 0), 0),
+    shippingAmount: metadataCents('shipping_cents') || session.total_details?.amount_shipping || 0,
+    paymentSurchargeAmount: metadataCents('payment_surcharge_cents'),
+    paymentSurchargeEnabled: metadata.payment_surcharge_enabled === '1',
+    paymentSurchargePercent: cleanText(metadata.payment_surcharge_percent, 12) || '0',
+    paymentSurchargeFixedCents: metadataCents('payment_surcharge_fixed_cents'),
+    paymentSurchargeLabel: cleanText(metadata.payment_surcharge_label, 80) || 'Card processing surcharge',
+    paymentSurchargeDescription: cleanText(metadata.payment_surcharge_description, 240),
     totalPaid: session.amount_total || 0,
     currency: session.currency || 'nzd'
   };
 }
 
-function buildBusinessOrderEmail(order) {
+export function buildBusinessOrderEmail(order) {
   const itemLines = order.items.map(item => [
     `${item.quantity} x ${item.name} - ${formatMoneyFromCents(item.amountTotal, order.currency)}`,
     ...item.details.map(detail => `  - ${detail}`)
@@ -708,7 +790,10 @@ function buildBusinessOrderEmail(order) {
     'Items:',
     itemLines,
     '',
+    `Merchandise subtotal: ${formatMoneyFromCents(order.merchandiseSubtotal, order.currency)}`,
+    `Personalisation: ${formatMoneyFromCents(order.personalisationAmount, order.currency)}`,
     `Shipping: ${formatMoneyFromCents(order.shippingAmount, order.currency)}`,
+    ...(order.paymentSurchargeEnabled ? [`${order.paymentSurchargeLabel}: ${formatMoneyFromCents(order.paymentSurchargeAmount, order.currency)}`, `Surcharge configuration: ${order.paymentSurchargePercent}% + ${formatMoneyFromCents(order.paymentSurchargeFixedCents, order.currency)}`] : []),
     `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)}`,
     '',
     'Internal Payment References',
@@ -735,7 +820,10 @@ function buildBusinessOrderEmail(order) {
     <p><strong>Shipping address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}</p>
     <h3>Items</h3>
     <ul>${htmlItems}</ul>
+    <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}</p>
+    <p><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}</p>
     <p><strong>Shipping:</strong> ${escapeHtml(formatMoneyFromCents(order.shippingAmount, order.currency))}</p>
+    ${order.paymentSurchargeEnabled ? `<p><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}</p><p><strong>Surcharge configuration:</strong> ${escapeHtml(order.paymentSurchargePercent)}% + ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeFixedCents, order.currency))}</p>` : ''}
     <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))}</p>
     <div style="margin-top:28px;padding-top:16px;border-top:1px solid #ddd;color:#555;font-size:12px">
       <h3>Internal Payment References</h3>
@@ -750,7 +838,7 @@ function buildBusinessOrderEmail(order) {
   };
 }
 
-function buildCustomerOrderEmail(order) {
+export function buildCustomerOrderEmail(order) {
   const itemLines = order.items.map(item => [
     `${item.quantity} x ${item.name}`,
     ...item.details.map(detail => `  - ${detail}`)
@@ -764,12 +852,16 @@ function buildCustomerOrderEmail(order) {
     'Please keep this order number in case you need to contact us.',
     `Order date: ${order.orderDate}`,
     `Payment status: Paid`,
-    `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)}`,
     '',
     'Items:',
     itemLines,
     '',
+    `Merchandise subtotal: ${formatMoneyFromCents(order.merchandiseSubtotal, order.currency)}`,
+    `Personalisation: ${formatMoneyFromCents(order.personalisationAmount, order.currency)}`,
     `Shipping: ${formatMoneyFromCents(order.shippingAmount, order.currency)}`,
+    ...(order.paymentSurchargeEnabled ? [`${order.paymentSurchargeLabel}: ${formatMoneyFromCents(order.paymentSurchargeAmount, order.currency)}`] : []),
+    `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)} NZD`,
+    ...(order.paymentSurchargeEnabled ? ['', 'The card processing surcharge helps cover the cost of processing your payment.'] : []),
     `Shipping address: ${order.shippingAddress || 'Not provided'}`,
     '',
     'We have received your payment and will be in touch with any order updates.',
@@ -783,8 +875,10 @@ function buildCustomerOrderEmail(order) {
     <p>Please keep this order number in case you need to contact us.</p>
     <p><strong>Order date:</strong> ${escapeHtml(order.orderDate)}<br><strong>Payment status:</strong> Paid</p>
     <h3>Items</h3><ul>${order.items.map(item => `<li><strong>${escapeHtml(String(item.quantity))} x ${escapeHtml(item.name)}</strong>${item.details.length ? `<ul>${item.details.map(detail => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ul>
-    <p><strong>Shipping:</strong> ${escapeHtml(formatMoneyFromCents(order.shippingAmount, order.currency))}<br><strong>Shipping address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}</p>
-    <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))}</p>
+    <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}<br><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}<br><strong>Shipping:</strong> ${escapeHtml(formatMoneyFromCents(order.shippingAmount, order.currency))}${order.paymentSurchargeEnabled ? `<br><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}` : ''}</p>
+    <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))} NZD</p>
+    ${order.paymentSurchargeEnabled ? '<p>The card processing surcharge helps cover the cost of processing your payment.</p>' : ''}
+    <p><strong>Shipping address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}</p>
     <p>We will be in touch with any order updates.</p><p>Questions? Contact <a href="mailto:info@ptgactivewear.co.nz">info@ptgactivewear.co.nz</a>.</p>
   `;
 
@@ -907,6 +1001,17 @@ async function handleStripeWebhook(request, env) {
       await handleSuccessfulCheckoutEvent(env, event);
     } else if (event.type === 'checkout.session.async_payment_failed') {
       console.log('Stripe async payment failed', event.id);
+    } else if (event.type === 'charge.refunded') {
+      const reserved = await reserveWebhookEvent(env, event.id);
+      if (reserved) {
+        try {
+          if (env.DB) await recordStripeRefund(env, event, event.data?.object || {});
+          await markWebhookEventProcessed(env, event.id);
+        } catch (error) {
+          await releaseWebhookEvent(env, event.id);
+          throw error;
+        }
+      }
     }
   } catch (error) {
     console.error('Stripe webhook handling failed', event?.type, event?.id, error.message);
@@ -988,7 +1093,7 @@ function unauthorisedAdminResponse(isApi) {
 
 async function serveAdminAsset(request, env) {
   const url = new URL(request.url);
-  if (url.pathname === '/admin' || url.pathname === '/admin/pictures') {
+  if (url.pathname === '/admin' || url.pathname === '/admin/pictures' || url.pathname === '/admin/orders') {
     url.pathname = '/admin/';
     request = new Request(url.toString(), request);
   }
@@ -1154,6 +1259,10 @@ export default {
 
     if (url.pathname === '/api/create-checkout-session') {
       return handleCreateCheckoutSession(request, env);
+    }
+
+    if (url.pathname === '/api/checkout-summary') {
+      return handleCheckoutSummary(request, env);
     }
 
     if (url.pathname === '/api/stripe-webhook') {

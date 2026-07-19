@@ -27,6 +27,11 @@ Required Worker variables and secrets:
 * `ADMIN_USERNAME`: the exact login username. It may be a normal environment variable or encrypted secret.
 * `ADMIN_PASSWORD_HASH`: encrypted secret in `pbkdf2-sha256$iterations$salt$hash` format.
 * `SESSION_SECRET`: encrypted random secret of at least 32 characters.
+* `PAYMENT_SURCHARGE_ENABLED`: non-secret production feature flag.
+* `PAYMENT_SURCHARGE_PERCENT`: non-secret percentage with at most two decimal places.
+* `PAYMENT_SURCHARGE_FIXED_CENTS`: non-secret fixed NZD cents component.
+* `PAYMENT_SURCHARGE_LABEL`: non-secret customer-facing label.
+* `PAYMENT_SURCHARGE_DESCRIPTION`: non-secret customer-facing explanation.
 
 Passwords are derived with PBKDF2-HMAC-SHA256 at Cloudflare Workers' supported 100,000-iteration limit and are never stored or compared as plaintext. Sessions use a signed, eight-hour `HttpOnly`, `SameSite=Strict` cookie. Production cookies are also `Secure`. The signed session ID must remain active in KV, so logout immediately invalidates it. State-changing admin requests require an in-memory CSRF token, exact same-origin requests, safe content types, and `X-PTG-Admin-Request: 1`.
 
@@ -49,6 +54,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\generate-session-secret.ps1
 ```
 
 Add the values in Cloudflare under **Workers & Pages > ptgactivewear > Settings > Variables and Secrets**. Store `ADMIN_PASSWORD_HASH` and `SESSION_SECRET` as encrypted secrets. Do not commit production values to `.dev.vars`, `wrangler.jsonc`, GitHub, HTML, or browser JavaScript.
+
+Keep `PAYMENT_SURCHARGE_ENABLED=false` until the Stripe account's payment-fee report has been reviewed and a surcharge-free online option is available where feasible. The Worker rejects negative values, malformed decimals, fixed fees above NZ$100, and percentages above 4%. Configuration changes are recorded by Cloudflare deployment history; this project does not have a D1-backed admin settings system.
 
 ## Local Development
 
