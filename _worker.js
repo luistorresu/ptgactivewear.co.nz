@@ -1034,11 +1034,11 @@ function secureAssetResponse(response, { admin = false } = {}) {
     "object-src 'none'",
     "frame-ancestors 'none'",
     "form-action 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob:",
-    "connect-src 'self'"
+    "connect-src 'self' https://cloudflareinsights.com"
   ].join('; '));
   if (admin) headers.set('Cache-Control', 'no-store');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
