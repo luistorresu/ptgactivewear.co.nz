@@ -73,7 +73,9 @@ Required Cloudflare Worker variables/secrets:
 * `PAYMENT_SURCHARGE_FIXED_CENTS` - fixed NZD cents component, currently `30`.
 * `PAYMENT_SURCHARGE_LABEL` - customer-facing fee label.
 * `PAYMENT_SURCHARGE_DESCRIPTION` - customer-facing explanation.
-* `NZ_SHIPPING_CENTS` and `NZ_SHIPPING_LABEL` - trusted server-side shipping configuration.
+* `PICKUP_ENABLED`, `PICKUP_LABEL`, and `PICKUP_PRICE_CENTS` - trusted pickup configuration; pickup must remain zero cents.
+* `PICKUP_LOCATION_NAME`, `PICKUP_ADDRESS_LINE_1`, `PICKUP_ADDRESS_LINE_2`, `PICKUP_CITY`, `PICKUP_POSTCODE`, and `PICKUP_INSTRUCTIONS` - customer-facing collection details.
+* `NZ_DELIVERY_ENABLED`, `NZ_DELIVERY_LABEL`, `NZ_DELIVERY_PRICE_CENTS`, and `NZ_DELIVERY_COUNTRY` - trusted NZ-only delivery configuration, currently NZ$5.00.
 
 Optional:
 
@@ -89,7 +91,7 @@ Stripe endpoints:
 
 Product prices are controlled server-side in `_worker.js` in the `SERVER_PRODUCTS` catalogue. Frontend display data is controlled in `js/products.js`. Keep both aligned when changing products.
 
-Temporary shipping is controlled in `_worker.js` in `NZ_SHIPPING_RATE`. It is currently marked as test-mode New Zealand shipping and should be updated before production payment launch.
+Fulfilment is selected in the cart and recalculated server-side. Pickup is free and does not request a Stripe shipping address. Delivery is NZ$5.00 and Stripe Checkout restricts shipping-address collection to New Zealand. No paid address-autocomplete provider is connected; Stripe-hosted/manual address entry remains available. The exact training-centre street address must be added to the pickup environment values when confirmed.
 
 Afterpay/Clearpay should be enabled in the Stripe Dashboard under Payment methods. The integration uses Stripe dynamic payment methods, so availability depends on Stripe account configuration, currency, order amount, customer eligibility, and Stripe support in New Zealand.
 

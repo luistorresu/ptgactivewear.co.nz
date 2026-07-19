@@ -110,7 +110,8 @@ function routeFor(viewName) {
 
 async function loadOrders() {
   const search = document.querySelector('[data-order-search]').value.trim();
-  const data = await api(`/api/admin/orders?limit=100${search ? `&search=${encodeURIComponent(search)}` : ''}`);
+  const fulfilmentType = document.querySelector('[data-order-fulfilment-type]').value;
+  const data = await api(`/api/admin/orders?limit=100${search ? `&search=${encodeURIComponent(search)}` : ''}${fulfilmentType ? `&fulfilmentType=${encodeURIComponent(fulfilmentType)}` : ''}`);
   state.orders = data.orders || [];
   renderOrders();
 }
@@ -137,14 +138,19 @@ async function openOrder(orderId) {
   renderOrders();
   const hasSnapshot = Boolean(order.payment_surcharge_label);
   const surchargeApplied = Number(order.payment_surcharge_enabled) === 1;
+  const fulfilmentType = order.fulfilment_type || (Object.keys(order.shipping_address || {}).length ? 'delivery' : '');
+  const fulfilmentDetails = fulfilmentType === 'pickup'
+    ? `<strong>${escapeHtml(order.shipping_method || 'Pick up from Training Centre')}</strong><br>${escapeHtml(order.pickup_location || 'Training Centre')}<br>${escapeHtml(order.pickup_instructions || 'Collection details not recorded')}`
+    : `<strong>${escapeHtml(order.shipping_method || 'Delivery')}</strong><br>${orderAddress(order.shipping_address)}${order.shipping_rural ? '<br><strong>Rural address - review delivery</strong>' : ''}`;
+  const shippingLabel = fulfilmentType === 'pickup' ? 'Pickup' : (order.shipping_method || 'Shipping');
   orderDetail.innerHTML = `
     <div class="section-heading"><div><p class="eyebrow">Order details</p><h2>${escapeHtml(order.order_number || `Order ${order.id}`)}</h2></div>${order.invoice_number ? `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">Open Invoice</a>` : `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">Create Invoice</a>`}</div>
-    <dl class="order-facts"><div><dt>Customer</dt><dd>${escapeHtml(order.customer_name || 'Not provided')}<br>${escapeHtml(order.customer_email || '')}</dd></div><div><dt>Ship to</dt><dd>${orderAddress(order.shipping_address)}</dd></div><div><dt>Payment</dt><dd>${escapeHtml(order.payment_status)}<br>${escapeHtml(order.payment_method_label || 'Method not recorded')}</dd></div><div><dt>Fulfilment</dt><dd>${escapeHtml(order.fulfilment_status)}</dd></div></dl>
+    <dl class="order-facts"><div><dt>Customer</dt><dd>${escapeHtml(order.customer_name || 'Not provided')}<br>${escapeHtml(order.customer_email || '')}<br>${escapeHtml(order.customer_phone || 'Phone not provided')}</dd></div><div><dt>Delivery method</dt><dd>${fulfilmentDetails}</dd></div><div><dt>Payment</dt><dd>${escapeHtml(order.payment_status)}<br>${escapeHtml(order.payment_method_label || 'Method not recorded')}</dd></div><div><dt>Order status</dt><dd>${escapeHtml(order.fulfilment_status)}</dd></div></dl>
     <div class="order-items"><h3>Items</h3>${order.items.map(item => `<div><span><strong>${Number(item.quantity)} × ${escapeHtml(item.product_name)}</strong><small>${escapeHtml([item.size, item.colour, item.style].filter(Boolean).join(' / '))}${item.player_name ? ` · Name: ${escapeHtml(item.player_name)}` : ''}${item.player_number ? ` · Number: ${escapeHtml(item.player_number)}` : ''}</small></span><strong>${formatMoney(item.item_total_cents)}</strong></div>`).join('')}</div>
     <dl class="order-totals">
       <div><dt>${hasSnapshot ? 'Merchandise subtotal' : 'Subtotal'}</dt><dd>${formatMoney(order.subtotal_cents)}</dd></div>
       ${hasSnapshot ? `<div><dt>Personalisation</dt><dd>${formatMoney(order.personalisation_cents)}</dd></div>` : ''}
-      <div><dt>Shipping</dt><dd>${formatMoney(order.shipping_cents)}</dd></div>
+      <div><dt>${escapeHtml(shippingLabel)}</dt><dd>${order.shipping_cents ? formatMoney(order.shipping_cents) : 'Free'}</dd></div>
       ${surchargeApplied ? `<div><dt>${escapeHtml(order.payment_surcharge_label)}</dt><dd>${formatMoney(order.payment_surcharge_cents)}</dd></div><div class="order-config"><dt>Configuration used</dt><dd>${escapeHtml(order.payment_surcharge_percent)}% + ${formatMoney(order.payment_surcharge_fixed_cents)}</dd></div>` : hasSnapshot ? '<div class="order-config"><dt>Card surcharge</dt><dd>Disabled for this order</dd></div>' : ''}
       <div class="grand"><dt>Total paid</dt><dd>${formatMoney(order.total_cents)}</dd></div>
       ${order.refunded_cents ? `<div><dt>Refunded</dt><dd>-${formatMoney(order.refunded_cents)}</dd></div>${surchargeApplied ? `<div><dt>Surcharge refunded</dt><dd>${formatMoney(order.payment_surcharge_refunded_cents)}</dd></div>` : ''}` : ''}
@@ -797,6 +803,7 @@ document.querySelector('[data-product-search]').addEventListener('input', render
 document.querySelector('[data-product-filter]').addEventListener('change', renderProducts);
 document.querySelector('[data-order-search]').addEventListener('change', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-order-search]').addEventListener('search', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
+document.querySelector('[data-order-fulfilment-type]').addEventListener('change', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-refresh-orders]').addEventListener('click', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 orderList.addEventListener('click', event => {
   const row = event.target.closest('[data-order-id]');

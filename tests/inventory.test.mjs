@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getAdminIdentity, isAdminMutationAllowed } from '../worker/auth.js';
-import { validateD1CheckoutPayload, verifyStripeCheckoutSnapshot } from '../worker/inventory.js';
+import { commitPaidOrder, validateD1CheckoutPayload, verifyStripeCheckoutSnapshot } from '../worker/inventory.js';
 
 function mockDatabase(overrides = {}) {
   const product = {
@@ -108,7 +108,8 @@ test('paid order snapshot rejects any one-cent mismatch', () => {
     subtotal_cents: '9500', personalisation_cents: '4000', shipping_cents: '0',
     payment_surcharge_cents: '282', payment_surcharge_enabled: '1', payment_surcharge_percent: '2.65',
     payment_surcharge_fixed_cents: '30', payment_surcharge_label: 'Card processing surcharge',
-    payment_surcharge_description: 'Processing cost', total_cents: '13782'
+    payment_surcharge_description: 'Processing cost', total_cents: '13782',
+    fulfilment_type: 'pickup', shipping_method: 'Pick up from Training Centre', pickup_location: 'Training Centre', pickup_instructions: 'We will contact you.'
   };
   const product = item_kind => ({ metadata: { item_kind } });
   const lines = [
@@ -121,6 +122,55 @@ test('paid order snapshot rejects any one-cent mismatch', () => {
   assert.equal(verifyStripeCheckoutSnapshot(session, lines, 4000).paymentSurchargeCents, 282);
   assert.throws(() => verifyStripeCheckoutSnapshot({ ...session, amount_total: 13781 }, lines, 4000), /paid total/i);
   assert.throws(() => verifyStripeCheckoutSnapshot(session, [...lines.slice(0, 3), { ...lines[3], amount_total: 281 }], 4000), /surcharge/i);
+});
+
+test('paid delivery order persists a complete NZ fulfilment snapshot with valid SQL bindings', async () => {
+  let inserted = false;
+  const DB = {
+    prepare(sql) {
+      return {
+        sql,
+        args: [],
+        bind(...args) { this.args = args; return this; },
+        async first() {
+          if (/SELECT id, email_status FROM orders/i.test(sql)) return inserted ? { id: 7, email_status: 'pending' } : null;
+          if (/FROM products p JOIN product_variants/i.test(sql)) return {
+            product_id: 'patagonia-fc-beanie', name: 'Patagonia FC Beanie', price_cents: 3500,
+            product_active: 1, product_archived: 0, available_for_sale: 1, track_inventory: 0,
+            variant_id: 1, sku: 'BEANIE', stock_quantity: 10, variant_active: 1
+          };
+          return null;
+        },
+        async run() { return { meta: { changes: 1 } }; }
+      };
+    },
+    async batch(statements) {
+      for (const statement of statements) {
+        assert.equal((statement.sql.match(/\?/g) || []).length, statement.args.length, statement.sql);
+      }
+      inserted = true;
+      return statements.map(() => ({ meta: { changes: 1 } }));
+    }
+  };
+  const metadata = {
+    subtotal_cents: '3500', personalisation_cents: '0', shipping_cents: '500',
+    payment_surcharge_cents: '0', payment_surcharge_enabled: '0', payment_surcharge_percent: '2.65',
+    payment_surcharge_fixed_cents: '30', payment_surcharge_label: 'Card processing surcharge', payment_surcharge_description: 'Processing cost',
+    total_cents: '4000', fulfilment_type: 'delivery', shipping_method: 'New Zealand Delivery'
+  };
+  const lineItems = [{
+    quantity: 1, amount_total: 3500,
+    price: { product: { metadata: { item_kind: 'base_product', product_id: 'patagonia-fc-beanie', variant_id: '1', cart_item_key: 'cart-1', sku: 'BEANIE', size: 'One Size' } } }
+  }];
+  const session = {
+    id: 'cs_test_delivery', payment_intent: 'pi_test_delivery', payment_status: 'paid', currency: 'nzd',
+    amount_subtotal: 3500, amount_total: 4000, total_details: { amount_shipping: 500, amount_discount: 0, amount_tax: 0 }, metadata,
+    customer_details: { name: 'Test Customer', email: 'customer@example.com', phone: '0210000000', address: {} },
+    collected_information: { shipping_details: { name: 'Test Customer', address: { line1: '1 Test Street', line2: 'RD 1', city: 'Hamilton', state: 'Waikato', postal_code: '3200', country: 'NZ' } } },
+    payment_method_types: ['card']
+  };
+  const result = await commitPaidOrder({ DB }, { id: 'evt_test_delivery', type: 'checkout.session.completed' }, session, lineItems);
+  assert.deepEqual(result, { orderId: 7, duplicate: false, emailStatus: 'pending' });
 });
 
 test('admin mutations require exact same origin, safe content type, custom header and CSRF token', () => {

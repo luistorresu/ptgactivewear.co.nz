@@ -71,6 +71,14 @@
           <span>Search orders</span>
           <input type="search" placeholder="Order number, customer or email" data-order-search>
         </label>
+        <label class="search-field">
+          <span>Delivery method</span>
+          <select data-order-fulfilment-type>
+            <option value="">All methods</option>
+            <option value="pickup">Pickup</option>
+            <option value="delivery">Delivery</option>
+          </select>
+        </label>
       </div>
       <div class="order-layout">
         <div class="order-list" data-order-list aria-live="polite"></div>

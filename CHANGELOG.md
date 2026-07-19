@@ -6,6 +6,10 @@ All notable changes to this website should be documented here.
 
 ### Added
 
+* Added an explicit cart choice between free training-centre pickup and NZ$5.00 New Zealand delivery, with customer guidance to review item selections before secure payment.
+* Added server-calculated fulfilment snapshots across Stripe Checkout, D1 orders, confirmation emails, admin order details and filters, CSV exports, and HTML/PDF invoices.
+* Added NZ-only Stripe shipping collection for delivery and address-free pickup handling with configurable collection instructions.
+* Added additive D1 fields for fulfilment method, pickup details, structured NZ delivery address, phone, and rural-delivery flags.
 * Added a configurable, server-calculated card processing surcharge with a pre-Stripe cart breakdown and one separate Stripe line item.
 * Added additive D1 order snapshots for surcharge configuration and cumulative refund amounts.
 * Added protected admin order list/details with surcharge, total, refund, and invoice visibility.
@@ -14,6 +18,7 @@ All notable changes to this website should be documented here.
 
 ### Security
 
+* Reject missing or manipulated fulfilment choices, enforce free pickup and NZ-only delivery server-side, and preserve shipping as an immutable paid-order snapshot.
 * Recalculate every checkout total from trusted catalogue data, use integer cents, reject one-cent webhook mismatches, and use Stripe idempotency keys for repeated Checkout Session requests.
 * Restrict enabled surcharge sessions to card payments and retain a 4% code-level safety limit.
 

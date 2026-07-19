@@ -57,6 +57,14 @@ Add the values in Cloudflare under **Workers & Pages > ptgactivewear > Settings 
 
 Keep `PAYMENT_SURCHARGE_ENABLED=false` until the Stripe account's payment-fee report has been reviewed and a surcharge-free online option is available where feasible. The Worker rejects negative values, malformed decimals, fixed fees above NZ$100, and percentages above 4%. Configuration changes are recorded by Cloudflare deployment history; this project does not have a D1-backed admin settings system.
 
+## Fulfilment Configuration
+
+Pickup and delivery settings are protected Worker environment values rather than browser-editable values. `PICKUP_PRICE_CENTS` must remain `0`; `NZ_DELIVERY_PRICE_CENTS` is `500`; and `NZ_DELIVERY_COUNTRY` must remain `NZ`. Checkout fails closed if these values are malformed.
+
+The production pickup location is currently named `Training Centre`, but its street address is intentionally blank because no confirmed address is stored in the project. Set `PICKUP_ADDRESS_LINE_1`, `PICKUP_ADDRESS_LINE_2`, `PICKUP_CITY`, and `PICKUP_POSTCODE` after the business confirms the collection address. Until then, customers are told that PTG Activewear will contact them when the order is ready and confirm collection details.
+
+Delivery addresses are collected by Stripe Checkout and restricted to New Zealand. No separate address-autocomplete provider or API key is configured. Manual Stripe-hosted address entry is the supported fallback.
+
 ## Local Development
 
 1. Copy `.dev.vars.example` to `.dev.vars`.

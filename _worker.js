@@ -4,6 +4,7 @@ import { getPublicProductBySlug, getPublicProducts, isD1CatalogueEnabled } from 
 import { commitPaidOrder, markOrderEmailResult, recordStripeRefund, validateD1CheckoutPayload } from './worker/inventory.js';
 import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
 import { buildTrustedOrderSummary } from './worker/surcharge.js';
+import { publicFulfilment, selectFulfilment } from './worker/fulfilment.js';
 
 const MAX_FIELD_LENGTHS = {
   name: 100,
@@ -16,18 +17,6 @@ const PERSONALISATION_ADDON_NZD_CENTS = 2000;
 const MAX_CART_ITEMS = 30;
 const MAX_ITEM_QUANTITY = 20;
 const SITE_ORIGIN = 'https://ptgactivewear.co.nz';
-
-function getNzShippingRate(env = {}) {
-  const configuredCents = String(env.NZ_SHIPPING_CENTS ?? '0').trim();
-  const amountNzdCents = /^\d+$/.test(configuredCents) ? Number(configuredCents) : NaN;
-  if (!Number.isSafeInteger(amountNzdCents) || amountNzdCents < 0 || amountNzdCents > 100000) {
-    throw new Error('Shipping configuration is invalid.');
-  }
-  return {
-    displayName: cleanText(env.NZ_SHIPPING_LABEL || 'New Zealand shipping', 80) || 'New Zealand shipping',
-    amountNzdCents
-  };
-}
 
 const SERVER_PRODUCTS = {
   'patagonia-fc-beanie': {
@@ -412,7 +401,7 @@ function appendStripeLineItem(params, index, line) {
   });
 }
 
-function buildStripeLineItems(validatedItems, summary) {
+function buildStripeLineItems(validatedItems, summary, fulfilment) {
   const lines = [];
 
   validatedItems.forEach(item => {
@@ -504,7 +493,7 @@ async function createStripeCheckoutSession(env, sessionParams, idempotencyKey = 
   return body;
 }
 
-function publicCheckoutSummary(summary) {
+function publicCheckoutSummary(summary, fulfilment) {
   return {
     currency: summary.currency,
     merchandiseSubtotalCents: summary.merchandiseSubtotalCents,
@@ -512,6 +501,7 @@ function publicCheckoutSummary(summary) {
     shippingCents: summary.shippingCents,
     paymentSurchargeCents: summary.paymentSurchargeCents,
     totalCents: summary.totalCents,
+    fulfilment: publicFulfilment(fulfilment),
     surcharge: {
       enabled: summary.surcharge.enabled,
       label: summary.surcharge.label,
@@ -529,8 +519,9 @@ async function validateAndSummariseCheckout(payload, env) {
     : validateCheckoutPayload(payload);
   if (validation.error) return validation;
   try {
-    const shipping = getNzShippingRate(env);
-    return { ...validation, shipping, summary: buildTrustedOrderSummary(validation.items, shipping.amountNzdCents, env) };
+    const fulfilment = selectFulfilment(payload, env);
+    if (fulfilment.error) return fulfilment;
+    return { ...validation, fulfilment, summary: buildTrustedOrderSummary(validation.items, fulfilment.shippingCents, env) };
   } catch (error) {
     console.error('Checkout total configuration failed', { message: error.message });
     return { error: 'Checkout totals are temporarily unavailable.', configurationError: true };
@@ -543,7 +534,7 @@ async function handleCheckoutSummary(request, env) {
   if (!requireJsonRequest(request)) return jsonResponse({ ok: false, error: 'JSON content type is required.' }, 415);
   const validation = await validateAndSummariseCheckout(await readJson(request), env);
   if (validation.error) return jsonResponse({ ok: false, error: validation.error }, validation.configurationError ? 503 : 400);
-  return jsonResponse({ ok: true, summary: publicCheckoutSummary(validation.summary) });
+  return jsonResponse({ ok: true, summary: publicCheckoutSummary(validation.summary, validation.fulfilment) });
 }
 
 async function handleCreateCheckoutSession(request, env) {
@@ -575,7 +566,7 @@ async function handleCreateCheckoutSession(request, env) {
   }
 
   const siteUrl = getApprovedSiteUrl(request, env);
-  const lineItems = buildStripeLineItems(validation.items, validation.summary);
+  const lineItems = buildStripeLineItems(validation.items, validation.summary, validation.fulfilment);
   const params = new URLSearchParams();
 
   params.append('mode', 'payment');
@@ -585,13 +576,22 @@ async function handleCreateCheckoutSession(request, env) {
   params.append('billing_address_collection', 'required');
   params.append('customer_creation', 'if_required');
   params.append('phone_number_collection[enabled]', 'true');
-  params.append('shipping_address_collection[allowed_countries][0]', 'NZ');
-  params.append('shipping_options[0][shipping_rate_data][type]', 'fixed_amount');
-  params.append('shipping_options[0][shipping_rate_data][fixed_amount][amount]', String(validation.shipping.amountNzdCents));
-  params.append('shipping_options[0][shipping_rate_data][fixed_amount][currency]', 'nzd');
-  params.append('shipping_options[0][shipping_rate_data][display_name]', validation.shipping.displayName);
+  if (validation.fulfilment.type === 'delivery') {
+    params.append('shipping_address_collection[allowed_countries][0]', 'NZ');
+    params.append('shipping_options[0][shipping_rate_data][type]', 'fixed_amount');
+    params.append('shipping_options[0][shipping_rate_data][fixed_amount][amount]', String(validation.fulfilment.shippingCents));
+    params.append('shipping_options[0][shipping_rate_data][fixed_amount][currency]', 'nzd');
+    params.append('shipping_options[0][shipping_rate_data][display_name]', validation.fulfilment.label);
+    params.append('custom_text[shipping_address][message]', 'Delivery is available to New Zealand addresses only. Please check your address carefully before payment.');
+  } else {
+    params.append('custom_text[submit][message]', `${validation.fulfilment.label} - Free. ${validation.fulfilment.instructions}`);
+  }
   params.append('metadata[source]', 'ptgactivewear.co.nz');
-  params.append('metadata[shipping_setup]', `${validation.shipping.displayName}: ${validation.shipping.amountNzdCents}`);
+  params.append('metadata[fulfilment_type]', validation.fulfilment.type);
+  params.append('metadata[shipping_method]', validation.fulfilment.label);
+  params.append('metadata[pickup_location]', validation.fulfilment.locationName);
+  params.append('metadata[pickup_address]', validation.fulfilment.pickupAddress);
+  params.append('metadata[pickup_instructions]', validation.fulfilment.instructions);
   params.append('metadata[subtotal_cents]', String(validation.summary.merchandiseSubtotalCents));
   params.append('metadata[personalisation_cents]', String(validation.summary.personalisationCents));
   params.append('metadata[shipping_cents]', String(validation.summary.shippingCents));
@@ -608,7 +608,7 @@ async function handleCreateCheckoutSession(request, env) {
   try {
     const requestId = /^[A-Za-z0-9_-]{8,64}$/.test(String(payload.checkoutRequestId || '')) ? String(payload.checkoutRequestId) : '';
     const session = await createStripeCheckoutSession(env, params, requestId);
-    return jsonResponse({ ok: true, url: session.url, summary: publicCheckoutSummary(validation.summary) });
+    return jsonResponse({ ok: true, url: session.url, summary: publicCheckoutSummary(validation.summary, validation.fulfilment) });
   } catch (error) {
     return jsonResponse({ ok: false, error: 'Checkout could not be started. Please try again.' }, 502);
   }
@@ -741,12 +741,14 @@ function describeStripeLineItem(item) {
 
 export function buildOrderEmailData(session, lineItems) {
   const customer = session.customer_details || {};
-  const shipping = session.shipping_details || {};
+  const shipping = session.shipping_details || session.collected_information?.shipping_details || {};
   const shippingAddress = shipping.address || customer.address || {};
   const describedItems = lineItems.map(describeStripeLineItem);
-  const items = describedItems.filter(item => item.itemKind !== 'payment_surcharge');
+  const items = describedItems.filter(item => !['payment_surcharge', 'fulfilment_pickup'].includes(item.itemKind));
   const metadata = session.metadata || {};
   const metadataCents = key => /^\d+$/.test(String(metadata[key] || '')) ? Number(metadata[key]) : 0;
+  const fulfilmentType = metadata.fulfilment_type === 'pickup' ? 'pickup' : 'delivery';
+  const formattedShippingAddress = fulfilmentType === 'delivery' ? formatStripeAddress(shippingAddress) : '';
 
   return {
     sessionId: session.id,
@@ -754,8 +756,14 @@ export function buildOrderEmailData(session, lineItems) {
     paymentStatus: session.payment_status,
     customerName: customer.name || shipping.name || 'Not provided',
     customerEmail: customer.email || session.customer_email || '',
-    phone: customer.phone || '',
-    shippingAddress: formatStripeAddress(shippingAddress),
+    phone: shipping.phone || customer.phone || '',
+    fulfilmentType,
+    shippingMethod: cleanText(metadata.shipping_method, 80) || (fulfilmentType === 'pickup' ? 'Pick up from Training Centre' : 'New Zealand Delivery'),
+    pickupLocation: cleanText(metadata.pickup_location, 120) || 'Training Centre',
+    pickupAddress: cleanText(metadata.pickup_address, 300),
+    pickupInstructions: cleanText(metadata.pickup_instructions, 300) || 'We will contact you when your order is ready to collect and confirm the collection details.',
+    shippingAddress: formattedShippingAddress,
+    shippingRural: fulfilmentType === 'delivery' && /\b(?:rural|r\.?d\.?\s*\d+)\b/i.test(formattedShippingAddress),
     items,
     merchandiseSubtotal: metadataCents('subtotal_cents') || describedItems.filter(item => item.itemKind === 'base_product').reduce((sum, item) => sum + Number(item.amountTotal || 0), 0),
     personalisationAmount: metadataCents('personalisation_cents') || describedItems.filter(item => item.itemKind === 'player_name_addon' || item.itemKind === 'player_number_addon').reduce((sum, item) => sum + Number(item.amountTotal || 0), 0),
@@ -776,6 +784,21 @@ export function buildBusinessOrderEmail(order) {
     `${item.quantity} x ${item.name} - ${formatMoneyFromCents(item.amountTotal, order.currency)}`,
     ...item.details.map(detail => `  - ${detail}`)
   ].join('\n')).join('\n\n');
+  const fulfilmentLines = order.fulfilmentType === 'pickup'
+    ? [
+        `Pickup location: ${order.pickupLocation}`,
+        `Pickup address: ${order.pickupAddress || 'To be confirmed with the customer'}`,
+        `Pickup instructions: ${order.pickupInstructions}`
+      ]
+    : [
+        `Delivery address: ${order.shippingAddress || 'Not provided'}`,
+        `Rural delivery: ${order.shippingRural ? 'Yes - review if required' : 'No'}`
+      ];
+  const fulfilmentHtml = order.fulfilmentType === 'pickup'
+    ? `<p><strong>Pickup location:</strong> ${escapeHtml(order.pickupLocation)}<br><strong>Pickup address:</strong> ${escapeHtml(order.pickupAddress || 'To be confirmed with the customer')}<br><strong>Pickup instructions:</strong> ${escapeHtml(order.pickupInstructions)}</p>`
+    : `<p><strong>Delivery address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}<br><strong>Rural delivery:</strong> ${order.shippingRural ? 'Yes - review if required' : 'No'}</p>`;
+  const shippingLabel = order.fulfilmentType === 'pickup' ? 'Pickup' : order.shippingMethod;
+  const shippingValue = order.shippingAmount ? formatMoneyFromCents(order.shippingAmount, order.currency) : 'Free';
 
   const text = [
     'New paid PTG Activewear order',
@@ -785,14 +808,15 @@ export function buildBusinessOrderEmail(order) {
     `Customer name: ${order.customerName}`,
     `Customer email: ${order.customerEmail}`,
     `Phone: ${order.phone || 'Not provided'}`,
-    `Shipping address: ${order.shippingAddress || 'Not provided'}`,
+    `Fulfilment method: ${order.shippingMethod}`,
+    ...fulfilmentLines,
     '',
     'Items:',
     itemLines,
     '',
     `Merchandise subtotal: ${formatMoneyFromCents(order.merchandiseSubtotal, order.currency)}`,
     `Personalisation: ${formatMoneyFromCents(order.personalisationAmount, order.currency)}`,
-    `Shipping: ${formatMoneyFromCents(order.shippingAmount, order.currency)}`,
+    `${shippingLabel}: ${shippingValue}`,
     ...(order.paymentSurchargeEnabled ? [`${order.paymentSurchargeLabel}: ${formatMoneyFromCents(order.paymentSurchargeAmount, order.currency)}`, `Surcharge configuration: ${order.paymentSurchargePercent}% + ${formatMoneyFromCents(order.paymentSurchargeFixedCents, order.currency)}`] : []),
     `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)}`,
     '',
@@ -817,12 +841,13 @@ export function buildBusinessOrderEmail(order) {
     <p><strong>Customer name:</strong> ${escapeHtml(order.customerName)}</p>
     <p><strong>Customer email:</strong> ${escapeHtml(order.customerEmail)}</p>
     <p><strong>Phone:</strong> ${escapeHtml(order.phone || 'Not provided')}</p>
-    <p><strong>Shipping address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}</p>
+    <p style="font-size:18px"><strong>Fulfilment method:</strong> ${escapeHtml(order.shippingMethod)}</p>
+    ${fulfilmentHtml}
     <h3>Items</h3>
     <ul>${htmlItems}</ul>
     <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}</p>
     <p><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}</p>
-    <p><strong>Shipping:</strong> ${escapeHtml(formatMoneyFromCents(order.shippingAmount, order.currency))}</p>
+    <p><strong>${escapeHtml(shippingLabel)}:</strong> ${escapeHtml(shippingValue)}</p>
     ${order.paymentSurchargeEnabled ? `<p><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}</p><p><strong>Surcharge configuration:</strong> ${escapeHtml(order.paymentSurchargePercent)}% + ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeFixedCents, order.currency))}</p>` : ''}
     <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))}</p>
     <div style="margin-top:28px;padding-top:16px;border-top:1px solid #ddd;color:#555;font-size:12px">
@@ -843,6 +868,18 @@ export function buildCustomerOrderEmail(order) {
     `${item.quantity} x ${item.name}`,
     ...item.details.map(detail => `  - ${detail}`)
   ].join('\n')).join('\n\n');
+  const shippingLabel = order.fulfilmentType === 'pickup' ? 'Pickup' : order.shippingMethod;
+  const shippingValue = order.shippingAmount ? formatMoneyFromCents(order.shippingAmount, order.currency) : 'Free';
+  const fulfilmentLines = order.fulfilmentType === 'pickup'
+    ? [
+        `Pickup location: ${order.pickupLocation}`,
+        `Pickup address: ${order.pickupAddress || 'We will confirm the collection address with you.'}`,
+        `Pickup instructions: ${order.pickupInstructions}`
+      ]
+    : [`Delivery address: ${order.shippingAddress || 'Not provided'}`];
+  const fulfilmentHtml = order.fulfilmentType === 'pickup'
+    ? `<p><strong>Pickup location:</strong> ${escapeHtml(order.pickupLocation)}<br><strong>Pickup address:</strong> ${escapeHtml(order.pickupAddress || 'We will confirm the collection address with you.')}<br><strong>Pickup instructions:</strong> ${escapeHtml(order.pickupInstructions)}</p>`
+    : `<p><strong>Delivery address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}</p>`;
 
   const text = [
     `Thank you for your order${order.customerName && order.customerName !== 'Not provided' ? `, ${order.customerName}` : ''}.`,
@@ -858,11 +895,13 @@ export function buildCustomerOrderEmail(order) {
     '',
     `Merchandise subtotal: ${formatMoneyFromCents(order.merchandiseSubtotal, order.currency)}`,
     `Personalisation: ${formatMoneyFromCents(order.personalisationAmount, order.currency)}`,
-    `Shipping: ${formatMoneyFromCents(order.shippingAmount, order.currency)}`,
+    `${shippingLabel}: ${shippingValue}`,
     ...(order.paymentSurchargeEnabled ? [`${order.paymentSurchargeLabel}: ${formatMoneyFromCents(order.paymentSurchargeAmount, order.currency)}`] : []),
     `Total paid: ${formatMoneyFromCents(order.totalPaid, order.currency)} NZD`,
     ...(order.paymentSurchargeEnabled ? ['', 'The card processing surcharge helps cover the cost of processing your payment.'] : []),
-    `Shipping address: ${order.shippingAddress || 'Not provided'}`,
+    '',
+    `Fulfilment method: ${order.shippingMethod}`,
+    ...fulfilmentLines,
     '',
     'We have received your payment and will be in touch with any order updates.',
     'Support: info@ptgactivewear.co.nz'
@@ -875,10 +914,11 @@ export function buildCustomerOrderEmail(order) {
     <p>Please keep this order number in case you need to contact us.</p>
     <p><strong>Order date:</strong> ${escapeHtml(order.orderDate)}<br><strong>Payment status:</strong> Paid</p>
     <h3>Items</h3><ul>${order.items.map(item => `<li><strong>${escapeHtml(String(item.quantity))} x ${escapeHtml(item.name)}</strong>${item.details.length ? `<ul>${item.details.map(detail => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ul>
-    <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}<br><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}<br><strong>Shipping:</strong> ${escapeHtml(formatMoneyFromCents(order.shippingAmount, order.currency))}${order.paymentSurchargeEnabled ? `<br><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}` : ''}</p>
+    <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}<br><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}<br><strong>${escapeHtml(shippingLabel)}:</strong> ${escapeHtml(shippingValue)}${order.paymentSurchargeEnabled ? `<br><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}` : ''}</p>
     <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))} NZD</p>
     ${order.paymentSurchargeEnabled ? '<p>The card processing surcharge helps cover the cost of processing your payment.</p>' : ''}
-    <p><strong>Shipping address:</strong> ${escapeHtml(order.shippingAddress || 'Not provided')}</p>
+    <p><strong>Fulfilment method:</strong> ${escapeHtml(order.shippingMethod)}</p>
+    ${fulfilmentHtml}
     <p>We will be in touch with any order updates.</p><p>Questions? Contact <a href="mailto:info@ptgactivewear.co.nz">info@ptgactivewear.co.nz</a>.</p>
   `;
 

@@ -34,12 +34,17 @@ function stopServer() {
   if (server.pid) spawnSync('taskkill.exe', ['/pid', String(server.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
 }
 
+function formatCentsForTest(cents) {
+  return new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(cents / 100);
+}
+
 try {
   const catalogue = await waitForServer();
   const product = catalogue.products.find(candidate => candidate.available && candidate.inventoryVariants?.length);
   assert.ok(product, 'A saleable local product is required.');
   const variant = product.inventoryVariants.find(candidate => candidate.available) || product.inventoryVariants[0];
   const payload = {
+    fulfilmentType: 'pickup',
     items: [{ productId: product.id, variantId: variant.id, quantity: 2, personalisation: { name: '', number: '' } }],
     subtotalCents: 1,
     paymentSurchargeCents: 999999,
@@ -70,12 +75,20 @@ try {
         personalisation: { name: '', number: '' }, personalisationPrices: { name: 0, number: 0 }
       }];
       await page.addInitScript(value => localStorage.setItem('ptg-cart', JSON.stringify(value)), cart);
+      await page.addInitScript(() => localStorage.setItem('ptg-fulfilment', 'pickup'));
       await page.goto(`${baseUrl}/cart`, { waitUntil: 'networkidle' });
       await page.getByRole('button', { name: 'Return to Cart' }).click();
       await page.locator('[data-cart-breakdown]:not([hidden])').waitFor();
-      assert.match(await page.locator('[data-cart-breakdown]').innerText(), /Merchandise subtotal[\s\S]*Shipping/);
+      assert.match(await page.locator('[data-cart-breakdown]').innerText(), /Merchandise subtotal[\s\S]*Pick up from Training Centre/);
       assert.equal(await page.locator('[data-summary-surcharge-row]').isVisible(), false);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+
+      await page.locator('input[name="ptg-fulfilment"][value="delivery"]').check();
+      await page.waitForFunction(() => document.querySelector('[data-summary-shipping]')?.textContent === '$5.00');
+      assert.match(await page.locator('[data-fulfilment-note]').innerText(), /throughout New Zealand only/i);
+      assert.equal(await page.locator('#cart-total').innerText(), formatCentsForTest(product.priceCents * 2 + 500));
+      await page.locator('input[name="ptg-fulfilment"][value="pickup"]').check();
+      await page.waitForFunction(() => document.querySelector('[data-summary-shipping]')?.textContent === 'Free');
 
       await page.route('**/api/checkout-summary', async route => {
         const requestBody = route.request().postDataJSON();
@@ -83,6 +96,7 @@ try {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, summary: {
           currency: 'NZD', merchandiseSubtotalCents: product.priceCents * 2, personalisationCents: 0,
           shippingCents: 0, paymentSurchargeCents: 216, totalCents: product.priceCents * 2 + 216,
+          fulfilment: { type: 'pickup', label: 'Pick up from Training Centre', priceCents: 0, locationName: 'Training Centre', pickupAddress: '', instructions: 'We will contact you when your order is ready.', country: '' },
           surcharge: { enabled: true, label: 'Card processing surcharge', description: 'Processing cost', percent: '2.65', fixedCents: 30 }
         } }) });
       });
@@ -101,6 +115,7 @@ try {
       subtotal_cents: product.priceCents * 2, personalisation_cents: 0, discount_cents: 0, shipping_cents: 0, tax_cents: 0,
       payment_surcharge_cents: 216, payment_surcharge_enabled: 1, payment_surcharge_percent: '2.65', payment_surcharge_fixed_cents: 30,
       payment_surcharge_label: 'Card processing surcharge', total_cents: product.priceCents * 2 + 216,
+      fulfilment_type: 'pickup', shipping_method: 'Pick up from Training Centre', pickup_location: 'Training Centre', pickup_instructions: 'We will contact you when your order is ready.',
       refunded_cents: 0, payment_surcharge_refunded_cents: 0, currency: 'NZD', payment_status: 'paid', payment_method_label: 'card'
     };
     await invoicePage.route('**/admin/invoice.html?*', route => route.fulfill({ status: 200, contentType: 'text/html', body: readFileSync(join(root, 'admin', 'invoice.html')) }));
@@ -113,6 +128,7 @@ try {
     });
     await invoicePage.goto(`${baseUrl}/admin/invoice.html?order=1`, { waitUntil: 'networkidle' });
     await invoicePage.getByText('Card processing surcharge', { exact: true }).waitFor();
+    assert.match(await invoicePage.locator('.invoice-parties').innerText(), /Pickup[\s\S]*Pick up from Training Centre[\s\S]*contact you when your order is ready/i);
     assert.match(await invoicePage.locator('.invoice-totals').innerText(), /Total paid[\s\S]*NZD/);
     const pdfPath = join(tmpdir(), 'ptg-surcharge-invoice.pdf');
     await invoicePage.pdf({ path: pdfPath, format: 'A4', printBackground: true });

@@ -64,6 +64,7 @@ test('checkout summary ignores browser-edited prices and totals', async () => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      fulfilmentType: 'pickup',
       items: [{ productId: 'patagonia-fc-beanie', quantity: 1, size: 'One Size', suppliedPrice: 1 }],
       subtotalCents: 1,
       paymentSurchargeCents: 0,
@@ -87,6 +88,7 @@ test('Stripe Checkout receives one surcharge line and stable idempotency key', a
   };
   try {
     const payload = {
+      fulfilmentType: 'pickup',
       checkoutRequestId: 'test-request-1234',
       items: [{ productId: 'patagonia-fc-beanie', quantity: 1, size: 'One Size', suppliedPrice: 1 }],
       subtotalCents: 1,
@@ -122,7 +124,8 @@ test('customer and business emails use the same surcharge snapshot and hide tech
     total_details: { amount_shipping: 0 },
     metadata: {
       subtotal_cents: '9500', personalisation_cents: '4000', shipping_cents: '0', payment_surcharge_cents: '282',
-      payment_surcharge_enabled: '1', payment_surcharge_percent: '2.65', payment_surcharge_fixed_cents: '30', payment_surcharge_label: 'Card processing surcharge'
+      payment_surcharge_enabled: '1', payment_surcharge_percent: '2.65', payment_surcharge_fixed_cents: '30', payment_surcharge_label: 'Card processing surcharge',
+      fulfilment_type: 'pickup', shipping_method: 'Pick up from Training Centre', pickup_location: 'Training Centre', pickup_instructions: 'We will contact you when your order is ready.'
     }
   };
   const lineItems = [
@@ -139,6 +142,7 @@ test('customer and business emails use the same surcharge snapshot and hide tech
     assert.match(email.text, /Personalisation: NZD \$40\.00/);
     assert.match(email.text, /Card processing surcharge: NZD \$2\.82/);
     assert.match(email.text, /Total paid: NZD \$137\.82/);
+    assert.match(email.text, /Pick up from Training Centre/);
   }
   assert.doesNotMatch(customer.text, /cs_test|pi_test|evt_test|Internal Payment References/);
   assert.match(business.text, /2\.65% \+ NZD \$0\.30/);

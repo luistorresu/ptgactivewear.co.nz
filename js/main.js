@@ -9,6 +9,9 @@ try {
 const PERSONALISATION_ADDON_PRICE = 20;
 let checkoutSummaryTimer = 0;
 let checkoutSummaryRequest = 0;
+let fulfilmentType = ['pickup', 'delivery'].includes(localStorage.getItem('ptg-fulfilment'))
+  ? localStorage.getItem('ptg-fulfilment')
+  : '';
 
 function saveCart() {
   localStorage.setItem('ptg-cart', JSON.stringify(cart));
@@ -226,6 +229,7 @@ function toggleCart() {
 
 function buildCheckoutPayload() {
   return {
+    fulfilmentType,
     items: cart.map(item => {
       const product = findProductForCartItem(item);
       return {
@@ -252,9 +256,42 @@ function getCartSummaryElements() {
   if (!totalEl) return {};
   const checkoutButton = document.querySelector('[data-checkout-button]');
   if (checkoutButton?.nextElementSibling?.tagName === 'P') {
-    checkoutButton.nextElementSibling.textContent = 'Secure payment powered by Stripe';
+    checkoutButton.nextElementSibling.textContent = 'Secure payment options are shown on the next step, powered by Stripe.';
   }
   const totalRow = totalEl.parentElement;
+  let fulfilment = document.querySelector('[data-fulfilment-selector]');
+  if (!fulfilment) {
+    fulfilment = document.createElement('section');
+    fulfilment.dataset.fulfilmentSelector = '';
+    fulfilment.className = 'fulfilment-selector';
+    fulfilment.innerHTML = `
+      <p class="cart-review-note"><strong>Check your item selections</strong><span>Please review sizes, styles and personalisation before continuing. Customised items will be prepared using the selections shown in your cart.</span></p>
+      <fieldset>
+        <legend>Delivery method</legend>
+        <label class="fulfilment-option">
+          <input type="radio" name="ptg-fulfilment" value="pickup">
+          <span><strong>Pick up from Training Centre</strong><small>Free</small></span>
+        </label>
+        <label class="fulfilment-option">
+          <input type="radio" name="ptg-fulfilment" value="delivery">
+          <span><strong>New Zealand Delivery</strong><small>$5.00 NZD</small></span>
+        </label>
+      </fieldset>
+      <p class="fulfilment-note" data-fulfilment-note>Please choose how you would like to receive your order.</p>`;
+    totalRow.before(fulfilment);
+    fulfilment.querySelectorAll('input[name="ptg-fulfilment"]').forEach(input => {
+      input.checked = input.value === fulfilmentType;
+      input.addEventListener('change', () => {
+        fulfilmentType = input.value;
+        localStorage.setItem('ptg-fulfilment', fulfilmentType);
+        fulfilment.querySelectorAll('.fulfilment-option').forEach(option => option.classList.toggle('is-selected', option.contains(input)));
+        scheduleCheckoutSummary();
+      });
+    });
+    fulfilment.querySelectorAll('.fulfilment-option').forEach(option => {
+      option.classList.toggle('is-selected', option.querySelector('input').checked);
+    });
+  }
   let breakdown = document.querySelector('[data-cart-breakdown]');
   if (!breakdown) {
     breakdown = document.createElement('div');
@@ -263,12 +300,12 @@ function getCartSummaryElements() {
     breakdown.innerHTML = `
       <div><span>Merchandise subtotal</span><strong data-summary-merchandise>$0.00</strong></div>
       <div data-summary-personalisation-row><span>Personalisation</span><strong data-summary-personalisation>$0.00</strong></div>
-      <div><span>Shipping</span><strong data-summary-shipping>$0.00</strong></div>
+      <div><span data-summary-shipping-label>Shipping</span><strong data-summary-shipping>$0.00</strong></div>
       <div data-summary-surcharge-row hidden><span data-summary-surcharge-label>Card processing surcharge</span><strong data-summary-surcharge>$0.00</strong></div>
       <p data-summary-surcharge-note hidden></p>`;
     totalRow.before(breakdown);
   }
-  return { totalEl, totalRow, breakdown };
+  return { totalEl, totalRow, breakdown, fulfilment };
 }
 
 function renderCheckoutSummary(summary) {
@@ -277,9 +314,16 @@ function renderCheckoutSummary(summary) {
   const personalisationRow = breakdown.querySelector('[data-summary-personalisation-row]');
   const surchargeRow = breakdown.querySelector('[data-summary-surcharge-row]');
   const surchargeNote = breakdown.querySelector('[data-summary-surcharge-note]');
+  const fulfilmentNote = document.querySelector('[data-fulfilment-note]');
   breakdown.querySelector('[data-summary-merchandise]').textContent = formatCents(summary.merchandiseSubtotalCents);
   breakdown.querySelector('[data-summary-personalisation]').textContent = formatCents(summary.personalisationCents);
   breakdown.querySelector('[data-summary-shipping]').textContent = summary.shippingCents ? formatCents(summary.shippingCents) : 'Free';
+  breakdown.querySelector('[data-summary-shipping-label]').textContent = summary.fulfilment.label;
+  if (fulfilmentNote) {
+    fulfilmentNote.textContent = summary.fulfilment.type === 'pickup'
+      ? `${summary.fulfilment.instructions}${summary.fulfilment.pickupAddress ? ` Collection: ${summary.fulfilment.pickupAddress}.` : ''}`
+      : 'Delivery is available throughout New Zealand only. Enter and confirm your NZ delivery address securely in Stripe Checkout.';
+  }
   personalisationRow.hidden = summary.personalisationCents === 0;
   surchargeRow.hidden = !summary.surcharge.enabled;
   surchargeNote.hidden = !summary.surcharge.enabled;
@@ -307,10 +351,16 @@ async function fetchCheckoutSummary(payload = buildCheckoutPayload(), shouldRend
 function scheduleCheckoutSummary() {
   clearTimeout(checkoutSummaryTimer);
   const requestNumber = ++checkoutSummaryRequest;
-  const { totalRow, breakdown } = getCartSummaryElements();
+  const { totalRow, breakdown, fulfilment } = getCartSummaryElements();
   if (!cart.length) {
     if (breakdown) breakdown.hidden = true;
     if (totalRow) totalRow.querySelector('span').textContent = 'Subtotal';
+    return;
+  }
+  if (!fulfilmentType) {
+    if (breakdown) breakdown.hidden = true;
+    if (totalRow) totalRow.querySelector('span').textContent = 'Subtotal';
+    if (fulfilment) fulfilment.querySelector('[data-fulfilment-note]').textContent = 'Please choose how you would like to receive your order.';
     return;
   }
   if (breakdown) breakdown.hidden = false;
@@ -348,6 +398,12 @@ function setupCheckout() {
 
       if (!cart.length) {
         setInlineStatus(statusEl, 'error', 'Your cart is empty.');
+        return;
+      }
+
+      if (!fulfilmentType) {
+        setInlineStatus(statusEl, 'error', 'Please choose free pickup or New Zealand delivery.');
+        document.querySelector('[data-fulfilment-selector]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
 

@@ -851,7 +851,112 @@ html { scroll-behavior: smooth; }
   text-align: left;
 }
 
+.fulfilment-selector {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.fulfilment-selector fieldset {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fulfilment-selector legend {
+  margin-bottom: 0.55rem;
+  color: #111827;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.fulfilment-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.65rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.fulfilment-option:hover,
+.fulfilment-option:focus-within,
+.fulfilment-option.is-selected {
+  border-color: #0e91b8;
+  background: #f2fbfd;
+  box-shadow: 0 0 0 2px rgba(14, 145, 184, 0.12);
+}
+
+.fulfilment-option input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: #0e91b8;
+}
+
+.fulfilment-option span {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.fulfilment-option strong,
+.fulfilment-option small {
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.fulfilment-option small {
+  flex: 0 0 auto;
+  color: #087899;
+  font-weight: 750;
+}
+
+.cart-review-note,
+.fulfilment-note {
+  margin: 0;
+  color: #4b5563;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.cart-review-note {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid #dce9ed;
+  border-radius: 8px;
+  background: #f7fbfc;
+}
+
+.cart-review-note strong {
+  color: #111827;
+  font-size: 0.76rem;
+}
+
+.fulfilment-note {
+  padding-left: 0.75rem;
+  border-left: 3px solid #5bb8d4;
+}
+
+@media (max-width: 380px) {
+  .fulfilment-option span {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .fulfilment-option { transition: none; }
   .home-carousel-track, .home-carousel-image img, .product-lightbox, .product-lightbox-panel, .product-lightbox-image { transition: none; }
   .bulk-order-track { width: 100%; display: block; padding: 0.7rem 1rem; animation: none; white-space: normal; text-align: center; }
   .bulk-order-track span { min-width: 0; }

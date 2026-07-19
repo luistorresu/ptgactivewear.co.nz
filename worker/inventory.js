@@ -118,6 +118,10 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
       paymentSurchargeFixedCents: 0,
       paymentSurchargeLabel: '',
       paymentSurchargeDescription: '',
+      fulfilmentType: 'delivery',
+      shippingMethod: 'New Zealand Delivery',
+      pickupLocation: '',
+      pickupInstructions: '',
       totalCents: Number(session.amount_total || 0)
     };
   }
@@ -129,8 +133,12 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
   const paymentSurchargeEnabled = metadataInteger(metadata, 'payment_surcharge_enabled');
   const paymentSurchargeFixedCents = metadataInteger(metadata, 'payment_surcharge_fixed_cents');
   const totalCents = metadataInteger(metadata, 'total_cents');
+  const fulfilmentType = cleanText(metadata.fulfilment_type, 20).toLowerCase();
+  const shippingMethod = cleanText(metadata.shipping_method, 80);
   if ([subtotalCents, storedPersonalisationCents, shippingCents, paymentSurchargeCents, paymentSurchargeEnabled, paymentSurchargeFixedCents, totalCents].some(value => value === null)
-    || ![0, 1].includes(paymentSurchargeEnabled)) {
+    || ![0, 1].includes(paymentSurchargeEnabled)
+    || !['pickup', 'delivery'].includes(fulfilmentType)
+    || !shippingMethod) {
     throw new Error('Checkout total metadata is invalid.');
   }
   if (storedPersonalisationCents !== personalisationCents) throw new Error('Checkout personalisation total does not match Stripe line items.');
@@ -139,6 +147,7 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
     throw new Error('Checkout subtotal does not match Stripe line items.');
   }
   if (Number(session.total_details?.amount_shipping || 0) !== shippingCents) throw new Error('Checkout shipping total does not match Stripe.');
+  if (fulfilmentType === 'pickup' && shippingCents !== 0) throw new Error('Pickup order includes an invalid shipping charge.');
   if (Number(session.amount_total || 0) !== totalCents
     || totalCents !== subtotalCents + personalisationCents + shippingCents + paymentSurchargeCents) {
     throw new Error('Checkout paid total does not match the server snapshot.');
@@ -154,6 +163,10 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
     paymentSurchargeFixedCents,
     paymentSurchargeLabel: cleanText(metadata.payment_surcharge_label, 80),
     paymentSurchargeDescription: cleanText(metadata.payment_surcharge_description, 240),
+    fulfilmentType,
+    shippingMethod,
+    pickupLocation: cleanText(metadata.pickup_location, 120),
+    pickupInstructions: cleanText(metadata.pickup_instructions, 300),
     totalCents
   };
 }
@@ -190,9 +203,10 @@ function groupStripeItems(lineItems) {
   return [...groups.values()].filter(group => group.baseAmountTotal > 0);
 }
 
-function sessionAddress(session) {
+function sessionAddress(session, fulfilmentType = 'delivery') {
+  if (fulfilmentType !== 'delivery') return {};
   const shipping = session.shipping_details || session.collected_information?.shipping_details || {};
-  return shipping.address || session.customer_details?.address || {};
+  return shipping.address || {};
 }
 
 async function existingOrder(db, sessionId) {
@@ -222,6 +236,14 @@ export async function commitPaidOrder(env, event, session, lineItems) {
   const customer = session.customer_details || {};
   const personalisationCents = catalogue.reduce((sum, item) => sum + item.customisationAmountTotal, 0);
   const snapshot = verifyStripeCheckoutSnapshot(session, lineItems, personalisationCents);
+  const shipping = session.shipping_details || session.collected_information?.shipping_details || {};
+  const shippingAddress = sessionAddress(session, snapshot.fulfilmentType);
+  const shippingCountry = cleanText(shippingAddress.country, 2).toUpperCase();
+  if (snapshot.fulfilmentType === 'delivery' && shippingCountry !== 'NZ') {
+    throw new Error('Delivery address must be in New Zealand.');
+  }
+  const shippingAddressText = [shippingAddress.line1, shippingAddress.line2, shippingAddress.city, shippingAddress.state, shippingAddress.postal_code].filter(Boolean).join(' ');
+  const shippingRural = /\b(?:rural|r\.?d\.?\s*\d+)\b/i.test(shippingAddressText) ? 1 : 0;
   const statements = [
     env.DB.prepare(`
       INSERT INTO stripe_events (event_id, event_type, stripe_checkout_session_id, status)
@@ -235,16 +257,19 @@ export async function commitPaidOrder(env, event, session, lineItems) {
         fulfilment_status, email_status, billing_address_json, payment_date,
         personalisation_cents, discount_cents, tax_cents, refund_status, payment_method_label,
         payment_surcharge_cents, payment_surcharge_enabled, payment_surcharge_percent, payment_surcharge_fixed_cents,
-        payment_surcharge_label, payment_surcharge_description
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?)
+        payment_surcharge_label, payment_surcharge_description,
+        fulfilment_type, shipping_method, pickup_location, pickup_instructions,
+        shipping_name, shipping_phone, shipping_address_line_1, shipping_address_line_2,
+        shipping_suburb, shipping_city, shipping_region, shipping_postcode, shipping_country, shipping_rural
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       session.id,
       typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
       event.id,
-      cleanText(customer.name || session.shipping_details?.name, 200),
+      cleanText(customer.name || shipping.name, 200),
       cleanText(customer.email || session.customer_email, 254),
-      cleanText(customer.phone, 50),
-      JSON.stringify(sessionAddress(session)),
+      cleanText(shipping.phone || customer.phone, 50),
+      JSON.stringify(shippingAddress),
       snapshot.subtotalCents,
       snapshot.shippingCents,
       snapshot.totalCents,
@@ -260,7 +285,21 @@ export async function commitPaidOrder(env, event, session, lineItems) {
       snapshot.paymentSurchargePercent,
       snapshot.paymentSurchargeFixedCents,
       snapshot.paymentSurchargeLabel,
-      snapshot.paymentSurchargeDescription
+      snapshot.paymentSurchargeDescription,
+      snapshot.fulfilmentType,
+      snapshot.shippingMethod,
+      snapshot.pickupLocation,
+      snapshot.pickupInstructions,
+      cleanText(shipping.name || customer.name, 200),
+      cleanText(shipping.phone || customer.phone, 50),
+      cleanText(shippingAddress.line1, 200),
+      cleanText(shippingAddress.line2, 200),
+      '',
+      cleanText(shippingAddress.city, 120),
+      cleanText(shippingAddress.state, 120),
+      cleanText(shippingAddress.postal_code, 20),
+      shippingCountry,
+      shippingRural
     )
   ];
 

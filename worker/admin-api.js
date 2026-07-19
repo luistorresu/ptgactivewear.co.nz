@@ -610,17 +610,20 @@ async function listOrders(db, url) {
   const search = cleanText(url.searchParams.get('search'), 120);
   const payment = cleanText(url.searchParams.get('payment'), 30);
   const fulfilment = cleanText(url.searchParams.get('fulfilment'), 30);
+  const fulfilmentType = cleanText(url.searchParams.get('fulfilmentType'), 20).toLowerCase();
   const from = cleanText(url.searchParams.get('from'), 10);
   const to = cleanText(url.searchParams.get('to'), 10);
   if (search) { clauses.push('(order_number LIKE ? OR customer_name LIKE ? OR customer_email LIKE ?)'); values.push(`%${search}%`, `%${search}%`, `%${search}%`); }
   if (payment) { clauses.push('payment_status = ?'); values.push(payment); }
   if (fulfilment) { clauses.push('fulfilment_status = ?'); values.push(fulfilment); }
+  if (['pickup', 'delivery'].includes(fulfilmentType)) { clauses.push('fulfilment_type = ?'); values.push(fulfilmentType); }
   if (/^\d{4}-\d{2}-\d{2}$/.test(from)) { clauses.push('date(created_at) >= date(?)'); values.push(from); }
   if (/^\d{4}-\d{2}-\d{2}$/.test(to)) { clauses.push('date(created_at) <= date(?)'); values.push(to); }
   values.push(limit);
   const result = await db.prepare(`
     SELECT id, order_number, stripe_checkout_session_id, stripe_payment_intent_id, customer_name, customer_email,
       subtotal_cents, personalisation_cents, shipping_cents, payment_surcharge_cents, total_cents, currency,
+      fulfilment_type, shipping_method,
       payment_status, fulfilment_status, refund_status, refunded_cents, invoice_number, email_status, created_at
     FROM orders ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT ?
   `).bind(...values).all();
@@ -701,10 +704,10 @@ async function exportOrders(db, url, identity) {
   let rows = [];
   for (const id of ids) {
     const order = await getOrder(db, id);
-    for (const item of order.items) rows.push([order.order_number, order.created_at, order.customer_name, order.customer_email, item.product_name, item.sku, item.quantity, item.size, [item.colour, item.style].filter(Boolean).join(' / '), item.player_name, item.player_number, item.unit_price_cents / 100, item.customisation_total_cents / 100, order.subtotal_cents / 100, order.personalisation_cents / 100, order.shipping_cents / 100, order.payment_surcharge_cents / 100, order.total_cents / 100, order.refunded_cents / 100, order.payment_status, order.fulfilment_status, order.refund_status]);
+    for (const item of order.items) rows.push([order.order_number, order.created_at, order.customer_name, order.customer_email, order.customer_phone, order.fulfilment_type, order.shipping_method, order.shipping_name, order.shipping_phone, order.shipping_address_line_1, order.shipping_address_line_2, order.shipping_suburb, order.shipping_city, order.shipping_region, order.shipping_postcode, order.shipping_country, order.shipping_rural ? 'Yes' : 'No', order.pickup_location, order.pickup_instructions, item.product_name, item.sku, item.quantity, item.size, [item.colour, item.style].filter(Boolean).join(' / '), item.player_name, item.player_number, item.unit_price_cents / 100, item.customisation_total_cents / 100, order.subtotal_cents / 100, order.personalisation_cents / 100, order.shipping_cents / 100, order.payment_surcharge_cents / 100, order.total_cents / 100, order.refunded_cents / 100, order.payment_status, order.fulfilment_status, order.refund_status]);
   }
   await audit(db, identity, 'export_csv', 'orders', exportDate(), `Exported ${rows.length} order lines`);
-  return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name','Customer email','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Number','Unit price NZD','Item personalisation NZD','Merchandise subtotal NZD','Order personalisation NZD','Shipping NZD','Processing surcharge NZD','Total NZD','Refunded NZD','Payment status','Fulfilment status','Refund status'], rows);
+  return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name','Customer email','Customer phone','Fulfilment type','Shipping method','Shipping name','Shipping phone','Address line 1','Address line 2','Suburb','City','Region','Postcode','Country','Rural','Pickup location','Pickup instructions','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Number','Unit price NZD','Item personalisation NZD','Merchandise subtotal NZD','Order personalisation NZD','Shipping NZD','Processing surcharge NZD','Total NZD','Refunded NZD','Payment status','Fulfilment status','Refund status'], rows);
 }
 
 async function exportInventory(db, url, identity) {
