@@ -6,6 +6,7 @@ All notable changes to this website should be documented here.
 
 ### Added
 
+* Added `www.ptgactivewear.co.nz` as a Cloudflare Worker custom domain with a permanent path-preserving redirect to the canonical root domain.
 * Added an explicit cart choice between free training-centre pickup and NZ$5.00 New Zealand delivery, with customer guidance to review item selections before secure payment.
 * Added server-calculated fulfilment snapshots across Stripe Checkout, D1 orders, confirmation emails, admin order details and filters, CSV exports, and HTML/PDF invoices.
 * Added NZ-only Stripe shipping collection for delivery and address-free pickup handling with configurable collection instructions.

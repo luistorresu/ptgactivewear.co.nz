@@ -1232,6 +1232,11 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (url.hostname.toLowerCase() === 'www.ptgactivewear.co.nz') {
+      url.hostname = 'ptgactivewear.co.nz';
+      return Response.redirect(url, 308);
+    }
+
     if (url.pathname === '/api/admin/login'
       || url.pathname === '/api/admin/logout'
       || url.pathname === '/api/admin/session'

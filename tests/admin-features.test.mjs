@@ -1,8 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import worker from '../_worker.js';
 import { readFile } from 'node:fs/promises';
 
 const root = new URL('../', import.meta.url);
+
+test('www hostname redirects permanently to the canonical root domain', async () => {
+  const response = await worker.fetch(new Request('https://www.ptgactivewear.co.nz/shop?source=www'), {});
+  assert.equal(response.status, 308);
+  assert.equal(response.headers.get('location'), 'https://ptgactivewear.co.nz/shop?source=www');
+});
 
 test('order and invoice migration is additive and preserves existing tables', async () => {
   const sql = await readFile(new URL('migrations/0002_orders_invoices_exports.sql', root), 'utf8');

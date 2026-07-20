@@ -34,6 +34,8 @@ The domain is managed through Cloudflare:
 
 ptgactivewear.co.nz
 
+Both `ptgactivewear.co.nz` and `www.ptgactivewear.co.nz` are attached to the production Worker as Cloudflare custom domains. The `www` hostname redirects permanently to the canonical root domain while preserving the path and query string.
+
 ## Source Control
 
 The project uses a GitHub repository.

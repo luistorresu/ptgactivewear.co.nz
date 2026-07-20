@@ -4,6 +4,16 @@
   "main": "_worker.js",
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "ptgactivewear.co.nz",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.ptgactivewear.co.nz",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
