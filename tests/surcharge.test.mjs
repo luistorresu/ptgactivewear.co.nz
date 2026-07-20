@@ -112,6 +112,7 @@ test('Stripe Checkout receives one surcharge line and stable idempotency key', a
     assert.equal(params.get('metadata[payment_surcharge_enabled]'), '1');
     assert.equal(params.get('metadata[total_cents]'), '3623');
     assert.equal(params.get('payment_method_types[0]'), 'card');
+    assert.equal(params.get('payment_intent_data[description]'), 'PTG Activewear order');
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -10,6 +10,10 @@ All notable changes to this website should be documented here.
 * Added durable D1 invoice snapshots with unique `PTG-INV-YYYY-NNNNNN` numbering, preserved item/pricing/customer details, and refund-status synchronisation.
 * Added report indexes, 366-day query limits, 5,000-row export limits, no-store responses, parameterised report SQL, and spreadsheet-formula-safe CSV output.
 
+### Changed
+
+* Added the concise `PTG Activewear order` description to new Stripe payments instead of relying on a long technical PaymentIntent ID.
+
 ## 2026-07-19
 
 ### Added

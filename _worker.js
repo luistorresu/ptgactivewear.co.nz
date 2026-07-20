@@ -576,6 +576,7 @@ async function handleCreateCheckoutSession(request, env) {
   params.append('billing_address_collection', 'required');
   params.append('customer_creation', 'if_required');
   params.append('phone_number_collection[enabled]', 'true');
+  params.append('payment_intent_data[description]', 'PTG Activewear order');
   if (validation.fulfilment.type === 'delivery') {
     params.append('shipping_address_collection[allowed_countries][0]', 'NZ');
     params.append('shipping_options[0][shipping_rate_data][type]', 'fixed_amount');
