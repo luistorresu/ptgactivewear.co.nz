@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { getAdminIdentity, isAdminMutationAllowed } from '../worker/auth.js';
 import { commitPaidOrder, validateD1CheckoutPayload, verifyStripeCheckoutSnapshot } from '../worker/inventory.js';
 
@@ -126,6 +127,8 @@ test('paid order snapshot rejects any one-cent mismatch', () => {
 
 test('paid delivery order persists a complete NZ fulfilment snapshot with valid SQL bindings', async () => {
   let inserted = false;
+  let invoiceNumber = '';
+  let invoiceCreated = false;
   const DB = {
     prepare(sql) {
       return {
@@ -134,6 +137,14 @@ test('paid delivery order persists a complete NZ fulfilment snapshot with valid 
         bind(...args) { this.args = args; return this; },
         async first() {
           if (/SELECT id, email_status FROM orders/i.test(sql)) return inserted ? { id: 7, email_status: 'pending' } : null;
+          if (/SELECT \* FROM orders WHERE id/i.test(sql)) return {
+            id: 7, order_number: 'PTG-ORD-2026-000007', invoice_number: invoiceNumber, invoice_created_at: invoiceNumber ? '2026-07-20 00:00:00' : null,
+            payment_status: 'paid', payment_date: '2026-07-20 00:00:00', created_at: '2026-07-20 00:00:00', customer_name: 'Test Customer', customer_email: 'customer@example.com',
+            shipping_address_json: '{}', billing_address_json: '{}', subtotal_cents: 3500, personalisation_cents: 0, shipping_cents: 500,
+            payment_surcharge_cents: 0, discount_cents: 0, tax_cents: 0, total_cents: 4000, refunded_cents: 0, currency: 'NZD'
+          };
+          if (/SELECT \* FROM invoices WHERE order_id/i.test(sql)) return invoiceCreated ? { invoice_number: invoiceNumber, issue_date: '2026-07-20 00:00:00', status: 'issued', refunded_cents: 0, snapshot_json: '{}' } : null;
+          if (/INSERT INTO invoice_sequence/i.test(sql)) return { value: 1 };
           if (/FROM products p JOIN product_variants/i.test(sql)) return {
             product_id: 'patagonia-fc-beanie', name: 'Patagonia FC Beanie', price_cents: 3500,
             product_active: 1, product_archived: 0, available_for_sale: 1, track_inventory: 0,
@@ -141,7 +152,12 @@ test('paid delivery order persists a complete NZ fulfilment snapshot with valid 
           };
           return null;
         },
-        async run() { return { meta: { changes: 1 } }; }
+        async all() { return { results: [] }; },
+        async run() {
+          if (/UPDATE orders SET invoice_number/i.test(sql)) invoiceNumber = 'PTG-INV-2026-000001';
+          if (/INSERT OR IGNORE INTO invoices/i.test(sql)) invoiceCreated = true;
+          return { meta: { changes: 1 } };
+        }
       };
     },
     async batch(statements) {
@@ -171,6 +187,12 @@ test('paid delivery order persists a complete NZ fulfilment snapshot with valid 
   };
   const result = await commitPaidOrder({ DB }, { id: 'evt_test_delivery', type: 'checkout.session.completed' }, session, lineItems);
   assert.deepEqual(result, { orderId: 7, duplicate: false, emailStatus: 'pending' });
+});
+
+test('paid order items store the full line personalisation amount for invoice accuracy', async () => {
+  const source = await readFile(new URL('../worker/inventory.js', import.meta.url), 'utf8');
+  assert.match(source, /item\.customisationAmountTotal, item\.baseAmountTotal \+ item\.customisationAmountTotal/);
+  assert.doesNotMatch(source, /customisationPerUnit/);
 });
 
 test('admin mutations require exact same origin, safe content type, custom header and CSRF token', () => {

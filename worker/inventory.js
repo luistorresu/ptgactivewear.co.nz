@@ -1,4 +1,5 @@
 import { calculateRefundBreakdown } from './surcharge.js';
+import { ensureInvoiceSnapshot } from './invoices.js';
 
 const MAX_ITEM_QUANTITY = 20;
 
@@ -215,7 +216,10 @@ async function existingOrder(db, sessionId) {
 
 export async function commitPaidOrder(env, event, session, lineItems) {
   const existing = await existingOrder(env.DB, session.id);
-  if (existing) return { orderId: existing.id, duplicate: true, emailStatus: existing.email_status };
+  if (existing) {
+    await ensureInvoiceSnapshot(env.DB, existing.id);
+    return { orderId: existing.id, duplicate: true, emailStatus: existing.email_status };
+  }
 
   const groups = groupStripeItems(lineItems);
   if (!groups.length) throw new Error('Paid order has no recognised inventory line items.');
@@ -306,7 +310,6 @@ export async function commitPaidOrder(env, event, session, lineItems) {
   for (const item of catalogue) {
     const operationId = `${event.id}:${item.key}`.slice(0, 240);
     const unitPrice = Math.round(item.baseAmountTotal / item.quantity);
-    const customisationPerUnit = Math.round(item.customisationAmountTotal / item.quantity);
     statements.push(
       env.DB.prepare(`
         INSERT INTO order_items (
@@ -319,7 +322,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
       `).bind(
         item.productId, item.variantId, item.name, item.sku, item.quantity,
         unitPrice, item.playerName, item.playerNumber,
-        customisationPerUnit, item.baseAmountTotal + item.customisationAmountTotal,
+        item.customisationAmountTotal, item.baseAmountTotal + item.customisationAmountTotal,
         item.size, item.colour, item.style, session.id
       )
     );
@@ -362,6 +365,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
 
   const order = await existingOrder(env.DB, session.id);
   await env.DB.prepare(`UPDATE orders SET order_number = printf('PTG-ORD-%s-%06d', strftime('%Y', created_at), id), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND order_number IS NULL`).bind(order.id).run();
+  await ensureInvoiceSnapshot(env.DB, order.id);
   return { orderId: order.id, duplicate: false, emailStatus: order.email_status };
 }
 
@@ -389,6 +393,10 @@ export async function recordStripeRefund(env, event, charge) {
       UPDATE orders SET refund_status = ?, refunded_cents = ?, payment_surcharge_refunded_cents = ?,
         updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).bind(refund.refundStatus, refund.refundedCents, refund.paymentSurchargeRefundedCents, order.id),
+    env.DB.prepare(`
+      UPDATE invoices SET status = ?, refunded_cents = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE order_id = ?
+    `).bind(refund.refundStatus === 'fully_refunded' ? 'refunded' : refund.refundStatus === 'partially_refunded' ? 'partially_refunded' : 'issued', refund.refundedCents, order.id),
     env.DB.prepare(`
       INSERT OR IGNORE INTO stripe_events (event_id, event_type, stripe_checkout_session_id, status, processed_at)
       VALUES (?, ?, ?, 'processed', CURRENT_TIMESTAMP)

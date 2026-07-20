@@ -16,6 +16,7 @@
     <nav class="admin-nav" aria-label="Admin navigation">
       <button class="nav-button is-active" type="button" data-view-target="products">Products</button>
       <button class="nav-button" type="button" data-view-target="orders">Orders</button>
+      <button class="nav-button" type="button" data-view-target="reports">Reports</button>
       <button class="nav-button" type="button" data-view-target="editor">Add Product</button>
       <button class="nav-button" type="button" data-view-target="pictures">Pictures</button>
     </nav>
@@ -86,6 +87,44 @@
           <div class="empty-state"><p>Select an order to review its payment breakdown.</p></div>
         </section>
       </div>
+    </section>
+
+    <section class="admin-view" data-view="reports" hidden>
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">Sales</p>
+          <h1>Reports</h1>
+          <p>Search paid sales, review totals and download accounting-ready CSV files.</p>
+        </div>
+        <button class="button button-secondary" type="button" data-refresh-reports>Refresh</button>
+      </div>
+
+      <div class="report-summary" data-report-summary aria-live="polite">
+        <div class="empty-state"><p>Loading sales summary...</p></div>
+      </div>
+
+      <form class="report-filters" data-report-filters>
+        <label class="search-field"><span>Search sales</span><input name="search" type="search" maxlength="120" placeholder="Order, invoice, customer, product, SKU"></label>
+        <label><span>From</span><input name="from" type="date"></label>
+        <label><span>To</span><input name="to" type="date"></label>
+        <label><span>Payment</span><select name="payment"><option value="">Paid sales</option><option value="paid">Paid</option><option value="unpaid">Unpaid</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option><option value="expired">Expired</option></select></label>
+        <label><span>Fulfilment status</span><select name="fulfilment"><option value="">All statuses</option><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="ready_for_collection">Ready for collection</option><option value="shipped">Shipped</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="refunded">Refunded</option></select></label>
+        <label><span>Method</span><select name="fulfilmentType"><option value="">Pickup and delivery</option><option value="pickup">Pickup</option><option value="delivery">Delivery</option></select></label>
+        <label><span>Invoice status</span><select name="invoiceStatus"><option value="">All invoice states</option><option value="issued">Issued</option><option value="partially_refunded">Partially refunded</option><option value="refunded">Refunded</option><option value="not_issued">Not issued</option></select></label>
+        <label><span>Product or SKU</span><input name="product" maxlength="120" placeholder="Product name or SKU"></label>
+        <div class="report-filter-actions"><button class="button button-primary" type="submit">Apply Filters</button><button class="button button-secondary" type="reset" data-clear-reports>Clear</button></div>
+      </form>
+
+      <section class="report-section">
+        <div class="section-heading report-heading"><div><h2>Sales</h2><p data-sales-count>Loading orders...</p></div><a class="button button-secondary" data-sales-csv href="/api/admin/reports/sales.csv">Download Sales CSV</a></div>
+        <div class="report-table-wrap"><table class="report-table"><thead><tr><th>Date</th><th>Order</th><th>Customer</th><th>Method</th><th>Payment</th><th>Fulfilment</th><th>Invoice</th><th class="amount">Total</th><th>Action</th></tr></thead><tbody data-report-sales></tbody></table></div>
+        <div class="report-pagination"><button class="button button-secondary" type="button" data-sales-prev>Previous</button><span data-sales-page>Page 1</span><button class="button button-secondary" type="button" data-sales-next>Next</button></div>
+      </section>
+
+      <section class="report-section">
+        <div class="section-heading report-heading"><div><h2>Invoices</h2><p data-invoice-count>Loading invoices...</p></div><a class="button button-secondary" data-invoices-csv href="/api/admin/reports/invoices.csv">Download Invoice CSV</a></div>
+        <div class="report-table-wrap"><table class="report-table"><thead><tr><th>Issue date</th><th>Invoice</th><th>Order</th><th>Customer</th><th>Status</th><th class="amount">Total</th><th>Actions</th></tr></thead><tbody data-report-invoices></tbody></table></div>
+      </section>
     </section>
 
     <section class="admin-view" data-view="editor" hidden>

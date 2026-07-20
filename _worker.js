@@ -1133,7 +1133,7 @@ function unauthorisedAdminResponse(isApi) {
 
 async function serveAdminAsset(request, env) {
   const url = new URL(request.url);
-  if (url.pathname === '/admin' || url.pathname === '/admin/pictures' || url.pathname === '/admin/orders') {
+  if (url.pathname === '/admin' || url.pathname === '/admin/pictures' || url.pathname === '/admin/orders' || url.pathname === '/admin/reports') {
     url.pathname = '/admin/';
     request = new Request(url.toString(), request);
   }

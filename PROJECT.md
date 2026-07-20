@@ -187,6 +187,12 @@ A full refund records the full surcharge as refunded. A partial refund preserves
 
 This admin system is an operational order and stock-management tool. It is not a replacement for professional accounting software or statutory tax advice.
 
+## Sales Reports And Invoice Retention
+
+The protected `/admin/reports` workspace reads sales from D1 and supports date, payment, fulfilment, pickup/delivery, product, customer, order, invoice, SKU, and Stripe Payment Intent searches. Summary totals and CSV values use the integer-cent order snapshots written by the verified Stripe webhook.
+
+Generated invoices are frozen in the D1 `invoices` table with a unique invoice number, customer and fulfilment data, item details, totals, currency, status, and a complete JSON snapshot. The admin invoice page renders from this snapshot and supports printing or saving through the browser's PDF print destination. No public invoice URLs or public invoice cache are used.
+
 ## Product Pictures
 
 Product image metadata is stored in D1. Existing checked-in `/photos` files remain the production fallback. Admin uploads use the `PRODUCT_IMAGES` R2 binding and are served through `/product-images/{id}`; the browser never supplies an object key or raw public path.

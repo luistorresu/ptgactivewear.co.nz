@@ -3,6 +3,8 @@ const state = {
   products: [],
   orders: [],
   currentOrder: null,
+  reportPage: 1,
+  reportTotal: 0,
   currentProduct: null,
   pictures: [],
   pictureProductId: '',
@@ -16,6 +18,9 @@ const notice = document.querySelector('[data-notice]');
 const productList = document.querySelector('[data-product-list]');
 const orderList = document.querySelector('[data-order-list]');
 const orderDetail = document.querySelector('[data-order-detail]');
+const reportFilters = document.querySelector('[data-report-filters]');
+const reportSales = document.querySelector('[data-report-sales]');
+const reportInvoices = document.querySelector('[data-report-invoices]');
 const productForm = document.querySelector('[data-product-form]');
 const createVariants = document.querySelector('[data-create-variants]');
 const createVariantTemplate = document.querySelector('[data-create-variant-template]');
@@ -104,8 +109,71 @@ async function api(path, options = {}) {
 function routeFor(viewName) {
   if (viewName === 'pictures') return `/admin/pictures${state.pictureProductId ? `?product=${encodeURIComponent(state.pictureProductId)}` : ''}`;
   if (viewName === 'orders') return '/admin/orders';
+  if (viewName === 'reports') return '/admin/reports';
   if (viewName === 'editor') return state.currentProduct ? `/admin?edit=${encodeURIComponent(state.currentProduct.id)}` : '/admin?new=1';
   return '/admin';
+}
+
+function reportQuery({ includePage = true } = {}) {
+  const params = new URLSearchParams();
+  const data = new FormData(reportFilters);
+  for (const [key, value] of data.entries()) if (String(value).trim()) params.set(key, String(value).trim());
+  if (includePage) {
+    params.set('page', String(state.reportPage));
+    params.set('limit', '50');
+  }
+  return params.toString();
+}
+
+function formatReportDate(value) {
+  const parsed = new Date(String(value || '').replace(' ', 'T') + (String(value || '').includes('T') ? '' : 'Z'));
+  return Number.isNaN(parsed.getTime()) ? String(value || '') : parsed.toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function renderReportSummary(summary) {
+  const values = [
+    ['Total paid sales', summary.totalPaidCents], ['Paid orders', summary.paidOrders, true],
+    ['Average order', summary.averageOrderCents], ['Shipping collected', summary.shippingCents],
+    ['Processing surcharges', summary.surchargeCents], ['Refunded', summary.refundedCents],
+    ['Net collected', summary.netCollectedCents]
+  ];
+  document.querySelector('[data-report-summary]').innerHTML = values.map(([label, value, count]) => `<article class="summary-card"><span>${escapeHtml(label)}</span><strong>${count ? Number(value || 0).toLocaleString('en-NZ') : formatMoney(value)}</strong></article>`).join('');
+}
+
+function renderReportSales(rows, total, page, limit) {
+  document.querySelector('[data-sales-count]').textContent = `${total} matching order${total === 1 ? '' : 's'}`;
+  document.querySelector('[data-sales-page]').textContent = `Page ${page} of ${Math.max(1, Math.ceil(total / limit))}`;
+  document.querySelector('[data-sales-prev]').disabled = page <= 1;
+  document.querySelector('[data-sales-next]').disabled = page * limit >= total;
+  reportSales.innerHTML = rows.length ? rows.map(order => `<tr>
+    <td>${escapeHtml(formatReportDate(order.created_at))}</td><td><strong>${escapeHtml(order.order_number || `Order ${order.id}`)}</strong></td>
+    <td>${escapeHtml(order.customer_name || 'Not provided')}<small>${escapeHtml(order.customer_email || '')}</small></td>
+    <td>${escapeHtml(order.fulfilment_type || 'Not recorded')}</td><td><span class="status-pill status-${escapeHtml(order.payment_status)}">${escapeHtml(order.payment_status)}</span></td>
+    <td>${escapeHtml(order.fulfilment_status)}</td><td>${escapeHtml(order.invoice_number || 'Not issued')}</td><td class="amount"><strong>${formatMoney(order.total_cents)}</strong>${Number(order.refunded_cents) ? `<small>Refunded ${formatMoney(order.refunded_cents)}</small>` : ''}</td>
+    <td><button class="button button-secondary button-compact" type="button" data-report-order-id="${Number(order.id)}">View</button></td></tr>`).join('') : '<tr><td colspan="9" class="empty-cell">No sales match these filters.</td></tr>';
+}
+
+function renderReportInvoices(rows, total) {
+  document.querySelector('[data-invoice-count]').textContent = `${total} generated invoice${total === 1 ? '' : 's'}`;
+  reportInvoices.innerHTML = rows.length ? rows.map(invoice => `<tr>
+    <td>${escapeHtml(formatReportDate(invoice.issue_date))}</td><td><strong>${escapeHtml(invoice.invoice_number)}</strong></td><td>${escapeHtml(invoice.order_number)}</td>
+    <td>${escapeHtml(invoice.customer_name || invoice.customer_email)}</td><td>${escapeHtml(invoice.status)}</td><td class="amount"><strong>${formatMoney(invoice.total_cents)}</strong></td>
+    <td><a class="button button-secondary button-compact" href="/admin/invoice.html?order=${Number(invoice.order_id)}" target="_blank" rel="noopener">View / PDF</a></td></tr>`).join('') : '<tr><td colspan="7" class="empty-cell">No generated invoices match these filters.</td></tr>';
+}
+
+async function loadReports() {
+  const query = reportQuery();
+  document.querySelector('[data-report-summary]').innerHTML = '<div class="empty-state"><p>Loading sales summary...</p></div>';
+  const [summaryData, salesData, invoiceData] = await Promise.all([
+    api(`/api/admin/reports/summary?${query}`), api(`/api/admin/reports/sales?${query}`), api(`/api/admin/reports/invoices?${query}`)
+  ]);
+  state.reportTotal = salesData.total;
+  renderReportSummary(summaryData.summary);
+  renderReportSales(salesData.rows || [], salesData.total, salesData.page, salesData.limit);
+  renderReportInvoices(invoiceData.rows || [], invoiceData.total);
+  const exportQuery = reportQuery({ includePage: false });
+  document.querySelector('[data-sales-csv]').href = `/api/admin/reports/sales.csv${exportQuery ? `?${exportQuery}` : ''}`;
+  document.querySelector('[data-invoices-csv]').href = `/api/admin/reports/invoices.csv${exportQuery ? `?${exportQuery}` : ''}`;
 }
 
 async function loadOrders() {
@@ -805,6 +873,23 @@ document.querySelector('[data-order-search]').addEventListener('change', () => l
 document.querySelector('[data-order-search]').addEventListener('search', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-order-fulfilment-type]').addEventListener('change', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-refresh-orders]').addEventListener('click', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
+document.querySelector('[data-refresh-reports]').addEventListener('click', () => loadReports().catch(error => showNotice(errorMessage(error), 'error')));
+reportFilters.addEventListener('submit', event => {
+  event.preventDefault();
+  state.reportPage = 1;
+  loadReports().catch(error => showNotice(errorMessage(error), 'error', true));
+});
+reportFilters.addEventListener('reset', () => {
+  state.reportPage = 1;
+  setTimeout(() => loadReports().catch(error => showNotice(errorMessage(error), 'error')), 0);
+});
+document.querySelector('[data-sales-prev]').addEventListener('click', () => { state.reportPage = Math.max(1, state.reportPage - 1); loadReports().catch(error => showNotice(errorMessage(error), 'error')); });
+document.querySelector('[data-sales-next]').addEventListener('click', () => { state.reportPage += 1; loadReports().catch(error => showNotice(errorMessage(error), 'error')); });
+reportSales.addEventListener('click', event => {
+  const button = event.target.closest('[data-report-order-id]');
+  if (!button) return;
+  loadOrders().then(() => { switchView('orders'); return openOrder(Number(button.dataset.reportOrderId)); }).catch(error => showNotice(errorMessage(error), 'error', true));
+});
 orderList.addEventListener('click', event => {
   const row = event.target.closest('[data-order-id]');
   if (row) openOrder(Number(row.dataset.orderId)).catch(error => showNotice(errorMessage(error), 'error', true));
@@ -815,6 +900,7 @@ document.querySelectorAll('[data-view-target]').forEach(button => button.addEven
   if (target === 'editor') showNewProduct();
   else if (target === 'pictures') openPictures();
   else if (target === 'orders') loadOrders().then(() => switchView('orders')).catch(error => showNotice(errorMessage(error), 'error'));
+  else if (target === 'reports') loadReports().then(() => switchView('reports')).catch(error => showNotice(errorMessage(error), 'error'));
   else switchView(target);
 }));
 
@@ -901,6 +987,9 @@ async function initialiseRoute(updateHistory = false) {
   } else if (url.pathname === '/admin/orders') {
     await loadOrders();
     switchView('orders', updateHistory);
+  } else if (url.pathname === '/admin/reports') {
+    await loadReports();
+    switchView('reports', updateHistory);
   } else if (url.searchParams.get('edit')) {
     await openEditor(url.searchParams.get('edit'), updateHistory);
   } else if (url.searchParams.has('new')) {

@@ -2,14 +2,16 @@
 
 ## Scope
 
-The admin portal is available at `/admin` and intentionally contains only:
+The admin portal is available at `/admin` and contains:
 
 * Products
 * Add Product
 * Pictures
+* Orders
+* Reports
 * Logout
 
-The public website, cart, checkout, Stripe webhook, contact form, and Resend integration are separate. Existing order, invoice, export, and stock-history API code remains in place for compatibility and historical data, but those complex tools are not shown in the rebuilt portal.
+The public website, cart, checkout, Stripe webhook, contact form, and Resend integration are separate. The Reports workspace is available at `/admin/reports` with authenticated sales summaries, search, filters, pagination, and CSV exports.
 
 ## Storage
 
@@ -18,7 +20,7 @@ The public website, cart, checkout, Stripe webhook, contact form, and Resend int
 * KV binding `ORDER_EVENT_STORE`: signed-session revocation records and login rate-limit state.
 * Checked-in `/photos` assets remain valid fallback catalogue images.
 
-No database migration is required for the rebuilt portal. Existing tables and records are reused without destructive changes.
+The admin uses additive migrations only. Existing tables and records are preserved.
 
 ## Authentication
 
@@ -133,11 +135,23 @@ wrangler deployments list --name ptgactivewear
 wrangler d1 export ptgactivewear-catalog --remote --output C:\Users\Nico\Documents\ptgactivewear-backups\ptgactivewear-d1-YYYYMMDD-HHMMSS.sql
 ```
 
-No migration is needed for this rebuild. Deploy only after tests pass and the three authentication variables are present.
+Apply pending additive migrations only after a successful export. Deploy only after tests pass and the three authentication variables are present.
+
+## Orders, Invoices And Reports
+
+Verified paid Stripe webhooks write orders and item snapshots to D1 before stock is deducted. Checkout Session IDs, Stripe event IDs, and Payment Intent IDs are unique or idempotently handled, so duplicate webhook delivery does not create another order or deduct stock twice.
+
+Invoice creation assigns a unique `PTG-INV-YYYY-NNNNNN` number and stores a durable JSON snapshot plus searchable invoice totals in D1. Product edits do not alter the stored snapshot. Refund webhooks update the invoice refund status and refunded amount without replacing its original item and pricing details.
+
+Reports and exports require the signed admin session. Queries are parameterised, capped at 100 rows per browser page and 5,000 rows per CSV, and date ranges are limited to 366 days. CSV cells beginning with spreadsheet formula characters are safely prefixed. Admin responses and downloads use `Cache-Control: no-store`.
+
+Invoices are rendered from the private D1 snapshot and are never exposed through a public URL. `Print / Save PDF` uses the browser print dialog; no separate PDF object is retained in R2. The D1 snapshot is the recoverable source from which another PDF can be generated.
+
+Orders and invoices have no automatic deletion policy. Before schema changes, export D1 to the external `ptgactivewear-backups` folder. Restore an export only for confirmed corruption and only after preserving the newer database first.
 
 ## Rollback
 
-Code rollback uses the previous Cloudflare Worker version from **Workers & Pages > ptgactivewear > Deployments**, or reverts the release commit and redeploys it. Because this rebuild has no migration, code rollback does not require a database rollback.
+Code rollback uses the previous Cloudflare Worker version from **Workers & Pages > ptgactivewear > Deployments**, or reverts the release commit and redeploys it. Additive invoice/report tables and indexes may remain in place during a code rollback.
 
 Do not restore a D1 SQL export during a routine code rollback. Restoring an old export can overwrite newer products, orders, and stock movements and is reserved for confirmed data corruption.
 

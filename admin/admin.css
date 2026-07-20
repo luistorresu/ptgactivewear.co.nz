@@ -439,6 +439,26 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
 .order-totals .grand dt, .order-totals .grand dd { color: var(--text); font-size: inherit; font-weight: 800; }
 .order-config dd { font-size: 0.82rem; }
 
+.report-summary { margin-bottom: 18px; display: grid; grid-template-columns: repeat(7, minmax(140px, 1fr)); gap: 12px; }
+.summary-card { min-height: 104px; padding: 17px; display: grid; align-content: space-between; gap: 12px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 5px 18px rgba(16, 24, 32, 0.05); }
+.summary-card span { color: var(--muted); font-size: 0.78rem; font-weight: 750; }
+.summary-card strong { font-size: 1.28rem; line-height: 1.1; }
+.report-filters { margin-bottom: 22px; padding: 16px; display: grid; grid-template-columns: minmax(240px, 1.5fr) repeat(3, minmax(150px, 0.75fr)); gap: 14px; align-items: end; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); }
+.report-filter-actions { display: flex; gap: 9px; align-items: end; }
+.report-section { margin-top: 20px; padding: 20px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); }
+.report-heading { align-items: center; }
+.report-table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+.report-table { width: 100%; min-width: 980px; border-collapse: collapse; }
+.report-table th, .report-table td { padding: 12px 13px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.report-table th { color: var(--muted); background: var(--soft); font-size: 0.74rem; text-transform: uppercase; }
+.report-table tbody tr:last-child td { border-bottom: 0; }
+.report-table td small { margin-top: 3px; display: block; color: var(--muted); font-size: 0.72rem; }
+.report-table .amount { text-align: right; white-space: nowrap; }
+.empty-cell { padding: 30px !important; color: var(--muted); text-align: center !important; }
+.button-compact { min-height: 36px; padding: 7px 11px; font-size: 0.8rem; white-space: nowrap; }
+.report-pagination { margin-top: 15px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.report-pagination span { color: var(--muted); font-size: 0.84rem; font-weight: 700; }
+
 @media (max-width: 1120px) {
   .admin-header { grid-template-columns: auto 1fr auto; gap: 14px; }
   .admin-nav { justify-self: center; }
@@ -447,6 +467,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
   .product-row .product-meta:nth-of-type(4) { display: none; }
   .row-actions { grid-column: 2 / -1; justify-content: start; }
   .variant-row { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
+  .report-summary { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
+  .report-filters { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -470,7 +492,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
   .admin-main { padding: 28px 14px 54px; }
   .page-heading { align-items: start; flex-direction: column; }
   .page-heading > .button { width: 100%; }
-  .toolbar, .two-columns, .option-grid, .picture-layout, .order-layout { grid-template-columns: 1fr; }
+  .toolbar, .two-columns, .option-grid, .picture-layout, .order-layout, .report-filters { grid-template-columns: 1fr; }
   .order-detail { position: static; }
   .product-row {
     padding: 12px;
@@ -490,6 +512,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
   .picture-controls { position: static; }
   .order-facts { grid-template-columns: 1fr; }
   .gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-filter-actions, .report-filter-actions .button { width: 100%; }
+  .report-filter-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .report-section { padding: 15px; }
+  .report-heading { align-items: stretch; }
+  .report-heading .button { width: 100%; }
 }
 
 @media (max-width: 480px) {

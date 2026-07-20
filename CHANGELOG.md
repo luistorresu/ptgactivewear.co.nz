@@ -2,6 +2,14 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-20
+
+### Added
+
+* Added a protected, responsive `/admin/reports` workspace with paid-sales summaries, search, date/status/fulfilment/product filters, pagination, order links, and filtered sales/invoice CSV downloads.
+* Added durable D1 invoice snapshots with unique `PTG-INV-YYYY-NNNNNN` numbering, preserved item/pricing/customer details, and refund-status synchronisation.
+* Added report indexes, 366-day query limits, 5,000-row export limits, no-store responses, parameterised report SQL, and spreadsheet-formula-safe CSV output.
+
 ## 2026-07-19
 
 ### Added

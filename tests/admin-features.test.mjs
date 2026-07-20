@@ -58,6 +58,54 @@ test('ordinary product updates reject raw image paths', async () => {
   assert.doesNotMatch(api, /'version', 'images'/);
 });
 
+test('reports and durable invoice snapshots use an additive protected design', async () => {
+  const [migration, html, script, api, inventory, invoices, worker] = await Promise.all([
+    readFile(new URL('migrations/0014_reports_and_invoice_snapshots.sql', root), 'utf8'),
+    readFile(new URL('admin/index.html', root), 'utf8'),
+    readFile(new URL('admin/admin.js', root), 'utf8'),
+    readFile(new URL('worker/admin-api.js', root), 'utf8'),
+    readFile(new URL('worker/inventory.js', root), 'utf8'),
+    readFile(new URL('worker/invoices.js', root), 'utf8'),
+    readFile(new URL('_worker.js', root), 'utf8')
+  ]);
+  assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS invoices/);
+  assert.match(migration, /snapshot_json TEXT NOT NULL/);
+  assert.match(migration, /order_id INTEGER NOT NULL UNIQUE/);
+  assert.match(html, /data-view-target="reports"/);
+  assert.match(html, /data-report-filters/);
+  assert.match(script, /\/api\/admin\/reports\/summary/);
+  assert.match(script, /\/api\/admin\/reports\/sales\.csv/);
+  assert.match(api, /REPORT_EXPORT_LIMIT = 5000/);
+  assert.match(api, /Report date ranges cannot exceed 366 days/);
+  assert.match(invoices, /PTG-INV-\$\{year\}/);
+  assert.match(invoices, /INSERT OR IGNORE INTO invoices/);
+  assert.match(inventory, /ensureInvoiceSnapshot\(env\.DB, order\.id\)/);
+  assert.match(api, /EXISTS \(SELECT 1 FROM order_items osi/);
+  assert.match(inventory, /UPDATE invoices SET status/);
+  assert.match(worker, /url\.pathname === '\/admin\/reports'/);
+});
+
+test('historical paid orders receive additive recoverable invoice snapshots', async () => {
+  const migration = await readFile(new URL('migrations/0015_backfill_paid_order_invoices.sql', root), 'utf8');
+  assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
+  assert.match(migration, /WHERE o\.payment_status = 'paid' AND o\.invoice_number IS NULL/);
+  assert.match(migration, /json_group_array\(json_object/);
+  assert.match(migration, /PTG-INV-%s-%06d/);
+  assert.match(migration, /ON CONFLICT\(year\) DO UPDATE/);
+});
+
+test('report exports are server generated, filtered and spreadsheet safe', async () => {
+  const api = await readFile(new URL('worker/admin-api.js', root), 'utf8');
+  assert.match(api, /function csvCell/);
+  assert.match(api, /\/\^\[=\+\\-@\\t\\r\]\//);
+  assert.match(api, /function exportSalesReport/);
+  assert.match(api, /function exportInvoiceReport/);
+  assert.match(api, /reportFilename\('ptg-sales'/);
+  assert.match(api, /reportFilename\('ptg-invoices'/);
+  assert.match(api, /Cache-Control': 'no-store'/);
+});
+
 test('admin creates a safe product and initial variants in one validated batch', async () => {
   const [html, script, api] = await Promise.all([
     readFile(new URL('admin/index.html', root), 'utf8'),

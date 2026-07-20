@@ -1,3 +1,5 @@
+import { ensureInvoiceSnapshot } from './invoices.js';
+
 const PRODUCT_FIELDS = new Set([
   'slug', 'name', 'description', 'category', 'productType', 'badge', 'priceCents', 'currency', 'seoTitle', 'metaDescription', 'active',
   'availableForSale', 'featured', 'trackInventory', 'allowPlayerName',
@@ -6,6 +8,9 @@ const PRODUCT_FIELDS = new Set([
 const CREATE_PRODUCT_FIELDS = new Set([...PRODUCT_FIELDS, 'variants']);
 const VARIANT_FIELDS = new Set(['sku', 'size', 'colour', 'style', 'active', 'allowPlayerName', 'allowPlayerNumber', 'version']);
 const FULFILMENT_STATUSES = new Set(['unfulfilled', 'paid', 'processing', 'ready_for_collection', 'shipped', 'completed', 'cancelled', 'refunded']);
+const PAYMENT_STATUSES = new Set(['paid', 'unpaid', 'failed', 'cancelled', 'expired']);
+const INVOICE_STATUSES = new Set(['issued', 'partially_refunded', 'refunded', 'not_issued']);
+const REPORT_EXPORT_LIMIT = 5000;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -243,6 +248,71 @@ function validateProduct(body, requireVersion = true, allowedFields = PRODUCT_FI
       ...mappedBooleans
     }
   };
+}
+
+function reportFilename(prefix, filters) {
+  const suffix = filters.from && filters.to ? `${filters.from}-to-${filters.to}` : exportDate();
+  return `${prefix}-${suffix}.csv`;
+}
+
+function invalidReport(message) {
+  const error = new Error(message);
+  error.status = 400;
+  throw error;
+}
+
+function parseReportFilters(url, { exportRequest = false } = {}) {
+  const value = {
+    search: cleanText(url.searchParams.get('search'), 120),
+    payment: cleanText(url.searchParams.get('payment'), 30).toLowerCase(),
+    fulfilment: cleanText(url.searchParams.get('fulfilment'), 30).toLowerCase(),
+    fulfilmentType: cleanText(url.searchParams.get('fulfilmentType'), 20).toLowerCase(),
+    invoiceStatus: cleanText(url.searchParams.get('invoiceStatus'), 30).toLowerCase(),
+    product: cleanText(url.searchParams.get('product'), 120),
+    from: cleanText(url.searchParams.get('from'), 10),
+    to: cleanText(url.searchParams.get('to'), 10),
+    page: Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1),
+    limit: exportRequest ? REPORT_EXPORT_LIMIT : Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get('limit') || '50', 10) || 50))
+  };
+  if (value.payment && !PAYMENT_STATUSES.has(value.payment)) invalidReport('Invalid payment status filter.');
+  if (value.fulfilment && !FULFILMENT_STATUSES.has(value.fulfilment)) invalidReport('Invalid fulfilment status filter.');
+  if (value.fulfilmentType && !['pickup', 'delivery'].includes(value.fulfilmentType)) invalidReport('Invalid fulfilment method filter.');
+  if (value.invoiceStatus && !INVOICE_STATUSES.has(value.invoiceStatus)) invalidReport('Invalid invoice status filter.');
+  for (const field of ['from', 'to']) {
+    if (value[field] && !/^\d{4}-\d{2}-\d{2}$/.test(value[field])) invalidReport(`Invalid ${field} date.`);
+  }
+  if (value.from && value.to) {
+    const fromTime = Date.parse(`${value.from}T00:00:00Z`);
+    const toTime = Date.parse(`${value.to}T00:00:00Z`);
+    if (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || fromTime > toTime) invalidReport('The report start date must be on or before the end date.');
+    if ((toTime - fromTime) / 86400000 > 366) invalidReport('Report date ranges cannot exceed 366 days.');
+  }
+  return value;
+}
+
+function reportWhere(filters, { invoicesOnly = false, defaultPaid = true } = {}) {
+  const clauses = [];
+  const values = [];
+  if (filters.search) {
+    const term = `%${filters.search}%`;
+    clauses.push(`(o.order_number LIKE ? OR o.invoice_number LIKE ? OR o.customer_name LIKE ? OR o.customer_email LIKE ? OR o.stripe_payment_intent_id LIKE ? OR EXISTS (SELECT 1 FROM order_items osi WHERE osi.order_id = o.id AND (osi.product_name LIKE ? OR osi.sku LIKE ?)))`);
+    values.push(term, term, term, term, term, term, term);
+  }
+  if (filters.payment) { clauses.push('o.payment_status = ?'); values.push(filters.payment); }
+  else if (defaultPaid) clauses.push("o.payment_status = 'paid'");
+  if (filters.fulfilment) { clauses.push('o.fulfilment_status = ?'); values.push(filters.fulfilment); }
+  if (filters.fulfilmentType) { clauses.push('o.fulfilment_type = ?'); values.push(filters.fulfilmentType); }
+  if (filters.product) {
+    const term = `%${filters.product}%`;
+    clauses.push('EXISTS (SELECT 1 FROM order_items opi WHERE opi.order_id = o.id AND (opi.product_id = ? OR opi.product_name LIKE ? OR opi.sku LIKE ?))');
+    values.push(filters.product, term, term);
+  }
+  if (filters.from) { clauses.push('date(o.created_at) >= date(?)'); values.push(filters.from); }
+  if (filters.to) { clauses.push('date(o.created_at) <= date(?)'); values.push(filters.to); }
+  if (invoicesOnly) clauses.push('i.id IS NOT NULL');
+  if (filters.invoiceStatus === 'not_issued') clauses.push('i.id IS NULL');
+  else if (filters.invoiceStatus) { clauses.push('i.status = ?'); values.push(filters.invoiceStatus); }
+  return { sql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', values };
 }
 
 function productSlug(value) {
@@ -662,20 +732,67 @@ async function updateOrder(db, orderId, body, identity) {
 }
 
 async function ensureInvoice(db, orderId, identity) {
-  let order = await db.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
-  if (!order) return null;
-  if (order.payment_status !== 'paid') throw new Error('Invoices are only available for paid orders.');
-  if (!order.invoice_number) {
-    const year = Number(String(order.payment_date || order.created_at || new Date().toISOString()).slice(0, 4));
-    const sequence = await db.prepare(`INSERT INTO invoice_sequence (year, next_value) VALUES (?, 2)
-      ON CONFLICT(year) DO UPDATE SET next_value = next_value + 1, updated_at = CURRENT_TIMESTAMP
-      RETURNING next_value - 1 AS value`).bind(year).first();
-    const invoiceNumber = `PTG-${year}-${String(sequence.value).padStart(6, '0')}`;
-    const result = await db.prepare('UPDATE orders SET invoice_number = ?, invoice_created_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND invoice_number IS NULL').bind(invoiceNumber, orderId).run();
-    order = await db.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first();
-    if (result.meta.changes) await audit(db, identity, 'generate_invoice', 'order', orderId, `Generated ${invoiceNumber}`);
-  }
-  return getOrder(db, orderId);
+  return ensureInvoiceSnapshot(db, orderId, identity);
+}
+
+async function reportSummary(db, filters) {
+  const where = reportWhere(filters);
+  const row = await db.prepare(`SELECT
+    COALESCE(SUM(o.total_cents), 0) AS total_paid_cents,
+    COUNT(o.id) AS paid_orders,
+    CASE WHEN COUNT(o.id) = 0 THEN 0 ELSE CAST(ROUND(AVG(o.total_cents)) AS INTEGER) END AS average_order_cents,
+    COALESCE(SUM(o.shipping_cents), 0) AS shipping_cents,
+    COALESCE(SUM(o.payment_surcharge_cents), 0) AS surcharge_cents,
+    COALESCE(SUM(o.refunded_cents), 0) AS refunded_cents,
+    COALESCE(SUM(o.total_cents - o.refunded_cents), 0) AS net_collected_cents
+    FROM orders o LEFT JOIN invoices i ON i.order_id = o.id ${where.sql}`).bind(...where.values).first();
+  return {
+    totalPaidCents: Number(row?.total_paid_cents || 0), paidOrders: Number(row?.paid_orders || 0),
+    averageOrderCents: Number(row?.average_order_cents || 0), shippingCents: Number(row?.shipping_cents || 0),
+    surchargeCents: Number(row?.surcharge_cents || 0), refundedCents: Number(row?.refunded_cents || 0),
+    netCollectedCents: Number(row?.net_collected_cents || 0)
+  };
+}
+
+async function reportSales(db, filters, { exportRequest = false } = {}) {
+  const where = reportWhere(filters);
+  const offset = exportRequest ? 0 : (filters.page - 1) * filters.limit;
+  const result = await db.prepare(`SELECT o.id, o.created_at, o.order_number, o.invoice_number,
+    o.customer_name, o.customer_email, o.customer_phone, o.fulfilment_type, o.shipping_city, o.shipping_region,
+    o.subtotal_cents, o.shipping_cents, o.payment_surcharge_cents, o.total_cents, o.currency,
+    o.payment_status, o.fulfilment_status, o.refund_status, o.refunded_cents,
+    (SELECT GROUP_CONCAT(DISTINCT osi.product_name) FROM order_items osi WHERE osi.order_id = o.id) AS product_names,
+    (SELECT GROUP_CONCAT(DISTINCT osi.sku) FROM order_items osi WHERE osi.order_id = o.id) AS skus,
+    (SELECT COALESCE(SUM(osi.quantity), 0) FROM order_items osi WHERE osi.order_id = o.id) AS quantity
+    FROM orders o LEFT JOIN invoices i ON i.order_id = o.id ${where.sql}
+    ORDER BY o.created_at DESC, o.id DESC LIMIT ? OFFSET ?`).bind(...where.values, filters.limit, offset).all();
+  const count = await db.prepare(`SELECT COUNT(*) AS total FROM orders o LEFT JOIN invoices i ON i.order_id = o.id ${where.sql}`).bind(...where.values).first();
+  return { rows: result.results || [], total: Number(count?.total || 0), page: filters.page, limit: filters.limit };
+}
+
+async function reportInvoices(db, filters, { exportRequest = false } = {}) {
+  const where = reportWhere(filters, { invoicesOnly: true });
+  const offset = exportRequest ? 0 : (filters.page - 1) * filters.limit;
+  const result = await db.prepare(`SELECT i.order_id, i.invoice_number, i.issue_date, i.customer_name, i.customer_email,
+    i.subtotal_cents, i.shipping_cents, i.processing_surcharge_cents, i.total_cents, i.currency, i.status,
+    o.order_number FROM invoices i JOIN orders o ON o.id = i.order_id ${where.sql}
+    ORDER BY i.issue_date DESC, i.id DESC LIMIT ? OFFSET ?`).bind(...where.values, filters.limit, offset).all();
+  const count = await db.prepare(`SELECT COUNT(*) AS total FROM invoices i JOIN orders o ON o.id = i.order_id ${where.sql}`).bind(...where.values).first();
+  return { rows: result.results || [], total: Number(count?.total || 0), page: filters.page, limit: filters.limit };
+}
+
+async function exportSalesReport(db, filters, identity) {
+  const report = await reportSales(db, filters, { exportRequest: true });
+  const rows = report.rows.map(row => [row.created_at, row.order_number, row.invoice_number, row.customer_name, row.customer_email, row.customer_phone, row.fulfilment_type, row.shipping_city, row.shipping_region, row.product_names, row.skus, row.quantity, row.subtotal_cents / 100, row.shipping_cents / 100, row.payment_surcharge_cents / 100, row.total_cents / 100, row.currency, row.payment_status, row.fulfilment_status, row.refunded_cents / 100]);
+  await audit(db, identity, 'export_csv', 'sales_report', exportDate(), `Exported ${rows.length} sales`);
+  return csvResponse(reportFilename('ptg-sales', filters), ['Order date','Order number','Invoice number','Customer name','Customer email','Phone','Fulfilment method','Shipping city','Shipping region','Product names','SKUs','Quantities','Subtotal','Shipping','Processing surcharge','Total','Currency','Payment status','Fulfilment status','Refund amount'], rows);
+}
+
+async function exportInvoiceReport(db, filters, identity) {
+  const report = await reportInvoices(db, filters, { exportRequest: true });
+  const rows = report.rows.map(row => [row.invoice_number, row.order_number, row.issue_date, row.customer_name, row.subtotal_cents / 100, row.shipping_cents / 100, row.processing_surcharge_cents / 100, row.total_cents / 100, row.currency, row.status]);
+  await audit(db, identity, 'export_csv', 'invoice_report', exportDate(), `Exported ${rows.length} invoices`);
+  return csvResponse(reportFilename('ptg-invoices', filters), ['Invoice number','Order number','Issue date','Customer','Subtotal','Shipping','Processing surcharge','Total','Currency','Status'], rows);
 }
 
 async function listMovements(db, url) {
@@ -803,6 +920,24 @@ async function routeAdminApi(request, env, identity) {
     if (method === 'GET' && segments[0] === 'stock-movements' && segments.length === 1) {
       return json({ ok: true, movements: await listMovements(env.DB, url) });
     }
+    if (method === 'GET' && segments[0] === 'reports' && segments[1] === 'summary' && segments.length === 2) {
+      const filters = parseReportFilters(url);
+      return json({ ok: true, summary: await reportSummary(env.DB, filters), filters });
+    }
+    if (method === 'GET' && segments[0] === 'reports' && segments[1] === 'sales' && segments.length === 2) {
+      const filters = parseReportFilters(url);
+      return json({ ok: true, ...(await reportSales(env.DB, filters)) });
+    }
+    if (method === 'GET' && segments[0] === 'reports' && segments[1] === 'sales.csv' && segments.length === 2) {
+      return exportSalesReport(env.DB, parseReportFilters(url, { exportRequest: true }), identity);
+    }
+    if (method === 'GET' && segments[0] === 'reports' && segments[1] === 'invoices' && segments.length === 2) {
+      const filters = parseReportFilters(url);
+      return json({ ok: true, ...(await reportInvoices(env.DB, filters)) });
+    }
+    if (method === 'GET' && segments[0] === 'reports' && segments[1] === 'invoices.csv' && segments.length === 2) {
+      return exportInvoiceReport(env.DB, parseReportFilters(url, { exportRequest: true }), identity);
+    }
     if (method === 'GET' && segments[0] === 'exports' && segments[1] === 'orders') return exportOrders(env.DB, url, identity);
     if (method === 'GET' && segments[0] === 'exports' && segments[1] === 'inventory') return exportInventory(env.DB, url, identity);
     if (method === 'GET' && segments[0] === 'exports' && segments[1] === 'stock-movements') return exportMovements(env.DB, url, identity);
@@ -812,6 +947,7 @@ async function routeAdminApi(request, env, identity) {
     return json({ ok: false, error: 'Admin endpoint not found.' }, 404);
   } catch (error) {
     console.error('Admin API request failed', { method, path, message: error.message });
+    if (error.status === 400) return json({ ok: false, error: error.message }, 400);
     return json({ ok: false, error: 'The admin request could not be completed.' }, 500);
   }
 }
