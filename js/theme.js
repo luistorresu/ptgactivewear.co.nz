@@ -51,10 +51,40 @@
     return theme;
   }
 
+  function setupHeaderFootball() {
+    const header = document.querySelector('.site-header');
+    if (!header || header.querySelector('.header-football-animation')) return;
+
+    const lane = document.createElement('div');
+    const runner = document.createElement('span');
+    const bobber = document.createElement('span');
+    const ball = document.createElement('img');
+    lane.className = 'header-football-animation';
+    lane.setAttribute('aria-hidden', 'true');
+    runner.className = 'header-football-runner';
+    bobber.className = 'header-football-bobber';
+    ball.className = 'header-football';
+    ball.src = '/assets/images/soccer-ball.svg';
+    ball.alt = '';
+    ball.width = 64;
+    ball.height = 64;
+    ball.decoding = 'async';
+    bobber.append(ball);
+    runner.append(bobber);
+    lane.append(runner);
+
+    const mobileMenu = header.querySelector('.site-mobile-menu');
+    header.insertBefore(lane, mobileMenu || null);
+    const updateVisibility = () => lane.classList.toggle('is-paused', document.hidden);
+    document.addEventListener('visibilitychange', updateVisibility);
+    updateVisibility();
+  }
+
   const initialTheme = applyTheme(savedTheme() || 'light');
 
   document.addEventListener('DOMContentLoaded', () => {
     updateControls(initialTheme);
+    setupHeaderFootball();
     document.querySelectorAll('[data-theme-select]').forEach(select => {
       select.addEventListener('change', event => applyTheme(event.target.value, true));
     });
