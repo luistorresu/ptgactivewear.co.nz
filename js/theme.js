@@ -51,40 +51,78 @@
     return theme;
   }
 
-  function setupHeaderFootball() {
-    const header = document.querySelector('.site-header');
-    if (!header || header.querySelector('.header-football-animation')) return;
+  function setupFloatingFootball() {
+    if (!document.body || document.querySelector('.floating-football-animation')) return;
 
-    const lane = document.createElement('div');
+    const stage = document.createElement('div');
     const runner = document.createElement('span');
-    const bobber = document.createElement('span');
     const ball = document.createElement('img');
-    lane.className = 'header-football-animation';
-    lane.setAttribute('aria-hidden', 'true');
-    runner.className = 'header-football-runner';
-    bobber.className = 'header-football-bobber';
-    ball.className = 'header-football';
+    stage.className = 'floating-football-animation';
+    stage.setAttribute('aria-hidden', 'true');
+    runner.className = 'floating-football-runner';
+    ball.className = 'floating-football';
     ball.src = '/assets/images/soccer-ball.svg';
     ball.alt = '';
     ball.width = 64;
     ball.height = 64;
     ball.decoding = 'async';
-    bobber.append(ball);
-    runner.append(bobber);
-    lane.append(runner);
+    runner.append(ball);
+    stage.append(runner);
+    document.body.append(stage);
 
-    const mobileMenu = header.querySelector('.site-mobile-menu');
-    header.insertBefore(lane, mobileMenu || null);
-    const updateVisibility = () => lane.classList.toggle('is-paused', document.hidden);
-    document.addEventListener('visibilitychange', updateVisibility);
-    updateVisibility();
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let motion;
+    let resizeTimer;
+
+    const randomPoint = () => {
+      const size = runner.getBoundingClientRect().width || 36;
+      const headerBottom = document.querySelector('.site-header')?.getBoundingClientRect().bottom || 0;
+      const padding = 12;
+      const maxX = Math.max(padding, window.innerWidth - size - padding);
+      const minY = Math.min(window.innerHeight - size - padding, Math.max(padding, headerBottom + padding));
+      const maxY = Math.max(minY, window.innerHeight - size - padding);
+      return {
+        x: padding + Math.random() * Math.max(0, maxX - padding),
+        y: minY + Math.random() * Math.max(0, maxY - minY)
+      };
+    };
+
+    const startMotion = () => {
+      motion?.cancel();
+      if (reducedMotion.matches || !runner.animate) return;
+      const points = Array.from({ length: 7 }, randomPoint);
+      const direction = Math.random() > 0.5 ? 1 : -1;
+      const turns = 3 + Math.floor(Math.random() * 3);
+      motion = runner.animate(points.map((point, index) => ({
+        transform: `translate3d(${point.x}px, ${point.y}px, 0) rotate(${direction * turns * 360 * index / (points.length - 1)}deg)`,
+        easing: 'ease-in-out'
+      })), {
+        duration: 36000 + Math.random() * 12000,
+        iterations: 1,
+        fill: 'forwards'
+      });
+      if (document.hidden) motion.pause();
+      motion.finished.then(startMotion).catch(() => {});
+    };
+
+    document.addEventListener('visibilitychange', () => {
+      if (!motion) return;
+      if (document.hidden) motion.pause();
+      else motion.play();
+    });
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(startMotion, 180);
+    });
+    reducedMotion.addEventListener('change', startMotion);
+    requestAnimationFrame(startMotion);
   }
 
   const initialTheme = applyTheme(savedTheme() || 'light');
 
   document.addEventListener('DOMContentLoaded', () => {
     updateControls(initialTheme);
-    setupHeaderFootball();
+    setupFloatingFootball();
     document.querySelectorAll('[data-theme-select]').forEach(select => {
       select.addEventListener('change', event => applyTheme(event.target.value, true));
     });

@@ -20,8 +20,6 @@
   --header-border: #dbe3e8;
   --footer-background: #050505;
   --shadow-color: rgba(15, 23, 42, 0.12);
-  --football-lane-background: #f3f8fa;
-  --football-lane-border: #dbe7eb;
   --football-shadow: drop-shadow(0 2px 3px rgba(15, 23, 42, 0.24));
 }
 
@@ -44,8 +42,6 @@ html[data-theme="dark"] {
   --header-border: #26343e;
   --footer-background: #05080b;
   --shadow-color: rgba(0, 0, 0, 0.4);
-  --football-lane-background: #0c1820;
-  --football-lane-border: #263b47;
   --football-shadow: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.2)) drop-shadow(0 3px 4px rgba(0, 0, 0, 0.5));
 }
 
@@ -68,8 +64,6 @@ html[data-theme="sky"] {
   --header-border: #255062;
   --footer-background: #081f2a;
   --shadow-color: rgba(13, 45, 60, 0.18);
-  --football-lane-background: #c8eaf4;
-  --football-lane-border: #8fc8d8;
   --football-shadow: drop-shadow(0 2px 3px rgba(13, 45, 60, 0.3));
 }
 
@@ -168,90 +162,38 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
   border-top: 1px solid var(--header-border);
 }
 
-.header-football-animation {
-  --football-size: 36px;
-  --football-duration: 14s;
-  --football-travel-distance: calc(100vw - var(--football-size) - 2rem);
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  height: 38px;
+.floating-football-animation {
+  --football-size: 38px;
+  position: fixed;
+  z-index: 30;
+  inset: 0;
   overflow: hidden;
-  contain: layout paint;
-  border-top: 1px solid var(--football-lane-border);
-  border-bottom: 1px solid var(--football-lane-border);
-  background: var(--football-lane-background);
   pointer-events: none;
   user-select: none;
 }
 
-.header-football-runner {
+.floating-football-runner {
   position: absolute;
-  top: 50%;
-  left: 1rem;
+  top: 0;
+  left: 0;
   width: var(--football-size);
   height: var(--football-size);
-  animation: headerFootballTravel var(--football-duration) cubic-bezier(0.45, 0.02, 0.55, 0.98) infinite;
   will-change: transform;
 }
 
-.header-football-bobber {
-  display: block;
-  width: 100%;
-  height: 100%;
-  animation: headerFootballBob 2.8s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-.header-football {
+.floating-football {
   display: block;
   width: 100%;
   height: 100%;
   filter: var(--football-shadow);
-  animation: headerFootballRoll var(--football-duration) linear infinite;
-  will-change: transform;
-}
-
-.header-football-animation.is-paused .header-football-runner,
-.header-football-animation.is-paused .header-football-bobber,
-.header-football-animation.is-paused .header-football {
-  animation-play-state: paused;
-}
-
-@keyframes headerFootballTravel {
-  0%, 3%, 97%, 100% { transform: translate3d(0, -50%, 0); }
-  48%, 52% { transform: translate3d(var(--football-travel-distance), -50%, 0); }
-}
-
-@keyframes headerFootballBob {
-  from { transform: translate3d(0, 2px, 0); }
-  to { transform: translate3d(0, -2px, 0); }
-}
-
-@keyframes headerFootballRoll {
-  0%, 3%, 97%, 100% { transform: rotate(0deg); }
-  48%, 52% { transform: rotate(720deg); }
 }
 
 @media (max-width: 900px) {
-  .header-football-animation {
-    --football-size: 30px;
-    height: 32px;
-  }
+  .floating-football-animation { --football-size: 32px; }
 }
 
 @media (max-width: 480px) {
-  .header-football-animation {
-    --football-size: 24px;
-    --football-travel-distance: calc(100vw - var(--football-size) - 1rem);
-    height: 26px;
-  }
-
-  .header-football-runner { left: 0.5rem; }
-}
-
-@media (max-width: 340px) {
-  .header-football-animation { display: none; }
+  .floating-football-animation { --football-size: 26px; }
 }
 
 .theme-selector {
@@ -1361,16 +1303,5 @@ html[data-theme="dark"] .stock-out_of_stock { color: #ffb4b4; background: #421b1
 
 @media (prefers-reduced-motion: reduce) {
   body { transition: none; }
-  .header-football-runner {
-    left: calc(50% - (var(--football-size) / 2));
-    animation: none;
-    transform: translate3d(0, -50%, 0);
-    will-change: auto;
-  }
-  .header-football-bobber,
-  .header-football {
-    animation: none;
-    transform: none;
-    will-change: auto;
-  }
+  .floating-football-animation { display: none; }
 }
