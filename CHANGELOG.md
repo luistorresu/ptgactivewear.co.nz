@@ -8,7 +8,7 @@ All notable changes to this website should be documented here.
 
 * Added a compact public Light, Dark, and Sky Blue theme selector to every storefront header, with validated `ptg-theme` browser persistence and cross-tab synchronisation.
 * Added early theme restoration before public styles render, theme-aware logo switching, accessible native controls, and coordinated public design tokens.
-* Added a lightweight transparent classic football SVG that moves slowly between random positions across public page bodies, with responsive sizing, header avoidance, tab-hidden pausing, non-interactive layering, and a reduced-motion fallback.
+* Added a lightweight transparent classic football SVG that moves slowly between random positions inside public headers, behind the interactive controls, with responsive sizing, tab-hidden pausing, non-interactive layering, and a reduced-motion fallback.
 
 ### Changed
 

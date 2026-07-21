@@ -75,8 +75,14 @@ html { scroll-behavior: smooth; }
 }
 
 .site-header {
+  isolation: isolate;
   background: var(--header-background);
   border-bottom: 1px solid var(--header-border);
+}
+
+.site-header > :not(.floating-football-animation) {
+  position: relative;
+  z-index: 2;
 }
 
 .site-logo-link {
@@ -163,9 +169,9 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
 }
 
 .floating-football-animation {
-  --football-size: 38px;
-  position: fixed;
-  z-index: 30;
+  --football-size: 30px;
+  position: absolute;
+  z-index: 1;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
@@ -189,11 +195,11 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
 }
 
 @media (max-width: 900px) {
-  .floating-football-animation { --football-size: 32px; }
+  .floating-football-animation { --football-size: 26px; }
 }
 
 @media (max-width: 480px) {
-  .floating-football-animation { --football-size: 26px; }
+  .floating-football-animation { --football-size: 22px; }
 }
 
 .theme-selector {

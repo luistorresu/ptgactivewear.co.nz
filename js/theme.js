@@ -52,7 +52,8 @@
   }
 
   function setupFloatingFootball() {
-    if (!document.body || document.querySelector('.floating-football-animation')) return;
+    const header = document.querySelector('.site-header');
+    if (!header || header.querySelector('.floating-football-animation')) return;
 
     const stage = document.createElement('div');
     const runner = document.createElement('span');
@@ -68,7 +69,7 @@
     ball.decoding = 'async';
     runner.append(ball);
     stage.append(runner);
-    document.body.append(stage);
+    header.append(stage);
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let motion;
@@ -76,14 +77,12 @@
 
     const randomPoint = () => {
       const size = runner.getBoundingClientRect().width || 36;
-      const headerBottom = document.querySelector('.site-header')?.getBoundingClientRect().bottom || 0;
-      const padding = 12;
-      const maxX = Math.max(padding, window.innerWidth - size - padding);
-      const minY = Math.min(window.innerHeight - size - padding, Math.max(padding, headerBottom + padding));
-      const maxY = Math.max(minY, window.innerHeight - size - padding);
+      const padding = 6;
+      const maxX = Math.max(padding, stage.clientWidth - size - padding);
+      const maxY = Math.max(padding, stage.clientHeight - size - padding);
       return {
         x: padding + Math.random() * Math.max(0, maxX - padding),
-        y: minY + Math.random() * Math.max(0, maxY - minY)
+        y: padding + Math.random() * Math.max(0, maxY - padding)
       };
     };
 
