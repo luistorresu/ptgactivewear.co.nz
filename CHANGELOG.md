@@ -2,6 +2,21 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-21
+
+### Added
+
+* Added a compact public Light, Dark, and Sky Blue theme selector to every storefront header, with validated `ptg-theme` browser persistence and cross-tab synchronisation.
+* Added early theme restoration before public styles render, theme-aware logo switching, accessible native controls, and coordinated public design tokens.
+
+### Changed
+
+* Applied the selected public theme to storefront surfaces, typography, forms, product cards, galleries, cart, fulfilment controls, alerts, and footer without changing the admin portal.
+
+### Fixed
+
+* Kept single-image product lightboxes in the full-width centre gallery column when previous and next controls are hidden.
+
 ## 2026-07-20
 
 ### Added

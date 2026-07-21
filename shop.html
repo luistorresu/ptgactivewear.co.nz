@@ -16,6 +16,7 @@
   <meta name="twitter:description" content="Browse premium Patagonia FC teamwear, kits and personalised merchandise." />
   <meta name="twitter:image" content="https://ptgactivewear.co.nz/photos/clouth/Patagonia%20FC%20Tournament%20Player%20Kit%20-%20%2495%20-%20image%2001.png" />
 
+  <script src="/js/theme.js"></script>
   <link rel="preconnect" href="https://cdn.tailwindcss.com">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -46,7 +47,7 @@
   <header class="site-header sticky top-0 z-50 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
       <a href="index.html" class="site-logo-link flex items-center shrink-0" aria-label="PTG Activewear home">
-        <img src="photos/ptg-logo-light-transparent.webp" alt="PTG Activewear" class="site-logo" width="2016" height="702">
+        <img src="photos/ptg-logo-dark-transparent.webp" alt="PTG Activewear" class="site-logo" width="2016" height="702" data-theme-logo>
       </a>
       <nav class="hidden md:flex items-center gap-8">
         <a href="index.html"  class="site-nav-link">Home</a>
@@ -55,6 +56,7 @@
         <a href="contact.html" class="site-nav-link">Contact</a>
       </nav>
       <div class="flex items-center gap-4">
+        <label class="theme-selector"><span class="sr-only">Website theme</span><svg class="theme-selector-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3a9 9 0 100 18h1.5a1.5 1.5 0 000-3H12a1.5 1.5 0 010-3h2a7 7 0 000-14h-2z"/><path stroke-linecap="round" stroke-width="2" d="M7.5 10h.01M9.5 6.5h.01M14.5 6.5h.01"/></svg><span class="theme-selector-label" data-theme-label>Light</span><svg class="theme-selector-chevron" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9l6 6 6-6"/></svg><select data-theme-select aria-label="Website theme"><option value="light">Light</option><option value="dark">Dark</option><option value="sky">Sky Blue</option></select></label>
         <button onclick="toggleCart()" class="site-icon-button relative p-1" aria-label="Cart">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 5.6A1 1 0 007 20h10a1 1 0 00.97-.76L19 13M7 13H5.4M10 21a1 1 0 100-2 1 1 0 000 2zm7 0a1 1 0 100-2 1 1 0 000 2z"/>
