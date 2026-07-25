@@ -10,6 +10,7 @@ import {
 } from './shirt-number.js';
 
 const MAX_ITEM_QUANTITY = 20;
+const TRAINING_KIT_PERSONALISATION_PRICE_CENTS = 2000;
 
 function cleanText(value, maxLength) {
   return String(value ?? '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
@@ -79,8 +80,12 @@ export async function validateD1CheckoutPayload(payload, env) {
       if (!playerNumberIsValid(playerNumber)) return { error: `Please enter a player number from 0 to 99 for ${product.name}.` };
     }
 
-    const nameAddOn = allowPlayerName && playerName ? product.player_name_price_cents : 0;
-    const numberAddOn = allowPlayerNumber && playerNumber ? product.player_number_price_cents : 0;
+    const nameAddOn = allowPlayerName && playerName
+      ? (productId === TRAINING_KIT_ID ? TRAINING_KIT_PERSONALISATION_PRICE_CENTS : product.player_name_price_cents)
+      : 0;
+    const numberAddOn = allowPlayerNumber && playerNumber
+      ? (productId === TRAINING_KIT_ID ? TRAINING_KIT_PERSONALISATION_PRICE_CENTS : product.player_number_price_cents)
+      : 0;
     checkedItems.push({
       productId,
       variantId,

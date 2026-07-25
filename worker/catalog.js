@@ -1,3 +1,6 @@
+const TRAINING_KIT_ID = 'patagonia-fc-training-kit';
+const TRAINING_KIT_PERSONALISATION_PRICE = 20;
+
 function asBoolean(value) {
   return Number(value) === 1;
 }
@@ -79,8 +82,12 @@ function publicProduct(product, images, variants, threshold) {
     personalisable: asBoolean(product.allow_player_name) || asBoolean(product.allow_player_number),
     allowPlayerName: asBoolean(product.allow_player_name),
     allowPlayerNumber: asBoolean(product.allow_player_number),
-    playerNamePrice: product.player_name_price_cents / 100,
-    playerNumberPrice: product.player_number_price_cents / 100,
+    playerNamePrice: product.id === TRAINING_KIT_ID
+      ? TRAINING_KIT_PERSONALISATION_PRICE
+      : product.player_name_price_cents / 100,
+    playerNumberPrice: product.id === TRAINING_KIT_ID
+      ? TRAINING_KIT_PERSONALISATION_PRICE
+      : product.player_number_price_cents / 100,
     image: gallery[0] || '',
     gallery,
     galleryImages: publicImages,

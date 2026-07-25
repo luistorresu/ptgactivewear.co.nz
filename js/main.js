@@ -42,6 +42,11 @@ function formatMoney(value) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function personalisationOptionPrice(product, field) {
+  if (product?.id === TRAINING_KIT_ID) return PERSONALISATION_ADDON_PRICE;
+  return Number(product?.[field] ?? PERSONALISATION_ADDON_PRICE);
+}
+
 function getProducts() {
   return window.PTG_PRODUCTS || globalThis.PTG_PRODUCTS || [];
 }
@@ -259,8 +264,8 @@ async function addToCart(productId, name, price, trigger) {
   const size = inventoryVariant?.size ?? getSelectedSize(trigger);
   const variantId = inventoryVariant?.id || null;
   const basePrice = Number(price);
-  const namePrice = Number(product?.playerNamePrice ?? PERSONALISATION_ADDON_PRICE);
-  const numberPrice = Number(product?.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE);
+  const namePrice = personalisationOptionPrice(product, 'playerNamePrice');
+  const numberPrice = personalisationOptionPrice(product, 'playerNumberPrice');
   const addOnTotal =
     (personalisation.name ? namePrice : 0) +
     (personalisation.number ? numberPrice : 0);
@@ -828,9 +833,11 @@ function renderProductCard(product, isShop, isProductPage = false) {
   const initialStyle = product.inventoryVariants?.find(variant => variant.available)?.style || '';
   const gallery = getProductGallery(product, initialStyle);
   const galleryCount = gallery.length;
+  const namePrice = personalisationOptionPrice(product, 'playerNamePrice');
+  const numberPrice = personalisationOptionPrice(product, 'playerNumberPrice');
 
   return `
-      <div class="${cardClasses}" data-product-id="${escapeHtml(product.id)}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}" data-allow-player-name="${product.allowPlayerName ?? product.personalisable ? 'true' : 'false'}" data-allow-player-number="${product.allowPlayerNumber ?? product.personalisable ? 'true' : 'false'}" data-name-price="${Number(product.playerNamePrice ?? PERSONALISATION_ADDON_PRICE)}" data-number-price="${Number(product.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE)}">
+      <div class="${cardClasses}" data-product-id="${escapeHtml(product.id)}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}" data-allow-player-name="${product.allowPlayerName ?? product.personalisable ? 'true' : 'false'}" data-allow-player-number="${product.allowPlayerNumber ?? product.personalisable ? 'true' : 'false'}" data-name-price="${namePrice}" data-number-price="${numberPrice}">
         <div class="product-image-wrap relative overflow-hidden ${imageHeight}">
           <button type="button" class="product-image-button" onclick='openProductLightbox(${escapeJsString(product.name)}, 0, this)' aria-label="View ${escapeHtml(product.name)} image gallery">
             <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
@@ -1239,8 +1246,8 @@ function refreshCartFromDatabaseProducts() {
     const product = getProducts().find(candidate => candidate.id === item.id);
     if (!product) return;
 
-    const namePrice = Number(product.playerNamePrice ?? PERSONALISATION_ADDON_PRICE);
-    const numberPrice = Number(product.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE);
+    const namePrice = personalisationOptionPrice(product, 'playerNamePrice');
+    const numberPrice = personalisationOptionPrice(product, 'playerNumberPrice');
     const addOnTotal = (item.personalisation?.name ? namePrice : 0) + (item.personalisation?.number ? numberPrice : 0);
     item.basePrice = Number(product.price);
     item.price = item.basePrice + addOnTotal;

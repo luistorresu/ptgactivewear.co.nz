@@ -16,7 +16,7 @@ function trainingDatabase() {
   const product = {
     id: 'patagonia-fc-training-kit', name: 'Patagonia FC Training Kit', price_cents: 9500,
     active: 1, archived: 0, available_for_sale: 1, track_inventory: 0,
-    allow_player_name: 1, allow_player_number: 1, player_name_price_cents: 2000, player_number_price_cents: 2000
+    allow_player_name: 1, allow_player_number: 1, player_name_price_cents: 0, player_number_price_cents: 0
   };
   const variant = {
     id: 81, product_id: product.id, sku: 'PTG-PFC-TRAINING-KIT-8', size: '8', colour: '', style: '',
@@ -66,6 +66,8 @@ test('D1 checkout requires a valid signed proof for restricted Training Kit numb
     const accepted = await validateD1CheckoutPayload(d1Payload(number, proof.token), env);
     assert.equal(accepted.error, undefined);
     assert.equal(accepted.items[0].restrictedNumberEligibilityVerified, true);
+    assert.equal(accepted.items[0].nameAddOn, 2000);
+    assert.equal(accepted.items[0].numberAddOn, 2000);
     assert.equal('shirtNumberEligibilityToken' in accepted.items[0], false);
   }
   for (const number of ['', '2', '8', '11', '25', '99']) {
