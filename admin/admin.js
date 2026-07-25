@@ -13,6 +13,9 @@ const state = {
   previewUrls: []
 };
 
+const TRAINING_KIT_ID = 'patagonia-fc-training-kit';
+const RESTRICTED_SHIRT_NUMBERS = new Set(['1', '7', '9', '10']);
+
 const views = [...document.querySelectorAll('[data-view]')];
 const notice = document.querySelector('[data-notice]');
 const productList = document.querySelector('[data-product-list]');
@@ -37,6 +40,25 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
   }[character]));
+}
+
+function restrictedNumberWasVerified(order, number) {
+  const marker = String(order.internal_notes || '').match(/\[system:training-kit-restricted-number-verified=([0-9,]+)\]/);
+  return Boolean(marker && marker[1].split(',').includes(String(number)));
+}
+
+function renderOrderItemDetails(item, order) {
+  const details = [[item.size, item.colour, item.style].filter(Boolean).join(' / ')];
+  const trainingKit = item.product_id === TRAINING_KIT_ID;
+  if (item.player_name) details.push(`Player Name: ${item.player_name}${trainingKit ? ' (+$20.00)' : ''}`);
+  if (item.player_number) details.push(`${trainingKit ? 'Requested Shirt Number' : 'Player Number'}: ${item.player_number}${trainingKit ? ' (+$20.00)' : ''}`);
+  if (trainingKit && RESTRICTED_SHIRT_NUMBERS.has(item.player_number)) {
+    const verified = restrictedNumberWasVerified(order, item.player_number);
+    details.push('Restricted number: Yes');
+    details.push(`Restricted-number eligibility: ${verified ? 'Server verified' : 'Not recorded'}`);
+  }
+  if (trainingKit && item.player_number) details.push('Availability: Subject to final confirmation');
+  return details.filter(Boolean).map(escapeHtml).join(' · ');
 }
 
 function formatMoney(cents) {
@@ -214,7 +236,7 @@ async function openOrder(orderId) {
   orderDetail.innerHTML = `
     <div class="section-heading"><div><p class="eyebrow">Order details</p><h2>${escapeHtml(order.order_number || `Order ${order.id}`)}</h2></div>${order.invoice_number ? `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">Open Invoice</a>` : `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">Create Invoice</a>`}</div>
     <dl class="order-facts"><div><dt>Customer</dt><dd>${escapeHtml(order.customer_name || 'Not provided')}<br>${escapeHtml(order.customer_email || '')}<br>${escapeHtml(order.customer_phone || 'Phone not provided')}</dd></div><div><dt>Delivery method</dt><dd>${fulfilmentDetails}</dd></div><div><dt>Payment</dt><dd>${escapeHtml(order.payment_status)}<br>${escapeHtml(order.payment_method_label || 'Method not recorded')}</dd></div><div><dt>Order status</dt><dd>${escapeHtml(order.fulfilment_status)}</dd></div></dl>
-    <div class="order-items"><h3>Items</h3>${order.items.map(item => `<div><span><strong>${Number(item.quantity)} × ${escapeHtml(item.product_name)}</strong><small>${escapeHtml([item.size, item.colour, item.style].filter(Boolean).join(' / '))}${item.player_name ? ` · Name: ${escapeHtml(item.player_name)}` : ''}${item.player_number ? ` · Number: ${escapeHtml(item.player_number)}` : ''}</small></span><strong>${formatMoney(item.item_total_cents)}</strong></div>`).join('')}</div>
+    <div class="order-items"><h3>Items</h3>${order.items.map(item => `<div><span><strong>${Number(item.quantity)} × ${escapeHtml(item.product_name)}</strong><small>${renderOrderItemDetails(item, order)}</small></span><strong>${formatMoney(item.item_total_cents)}</strong></div>`).join('')}</div>
     <dl class="order-totals">
       <div><dt>${hasSnapshot ? 'Merchandise subtotal' : 'Subtotal'}</dt><dd>${formatMoney(order.subtotal_cents)}</dd></div>
       ${hasSnapshot ? `<div><dt>Personalisation</dt><dd>${formatMoney(order.personalisation_cents)}</dd></div>` : ''}

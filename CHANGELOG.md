@@ -2,6 +2,22 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-25
+
+### Added
+
+* Added clear Patagonia FC Training Kit shirt-number selection guidance, a 1–99 requested-number range, and restricted rules for numbers 1, 7, 9, and 10.
+* Added a transient Day of Birth check for restricted numbers and a signed, expiring server proof that contains no birth-day value.
+
+### Changed
+
+* Renamed Training Kit personalisation displays to Player Name and Shirt Number across the product form, cart, Stripe Checkout, admin orders, emails, invoices, PDF output, and protected exports.
+* Marked Training Kit shirt numbers as requests subject to final availability because no allocation or uniqueness system currently exists.
+
+### Security
+
+* Made restricted-number eligibility authoritative at checkout while excluding the entered birth day from cart storage, Stripe metadata, D1 orders, emails, invoices, exports, public pages, and application logs.
+
 ## 2026-07-21
 
 ### Added

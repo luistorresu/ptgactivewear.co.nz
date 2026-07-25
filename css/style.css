@@ -671,6 +671,56 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
   margin: 0 auto;
   outline: none;
 }
+
+.personalisation-field[hidden] { display: none; }
+
+.personalisation-field > small {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+
+.personalisation-error {
+  min-height: 0;
+  color: #b42318 !important;
+  font-weight: 700 !important;
+}
+
+.personalisation-error:empty { display: none; }
+
+.shirt-number-rules {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--brand-primary);
+  border-radius: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--brand-secondary);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.shirt-number-rules strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.shirt-number-rules p { margin: 0; }
+
+.shirt-number-availability {
+  color: var(--text-primary);
+  font-weight: 750;
+}
+
+.shirt-number-birth-day {
+  padding: 0.8rem;
+  border: 1px solid var(--brand-primary);
+  border-radius: 0.75rem;
+  background: var(--surface-secondary);
+}
 .home-carousel-viewport { overflow: hidden; border: 1px solid #e5e7eb; border-radius: 1rem; background: #fff; box-shadow: 0 18px 50px rgba(15, 23, 42, .1); }
 .home-carousel-track { display: flex; transition: transform .55s cubic-bezier(.22, 1, .36, 1); }
 .home-carousel-slide { flex: 0 0 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(17rem, .85fr); min-height: 31rem; }

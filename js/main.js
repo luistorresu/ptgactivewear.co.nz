@@ -7,6 +7,8 @@ try {
   cart = [];
 }
 const PERSONALISATION_ADDON_PRICE = 20;
+const TRAINING_KIT_ID = 'patagonia-fc-training-kit';
+const RESTRICTED_SHIRT_NUMBERS = new Set(['1', '7', '9', '10']);
 let checkoutSummaryTimer = 0;
 let checkoutSummaryRequest = 0;
 let fulfilmentType = ['pickup', 'delivery'].includes(localStorage.getItem('ptg-fulfilment'))
@@ -14,7 +16,8 @@ let fulfilmentType = ['pickup', 'delivery'].includes(localStorage.getItem('ptg-f
   : '';
 
 function saveCart() {
-  localStorage.setItem('ptg-cart', JSON.stringify(cart));
+  localStorage.setItem('ptg-cart', JSON.stringify(cart, (key, value) =>
+    ['birthDay', 'birthdayDay', 'dayOfBirth'].includes(key) ? undefined : value));
 }
 
 function escapeHtml(value) {
@@ -72,8 +75,15 @@ function renderPersonalisationDetails(item) {
   if (item.size) details.push(`Size: ${escapeHtml(item.size)}`);
   const namePrice = Number(item.personalisationPrices?.name ?? PERSONALISATION_ADDON_PRICE);
   const numberPrice = Number(item.personalisationPrices?.number ?? PERSONALISATION_ADDON_PRICE);
-  if (personalisation.name) details.push(`Name: ${escapeHtml(personalisation.name)} (+${formatMoney(namePrice)})`);
-  if (personalisation.number) details.push(`Number: ${escapeHtml(personalisation.number)} (+${formatMoney(numberPrice)})`);
+  const isTrainingKit = item.id === TRAINING_KIT_ID;
+  if (personalisation.name) details.push(`${isTrainingKit ? 'Player Name' : 'Name'}: ${escapeHtml(personalisation.name)} (+${formatMoney(namePrice)})`);
+  if (personalisation.number) {
+    details.push(`${isTrainingKit ? 'Shirt Number' : 'Number'}: ${escapeHtml(personalisation.number)} (+${formatMoney(numberPrice)})`);
+    if (isTrainingKit) details.push('Requested shirt number — subject to final availability.');
+    if (isTrainingKit && RESTRICTED_SHIRT_NUMBERS.has(personalisation.number)) {
+      details.push(`Restricted number eligibility: ${item.restrictedNumberEligibilityVerified ? 'verified' : 'verification required'}.`);
+    }
+  }
 
   return details.length
     ? `<ul class="mt-2 space-y-0.5 text-[11px] text-gray-500">${details.map(detail => `<li>${detail}</li>`).join('')}</ul>`
@@ -132,10 +142,41 @@ function getPersonalisation(trigger) {
   const card = trigger ? trigger.closest('.product-card') : null;
   const nameInput = card ? card.querySelector('[data-personalisation="name"]') : null;
   const numberInput = card ? card.querySelector('[data-personalisation="number"]') : null;
+  const birthDayInput = card ? card.querySelector('[data-shirt-number-birth-day]') : null;
   const playerName = (nameInput?.value || '').trim().replace(/\s+/g, ' ');
   const jerseyNumber = (numberInput?.value || '').trim();
+  const birthDay = (birthDayInput?.value || '').trim();
+  const isTrainingKit = card?.dataset.productId === TRAINING_KIT_ID;
 
-  if (jerseyNumber && !/^(?:0|00|[1-9][0-9]?)$/.test(jerseyNumber)) {
+  const setError = (field, message = '') => {
+    const error = card?.querySelector(`[data-personalisation-error="${field}"]`);
+    if (error) error.textContent = message;
+    const input = field === 'name' ? nameInput : field === 'number' ? numberInput : birthDayInput;
+    if (input) input.toggleAttribute('aria-invalid', Boolean(message));
+  };
+  setError('name');
+  setError('number');
+  setError('birth-day');
+
+  if (isTrainingKit && playerName && !/^[\p{L} '’-]{1,20}$/u.test(playerName)) {
+    setError('name', 'Use letters, spaces, hyphens, and apostrophes only.');
+    nameInput?.focus();
+    return null;
+  }
+
+  if (isTrainingKit && jerseyNumber && !/^(?:[1-9]|[1-9][0-9])$/.test(jerseyNumber)) {
+    setError('number', 'Enter a whole Shirt Number from 1 to 99.');
+    numberInput?.focus();
+    return null;
+  }
+
+  if (isTrainingKit && RESTRICTED_SHIRT_NUMBERS.has(jerseyNumber) && birthDay !== jerseyNumber) {
+    setError('birth-day', `Shirt number ${jerseyNumber} is only available to players born on the ${jerseyNumber}${jerseyNumber === '1' ? 'st' : 'th'} day of the month. Please enter the correct day or choose another number.`);
+    birthDayInput?.focus();
+    return null;
+  }
+
+  if (!isTrainingKit && jerseyNumber && !/^(?:0|00|[1-9][0-9]?)$/.test(jerseyNumber)) {
     showToast('Enter a jersey number from 0 to 99');
     numberInput.focus();
     return null;
@@ -143,7 +184,8 @@ function getPersonalisation(trigger) {
 
   return {
     name: playerName.slice(0, 20),
-    number: jerseyNumber
+    number: jerseyNumber,
+    birthDay
   };
 }
 
@@ -171,9 +213,41 @@ function getSelectedInventoryVariant(trigger) {
   };
 }
 
-function addToCart(productId, name, price, trigger) {
+async function addToCart(productId, name, price, trigger) {
+  if (trigger?.dataset.adding === 'true') return;
   const personalisation = getPersonalisation(trigger);
   if (!personalisation) return;
+
+  let shirtNumberEligibilityToken = '';
+  const restrictedTrainingNumber = productId === TRAINING_KIT_ID && RESTRICTED_SHIRT_NUMBERS.has(personalisation.number);
+  if (restrictedTrainingNumber) {
+    trigger.dataset.adding = 'true';
+    trigger.disabled = true;
+    trigger.setAttribute('aria-busy', 'true');
+    try {
+      const response = await fetch('/api/training-kit-number-eligibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shirtNumber: personalisation.number, birthDay: personalisation.birthDay })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.ok || !result.eligibilityToken) {
+        throw new Error(result.error || 'Shirt-number validation could not be completed.');
+      }
+      shirtNumberEligibilityToken = result.eligibilityToken;
+    } catch (error) {
+      const card = trigger.closest('.product-card');
+      const fieldError = card?.querySelector('[data-personalisation-error="birth-day"]');
+      if (fieldError) fieldError.textContent = error.message;
+      card?.querySelector('[data-shirt-number-birth-day]')?.focus();
+      showToast(error.message);
+      return;
+    } finally {
+      trigger.dataset.adding = 'false';
+      trigger.disabled = false;
+      trigger.removeAttribute('aria-busy');
+    }
+  }
 
   const product = getProducts().find(item => item.id === productId);
   const inventoryVariant = getSelectedInventoryVariant(trigger);
@@ -196,9 +270,28 @@ function addToCart(productId, name, price, trigger) {
   if (existing) {
     if (existing.qty >= 20) { showToast('Maximum quantity is 20 per option'); return; }
     existing.qty++;
+    if (shirtNumberEligibilityToken) {
+      existing.shirtNumberEligibilityToken = shirtNumberEligibilityToken;
+      existing.restrictedNumberEligibilityVerified = true;
+    }
   } else {
-    cart.push({ id: productId, name, basePrice, price: finalPrice, qty: 1, variantId, variant, size, personalisation, personalisationPrices: { name: namePrice, number: numberPrice } });
+    cart.push({
+      id: productId,
+      name,
+      basePrice,
+      price: finalPrice,
+      qty: 1,
+      variantId,
+      variant,
+      size,
+      personalisation: { name: personalisation.name, number: personalisation.number },
+      personalisationPrices: { name: namePrice, number: numberPrice },
+      shirtNumberEligibilityToken,
+      restrictedNumberEligibilityVerified: Boolean(shirtNumberEligibilityToken)
+    });
   }
+  const birthDayInput = trigger.closest('.product-card')?.querySelector('[data-shirt-number-birth-day]');
+  if (birthDayInput) birthDayInput.value = '';
   saveCart();
   updateCartUI();
   showToast(`✓  ${name} added to cart`);
@@ -241,7 +334,8 @@ function buildCheckoutPayload() {
         personalisation: {
           name: item.personalisation?.name || '',
           number: item.personalisation?.number || ''
-        }
+        },
+        shirtNumberEligibilityToken: item.shirtNumberEligibilityToken || ''
       };
     })
   };
@@ -736,7 +830,7 @@ function renderProductCard(product, isShop, isProductPage = false) {
   const galleryCount = gallery.length;
 
   return `
-      <div class="${cardClasses}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}" data-allow-player-name="${product.allowPlayerName ?? product.personalisable ? 'true' : 'false'}" data-allow-player-number="${product.allowPlayerNumber ?? product.personalisable ? 'true' : 'false'}" data-name-price="${Number(product.playerNamePrice ?? PERSONALISATION_ADDON_PRICE)}" data-number-price="${Number(product.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE)}">
+      <div class="${cardClasses}" data-product-id="${escapeHtml(product.id)}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}" data-allow-player-name="${product.allowPlayerName ?? product.personalisable ? 'true' : 'false'}" data-allow-player-number="${product.allowPlayerNumber ?? product.personalisable ? 'true' : 'false'}" data-name-price="${Number(product.playerNamePrice ?? PERSONALISATION_ADDON_PRICE)}" data-number-price="${Number(product.playerNumberPrice ?? PERSONALISATION_ADDON_PRICE)}">
         <div class="product-image-wrap relative overflow-hidden ${imageHeight}">
           <button type="button" class="product-image-button" onclick='openProductLightbox(${escapeJsString(product.name)}, 0, this)' aria-label="View ${escapeHtml(product.name)} image gallery">
             <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
@@ -1020,16 +1114,34 @@ function setupPersonalisationOptions() {
     const numberPrice = Number(card.dataset.numberPrice || PERSONALISATION_ADDON_PRICE);
     const allowName = card.dataset.allowPlayerName === 'true';
     const allowNumber = card.dataset.allowPlayerNumber === 'true';
+    const isTrainingKit = card.dataset.productId === TRAINING_KIT_ID;
+    const optionalPrice = price => price > 0 ? `(Optional · +${formatMoney(price)})` : '(Optional)';
     const options = document.createElement('div');
     options.className = 'personalisation-options';
     options.innerHTML = `
       ${allowName ? `<label class="personalisation-field" data-player-field="name" for="${idBase}-name">
-        <span>Player Name <strong>${namePrice > 0 ? `(+${formatMoney(namePrice)})` : '(Optional)'}</strong></span>
+        <span>Player Name <strong>${optionalPrice(namePrice)}</strong></span>
         <input id="${idBase}-name" data-personalisation="name" type="text" maxlength="20" autocomplete="off" placeholder="Optional player name">
+        <small class="personalisation-error" data-personalisation-error="name" role="alert"></small>
       </label>` : ''}
       ${allowNumber ? `<label class="personalisation-field" data-player-field="number" for="${idBase}-number">
-        <span>Player Number <strong>${numberPrice > 0 ? `(+${formatMoney(numberPrice)})` : '(Optional)'}</strong></span>
-        <input id="${idBase}-number" data-personalisation="number" type="text" inputmode="numeric" maxlength="2" pattern="(?:0|00|[1-9][0-9]?)" title="Enter a jersey number from 0 to 99" placeholder="Optional number">
+        <span>${isTrainingKit ? 'Shirt Number' : 'Player Number'} <strong>${optionalPrice(numberPrice)}</strong></span>
+        <input id="${idBase}-number" data-personalisation="number" type="text" inputmode="numeric" maxlength="2" pattern="${isTrainingKit ? '(?:[1-9]|[1-9][0-9])' : '(?:0|00|[1-9][0-9]?)'}" title="${isTrainingKit ? 'Enter a whole shirt number from 1 to 99' : 'Enter a jersey number from 0 to 99'}" placeholder="Optional number" ${isTrainingKit ? `aria-describedby="${idBase}-shirt-number-help ${idBase}-number-error"` : ''}>
+        <small id="${idBase}-number-error" class="personalisation-error" data-personalisation-error="number" role="alert"></small>
+      </label>` : ''}
+      ${isTrainingKit && allowNumber ? `<section id="${idBase}-shirt-number-help" class="shirt-number-rules" aria-labelledby="${idBase}-shirt-number-title">
+        <strong id="${idBase}-shirt-number-title">Shirt Number Selection</strong>
+        <p>You may choose any available shirt number.</p>
+        <p>Most players choose the day of their birth date as their shirt number. To keep things fair for everyone, shirt numbers 1, 7, 9, and 10 are only available if they match the day you were born — the date of your birthday, not the month or year.</p>
+        <p>If your birthday does not fall on one of these dates, please choose another available number.</p>
+        <p>Thank you for helping us keep shirt number allocation fair for everyone.</p>
+        <p class="shirt-number-availability">Requested shirt number — subject to final availability.</p>
+      </section>
+      <label class="personalisation-field shirt-number-birth-day" data-birth-day-field for="${idBase}-birth-day" hidden>
+        <span>Day of Birth <strong>(Required for this restricted number)</strong></span>
+        <input id="${idBase}-birth-day" data-shirt-number-birth-day type="text" inputmode="numeric" maxlength="2" autocomplete="off" aria-describedby="${idBase}-birth-day-help ${idBase}-birth-day-error">
+        <small id="${idBase}-birth-day-help">Enter only the day of the month you were born, for example 7 if your birthday is on the 7th.</small>
+        <small id="${idBase}-birth-day-error" class="personalisation-error" data-personalisation-error="birth-day" role="alert"></small>
       </label>` : ''}
     `;
 
@@ -1037,9 +1149,18 @@ function setupPersonalisationOptions() {
 
     const numberInput = options.querySelector('[data-personalisation="number"]');
     if (numberInput) {
+      let previousNumber = '';
       numberInput.addEventListener('input', () => {
-        numberInput.value = numberInput.value.replace(/[^\d]/g, '').slice(0, 2);
         numberInput.setCustomValidity('');
+        const currentNumber = numberInput.value.trim();
+        const birthDayField = options.querySelector('[data-birth-day-field]');
+        const birthDayInput = options.querySelector('[data-shirt-number-birth-day]');
+        const restricted = isTrainingKit && RESTRICTED_SHIRT_NUMBERS.has(currentNumber);
+        if (birthDayField) birthDayField.hidden = !restricted;
+        if (birthDayInput && (!restricted || currentNumber !== previousNumber)) birthDayInput.value = '';
+        options.querySelector('[data-personalisation-error="number"]')?.replaceChildren();
+        options.querySelector('[data-personalisation-error="birth-day"]')?.replaceChildren();
+        previousNumber = currentNumber;
       });
     }
     updatePersonalisationForVariant(card);

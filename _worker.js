@@ -5,6 +5,15 @@ import { commitPaidOrder, markOrderEmailResult, recordStripeRefund, validateD1Ch
 import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
 import { buildTrustedOrderSummary } from './worker/surcharge.js';
 import { publicFulfilment, selectFulfilment } from './worker/fulfilment.js';
+import {
+  RESTRICTED_SHIRT_NUMBERS,
+  TRAINING_KIT_ID,
+  issueTrainingKitEligibilityProof,
+  restrictedShirtNumberError,
+  trainingKitPlayerNameIsValid,
+  trainingKitShirtNumberIsValid,
+  verifyTrainingKitEligibilityProof
+} from './worker/shirt-number.js';
 
 const MAX_FIELD_LENGTHS = {
   name: 100,
@@ -309,11 +318,12 @@ function normaliseCheckoutItem(rawItem) {
   const personalisation = rawItem.personalisation || {};
   const playerName = cleanText(personalisation.name || rawItem.playerName, 20);
   const playerNumber = cleanText(personalisation.number || rawItem.playerNumber, 2);
+  const shirtNumberEligibilityToken = cleanText(rawItem.shirtNumberEligibilityToken, 1000);
 
-  return { productId, quantity, size, variant, playerName, playerNumber, variantId: null, cartItemKey: '' };
+  return { productId, quantity, size, variant, playerName, playerNumber, shirtNumberEligibilityToken, variantId: null, cartItemKey: '' };
 }
 
-function validateCheckoutPayload(payload) {
+async function validateCheckoutPayload(payload, env) {
   if (!payload || !Array.isArray(payload.items)) {
     return { error: 'Cart items are required.' };
   }
@@ -356,12 +366,24 @@ function validateCheckoutPayload(payload) {
       return { error: `${product.name} does not support player personalisation.` };
     }
 
-    if (item.playerName && !/^[A-Za-z0-9 .'-]{1,20}$/.test(item.playerName)) {
-      return { error: `Please use letters, numbers, spaces, apostrophes, hyphens, or full stops for the player name on ${product.name}.` };
-    }
-
-    if (item.playerNumber && !/^(?:0|00|[1-9][0-9]?)$/.test(item.playerNumber)) {
-      return { error: `Please enter a player number from 0 to 99 for ${product.name}.` };
+    if (item.productId === TRAINING_KIT_ID) {
+      if (!trainingKitPlayerNameIsValid(item.playerName)) {
+        return { error: 'Player Name may contain letters, spaces, hyphens, and apostrophes only.' };
+      }
+      if (!trainingKitShirtNumberIsValid(item.playerNumber)) {
+        return { error: 'Please enter a whole Shirt Number from 1 to 99.' };
+      }
+      if (RESTRICTED_SHIRT_NUMBERS.has(item.playerNumber)
+        && !await verifyTrainingKitEligibilityProof(item.shirtNumberEligibilityToken, item.playerNumber, env)) {
+        return { error: restrictedShirtNumberError(item.playerNumber) };
+      }
+    } else {
+      if (item.playerName && !/^[A-Za-z0-9 .'-]{1,20}$/.test(item.playerName)) {
+        return { error: `Please use letters, numbers, spaces, apostrophes, hyphens, or full stops for the player name on ${product.name}.` };
+      }
+      if (item.playerNumber && !/^(?:0|00|[1-9][0-9]?)$/.test(item.playerNumber)) {
+        return { error: `Please enter a player number from 0 to 99 for ${product.name}.` };
+      }
     }
 
     const nameAddOn = product.personalisable && item.playerName ? PERSONALISATION_ADDON_NZD_CENTS : 0;
@@ -370,6 +392,7 @@ function validateCheckoutPayload(payload) {
     checkedItems.push({
       ...item,
       product,
+      restrictedNumberEligibilityVerified: item.productId === TRAINING_KIT_ID && RESTRICTED_SHIRT_NUMBERS.has(item.playerNumber),
       nameAddOn,
       numberAddOn
     });
@@ -382,8 +405,9 @@ function buildOptionDescription(item) {
   const details = [];
   if (item.size) details.push(`Size: ${item.size}`);
   if (item.variant) details.push(`Colour/style: ${item.variant}`);
-  if (item.playerName) details.push(`Player name: ${item.playerName}`);
-  if (item.playerNumber) details.push(`Player number: ${item.playerNumber}`);
+  if (item.playerName) details.push(`Player name: ${item.playerName}${item.product.id === TRAINING_KIT_ID ? ' (+$20.00)' : ''}`);
+  if (item.playerNumber) details.push(`${item.product.id === TRAINING_KIT_ID ? 'Requested shirt number' : 'Player number'}: ${item.playerNumber}${item.product.id === TRAINING_KIT_ID ? ' (+$20.00)' : ''}`);
+  if (item.product.id === TRAINING_KIT_ID && item.playerNumber) details.push('Subject to final shirt-number availability');
   return details.length ? details.join(' | ') : 'Standard item';
 }
 
@@ -415,6 +439,7 @@ function buildStripeLineItems(validatedItems, summary, fulfilment) {
       colour_style: item.variant,
       player_name: item.playerName,
       player_number: item.playerNumber,
+      restricted_number_eligibility_verified: item.restrictedNumberEligibilityVerified ? '1' : '',
       item_kind: 'base_product'
     };
 
@@ -438,8 +463,8 @@ function buildStripeLineItems(validatedItems, summary, fulfilment) {
 
     if (item.numberAddOn) {
       lines.push({
-        name: `${item.product.name} - Player Number Add-on`,
-        description: `Player number: ${item.playerNumber}`,
+        name: `${item.product.name} - ${item.product.id === TRAINING_KIT_ID ? 'Shirt Number' : 'Player Number'} Add-on`,
+        description: `${item.product.id === TRAINING_KIT_ID ? 'Requested shirt number' : 'Player number'}: ${item.playerNumber}`,
         unitAmount: item.numberAddOn,
         quantity: item.quantity,
         metadata: { ...baseMetadata, item_kind: 'player_number_addon' }
@@ -516,7 +541,7 @@ async function validateAndSummariseCheckout(payload, env) {
   const useD1Inventory = Boolean(env.DB) && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1';
   const validation = useD1Inventory
     ? await validateD1CheckoutPayload(payload, env)
-    : validateCheckoutPayload(payload);
+    : await validateCheckoutPayload(payload, env);
   if (validation.error) return validation;
   try {
     const fulfilment = selectFulfilment(payload, env);
@@ -526,6 +551,16 @@ async function validateAndSummariseCheckout(payload, env) {
     console.error('Checkout total configuration failed', { message: error.message });
     return { error: 'Checkout totals are temporarily unavailable.', configurationError: true };
   }
+}
+
+async function handleTrainingKitNumberEligibility(request, env) {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: jsonHeaders });
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  if (!requireJsonRequest(request)) return jsonResponse({ ok: false, error: 'JSON content type is required.' }, 415);
+  const body = await readJson(request);
+  const result = await issueTrainingKitEligibilityProof(body?.shirtNumber, body?.birthDay, env);
+  if (result.error) return jsonResponse({ ok: false, error: result.error }, result.configurationError ? 503 : 400);
+  return jsonResponse({ ok: true, eligibilityToken: result.token, expiresAt: result.expiresAt });
 }
 
 async function handleCheckoutSummary(request, env) {
@@ -727,8 +762,10 @@ function describeStripeLineItem(item) {
 
   if (metadata.size) details.push(`Size: ${metadata.size}`);
   if (metadata.colour_style) details.push(`Colour/style: ${metadata.colour_style}`);
-  if (metadata.player_name) details.push(`Player name: ${metadata.player_name}`);
-  if (metadata.player_number) details.push(`Player number: ${metadata.player_number}`);
+  if (metadata.player_name) details.push(`Player name: ${metadata.player_name}${metadata.product_id === TRAINING_KIT_ID ? ' (+$20.00)' : ''}`);
+  if (metadata.player_number) details.push(`${metadata.product_id === TRAINING_KIT_ID ? 'Requested shirt number' : 'Player number'}: ${metadata.player_number}${metadata.product_id === TRAINING_KIT_ID ? ' (+$20.00)' : ''}`);
+  if (metadata.product_id === TRAINING_KIT_ID && metadata.player_number) details.push('Subject to final shirt-number availability');
+  if (metadata.product_id === TRAINING_KIT_ID && metadata.restricted_number_eligibility_verified === '1') details.push('Restricted-number eligibility: verified');
   if (metadata.item_kind && metadata.item_kind !== 'base_product') details.push(`Charge: ${metadata.item_kind.replace(/_/g, ' ')}`);
 
   return {
@@ -1301,6 +1338,10 @@ export default {
 
     if (url.pathname === '/api/newsletter') {
       return handleEmailRequest(request, env, 'newsletter');
+    }
+
+    if (url.pathname === '/api/training-kit-number-eligibility') {
+      return handleTrainingKitNumberEligibility(request, env);
     }
 
     if (url.pathname === '/api/create-checkout-session') {

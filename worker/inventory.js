@@ -1,5 +1,13 @@
 import { calculateRefundBreakdown } from './surcharge.js';
 import { ensureInvoiceSnapshot } from './invoices.js';
+import {
+  RESTRICTED_SHIRT_NUMBERS,
+  TRAINING_KIT_ID,
+  restrictedShirtNumberError,
+  trainingKitPlayerNameIsValid,
+  trainingKitShirtNumberIsValid,
+  verifyTrainingKitEligibilityProof
+} from './shirt-number.js';
 
 const MAX_ITEM_QUANTITY = 20;
 
@@ -30,6 +38,7 @@ export async function validateD1CheckoutPayload(payload, env) {
     const quantity = Number(rawItem?.quantity || rawItem?.qty);
     const playerName = cleanText(rawItem?.personalisation?.name || rawItem?.playerName, 20);
     const playerNumber = cleanText(rawItem?.personalisation?.number || rawItem?.playerNumber, 2);
+    const shirtNumberEligibilityToken = cleanText(rawItem?.shirtNumberEligibilityToken, 1000);
 
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_ITEM_QUANTITY) {
       return { error: 'A cart item has an invalid quantity.' };
@@ -58,8 +67,17 @@ export async function validateD1CheckoutPayload(payload, env) {
       : Boolean(variant.allow_player_number);
     if (!allowPlayerName && playerName) return { error: `${product.name} ${variant.style || 'option'} does not support player names.` };
     if (!allowPlayerNumber && playerNumber) return { error: `${product.name} ${variant.style || 'option'} does not support player numbers.` };
-    if (!playerNameIsValid(playerName)) return { error: `The player name for ${product.name} contains unsupported characters.` };
-    if (!playerNumberIsValid(playerNumber)) return { error: `Please enter a player number from 0 to 99 for ${product.name}.` };
+    if (productId === TRAINING_KIT_ID) {
+      if (!trainingKitPlayerNameIsValid(playerName)) return { error: 'Player Name may contain letters, spaces, hyphens, and apostrophes only.' };
+      if (!trainingKitShirtNumberIsValid(playerNumber)) return { error: 'Please enter a whole Shirt Number from 1 to 99.' };
+      if (RESTRICTED_SHIRT_NUMBERS.has(playerNumber)
+        && !await verifyTrainingKitEligibilityProof(shirtNumberEligibilityToken, playerNumber, env)) {
+        return { error: restrictedShirtNumberError(playerNumber) };
+      }
+    } else {
+      if (!playerNameIsValid(playerName)) return { error: `The player name for ${product.name} contains unsupported characters.` };
+      if (!playerNumberIsValid(playerNumber)) return { error: `Please enter a player number from 0 to 99 for ${product.name}.` };
+    }
 
     const nameAddOn = allowPlayerName && playerName ? product.player_name_price_cents : 0;
     const numberAddOn = allowPlayerNumber && playerNumber ? product.player_number_price_cents : 0;
@@ -71,6 +89,7 @@ export async function validateD1CheckoutPayload(payload, env) {
       variant: [variant.colour, variant.style].filter(Boolean).join(' / '),
       playerName,
       playerNumber,
+      restrictedNumberEligibilityVerified: productId === TRAINING_KIT_ID && RESTRICTED_SHIRT_NUMBERS.has(playerNumber),
       nameAddOn,
       numberAddOn,
       cartItemKey: crypto.randomUUID(),
@@ -189,6 +208,8 @@ function groupStripeItems(lineItems) {
       style: metadata.colour_style || '',
       playerName: metadata.player_name || '',
       playerNumber: metadata.player_number || '',
+      restrictedNumberEligibilityVerified:
+        metadata.restricted_number_eligibility_verified === '1',
       quantity: Number(lineItem.quantity || 1),
       baseAmountTotal: 0,
       customisationAmountTotal: 0
@@ -202,6 +223,14 @@ function groupStripeItems(lineItems) {
     groups.set(key, group);
   }
   return [...groups.values()].filter(group => group.baseAmountTotal > 0);
+}
+
+function restrictedNumberVerificationNote(items) {
+  const numbers = [...new Set(items
+    .filter(item => item.productId === TRAINING_KIT_ID && item.restrictedNumberEligibilityVerified)
+    .map(item => item.playerNumber)
+    .filter(number => RESTRICTED_SHIRT_NUMBERS.has(number)))].sort((a, b) => Number(a) - Number(b));
+  return numbers.length ? `[system:training-kit-restricted-number-verified=${numbers.join(',')}]` : '';
 }
 
 function sessionAddress(session, fulfilmentType = 'delivery') {
@@ -248,6 +277,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
   }
   const shippingAddressText = [shippingAddress.line1, shippingAddress.line2, shippingAddress.city, shippingAddress.state, shippingAddress.postal_code].filter(Boolean).join(' ');
   const shippingRural = /\b(?:rural|r\.?d\.?\s*\d+)\b/i.test(shippingAddressText) ? 1 : 0;
+  const verificationNote = restrictedNumberVerificationNote(catalogue);
   const statements = [
     env.DB.prepare(`
       INSERT INTO stripe_events (event_id, event_type, stripe_checkout_session_id, status)
@@ -259,13 +289,13 @@ export async function commitPaidOrder(env, event, session, lineItems) {
         customer_name, customer_email, customer_phone, shipping_address_json,
         subtotal_cents, shipping_cents, total_cents, currency, payment_status,
         fulfilment_status, email_status, billing_address_json, payment_date,
-        personalisation_cents, discount_cents, tax_cents, refund_status, payment_method_label,
+        personalisation_cents, discount_cents, tax_cents, refund_status, payment_method_label, internal_notes,
         payment_surcharge_cents, payment_surcharge_enabled, payment_surcharge_percent, payment_surcharge_fixed_cents,
         payment_surcharge_label, payment_surcharge_description,
         fulfilment_type, shipping_method, pickup_location, pickup_instructions,
         shipping_name, shipping_phone, shipping_address_line_1, shipping_address_line_2,
         shipping_suburb, shipping_city, shipping_region, shipping_postcode, shipping_country, shipping_rural
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       session.id,
       typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
@@ -284,6 +314,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
       Number(session.total_details?.amount_discount || 0),
       Number(session.total_details?.amount_tax || 0),
       cleanText(Array.isArray(session.payment_method_types) ? session.payment_method_types.join(', ') : '', 100),
+      verificationNote,
       snapshot.paymentSurchargeCents,
       snapshot.paymentSurchargeEnabled ? 1 : 0,
       snapshot.paymentSurchargePercent,

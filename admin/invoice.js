@@ -12,6 +12,15 @@ function date(value) {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+function itemOptions(item) {
+  const details = [[item.size, item.colour, item.style].filter(Boolean).join(' / ')];
+  const trainingKit = item.product_id === 'patagonia-fc-training-kit';
+  if (item.player_name) details.push(`Player Name: ${item.player_name}${trainingKit ? ' (+$20.00)' : ''}`);
+  if (item.player_number) details.push(`${trainingKit ? 'Shirt Number' : 'Player Number'}: ${item.player_number}${trainingKit ? ' (+$20.00)' : ''}`);
+  if (trainingKit && item.player_number) details.push('Requested shirt number - subject to final availability');
+  return details.filter(Boolean).map(escapeHtml).join('<br>');
+}
+
 function address(value = {}) {
   return [value.line1, value.line2, value.city, value.state, value.postal_code, value.country].filter(Boolean).map(escapeHtml).join('<br>') || 'Not provided';
 }
@@ -46,7 +55,7 @@ async function loadInvoice() {
         <div class="invoice-meta"><h1>Invoice</h1><p><strong>${escapeHtml(order.invoice_number)}</strong></p><p>Order: ${escapeHtml(order.order_number)}</p><p>Invoice date: ${escapeHtml(date(order.invoice_created_at))}</p><p>Payment date: ${escapeHtml(date(order.payment_date))}</p></div>
       </header>
       <section class="invoice-parties"><div><h2>Bill to</h2><p><strong>${escapeHtml(order.customer_name)}</strong></p><p>${address(order.billing_address)}</p><p>${escapeHtml(order.customer_email)}</p></div>${fulfilmentParty}</section>
-      <table class="invoice-table"><thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th class="amount">Unit</th><th class="amount">Personalisation</th><th class="amount">Total</th></tr></thead><tbody>${order.items.map(item => `<tr><td><strong>${escapeHtml(item.product_name)}</strong><div class="item-options">${escapeHtml([item.size, item.colour, item.style].filter(Boolean).join(' / '))}${item.player_name ? `<br>Player Name: ${escapeHtml(item.player_name)}` : ''}${item.player_number ? `<br>Player Number: ${escapeHtml(item.player_number)}` : ''}</div></td><td>${escapeHtml(item.sku)}</td><td>${Number(item.quantity)}</td><td class="amount">${money(item.unit_price_cents, order.currency)}</td><td class="amount">${money(item.customisation_total_cents, order.currency)}</td><td class="amount">${money(item.item_total_cents, order.currency)}</td></tr>`).join('')}</tbody></table>
+      <table class="invoice-table"><thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th class="amount">Unit</th><th class="amount">Personalisation</th><th class="amount">Total</th></tr></thead><tbody>${order.items.map(item => `<tr><td><strong>${escapeHtml(item.product_name)}</strong><div class="item-options">${itemOptions(item)}</div></td><td>${escapeHtml(item.sku)}</td><td>${Number(item.quantity)}</td><td class="amount">${money(item.unit_price_cents, order.currency)}</td><td class="amount">${money(item.customisation_total_cents, order.currency)}</td><td class="amount">${money(item.item_total_cents, order.currency)}</td></tr>`).join('')}</tbody></table>
       <div class="invoice-totals">${pricingRows}${order.discount_cents ? `<div class="total-row"><span>Discount</span><strong>-${money(order.discount_cents, order.currency)}</strong></div>` : ''}<div class="total-row"><span>${escapeHtml(shippingLabel)}</span><strong>${shippingValue}</strong></div>${surchargeApplied ? `<div class="total-row"><span>${escapeHtml(order.payment_surcharge_label)}</span><strong>${money(order.payment_surcharge_cents, order.currency)}</strong></div>` : ''}${order.tax_cents ? `<div class="total-row"><span>Tax</span><strong>${money(order.tax_cents, order.currency)}</strong></div>` : ''}<div class="total-row grand"><span>Total paid</span><strong>${money(order.total_cents, order.currency)} ${escapeHtml(order.currency)}</strong></div>${order.refunded_cents ? `<div class="total-row"><span>Refunded</span><strong>-${money(order.refunded_cents, order.currency)}</strong></div>${surchargeApplied ? `<div class="total-row"><span>Surcharge refunded</span><strong>${money(order.payment_surcharge_refunded_cents, order.currency)}</strong></div>` : ''}` : ''}</div>
       <div class="invoice-status">Payment status: ${escapeHtml(order.payment_status)}${order.payment_method_label ? ` &middot; ${escapeHtml(order.payment_method_label)}` : ''}</div>
       <footer class="invoice-footer">Thank you for your order.<br>This document is an operational receipt/invoice and is not labelled as a GST tax invoice.</footer>`;
