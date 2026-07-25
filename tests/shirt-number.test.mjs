@@ -43,6 +43,23 @@ test('Training Kit accepts safe optional names and whole shirt numbers 1 to 99 o
   for (const number of ['0', '00', '1.5', '-1', '100', 'A', '<script>']) assert.equal(trainingKitShirtNumberIsValid(number), false, number);
 });
 
+test('Training Kit displays the approved number-selection notice in order', async () => {
+  const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
+  const approvedCopy = [
+    'Number Selection',
+    'Numbers 1,7,9,10 are not available.',
+    'To keep things fair for everyone, shirt numbers 1, 7, 9, and 10 are only available if they match the day you were born — the date of your birthday, not the month or year.',
+    'If your birthday does not fall on one of these dates, please choose another number. Most players choose the day of their birth date as their shirt number.',
+    'Thank you for helping us keep shirt number allocation fair for everyone.'
+  ];
+  let previousIndex = -1;
+  for (const copy of approvedCopy) {
+    const index = source.indexOf(copy);
+    assert.ok(index > previousIndex, copy);
+    previousIndex = index;
+  }
+});
+
 test('restricted shirt-number proof accepts only the matching birth day and contains no birth-day data', async () => {
   for (const number of ['1', '7', '9', '10']) {
     const rejected = await issueTrainingKitEligibilityProof(number, number === '1' ? '2' : '1', secretEnv);

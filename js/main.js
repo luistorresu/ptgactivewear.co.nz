@@ -1137,10 +1137,10 @@ function setupPersonalisationOptions() {
         <small id="${idBase}-number-error" class="personalisation-error" data-personalisation-error="number" role="alert"></small>
       </label>` : ''}
       ${isTrainingKit && allowNumber ? `<section id="${idBase}-shirt-number-help" class="shirt-number-rules" aria-labelledby="${idBase}-shirt-number-title">
-        <strong id="${idBase}-shirt-number-title">Shirt Number Selection</strong>
-        <p>You may choose any available shirt number.</p>
-        <p>Most players choose the day of their birth date as their shirt number. To keep things fair for everyone, shirt numbers 1, 7, 9, and 10 are only available if they match the day you were born — the date of your birthday, not the month or year.</p>
-        <p>If your birthday does not fall on one of these dates, please choose another available number.</p>
+        <strong id="${idBase}-shirt-number-title">Number Selection</strong>
+        <p>Numbers 1,7,9,10 are not available.</p>
+        <p>To keep things fair for everyone, shirt numbers 1, 7, 9, and 10 are only available if they match the day you were born — the date of your birthday, not the month or year.</p>
+        <p>If your birthday does not fall on one of these dates, please choose another number. Most players choose the day of their birth date as their shirt number.</p>
         <p>Thank you for helping us keep shirt number allocation fair for everyone.</p>
         <p class="shirt-number-availability">Requested shirt number — subject to final availability.</p>
       </section>
