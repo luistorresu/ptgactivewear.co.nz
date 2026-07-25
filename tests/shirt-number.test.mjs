@@ -58,6 +58,8 @@ test('Training Kit displays the approved number-selection notice in order', asyn
     assert.ok(index > previousIndex, copy);
     previousIndex = index;
   }
+  const notice = source.slice(source.indexOf('id="${idBase}-shirt-number-help"'), source.indexOf('</section>', previousIndex));
+  assert.doesNotMatch(notice, /Requested shirt number — subject to final availability\./);
 });
 
 test('restricted shirt-number proof accepts only the matching birth day and contains no birth-day data', async () => {

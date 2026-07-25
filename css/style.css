@@ -710,11 +710,6 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
 
 .shirt-number-rules p { margin: 0; }
 
-.shirt-number-availability {
-  color: var(--text-primary);
-  font-weight: 750;
-}
-
 .shirt-number-birth-day {
   padding: 0.8rem;
   border: 1px solid var(--brand-primary);

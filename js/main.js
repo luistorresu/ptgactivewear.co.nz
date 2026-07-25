@@ -1142,7 +1142,6 @@ function setupPersonalisationOptions() {
         <p>To keep things fair for everyone, shirt numbers 1, 7, 9, and 10 are only available if they match the day you were born — the date of your birthday, not the month or year.</p>
         <p>If your birthday does not fall on one of these dates, please choose another number. Most players choose the day of their birth date as their shirt number.</p>
         <p>Thank you for helping us keep shirt number allocation fair for everyone.</p>
-        <p class="shirt-number-availability">Requested shirt number — subject to final availability.</p>
       </section>
       <label class="personalisation-field shirt-number-birth-day" data-birth-day-field for="${idBase}-birth-day" hidden>
         <span>Day of Birth <strong>(Required for this restricted number)</strong></span>
