@@ -97,7 +97,7 @@ export async function validateD1CheckoutPayload(payload, env) {
       restrictedNumberEligibilityVerified: productId === TRAINING_KIT_ID && RESTRICTED_SHIRT_NUMBERS.has(playerNumber),
       nameAddOn,
       numberAddOn,
-      cartItemKey: crypto.randomUUID(),
+      cartItemKey: `${productId}:${variantId}:${checkedItems.length + 1}`,
       product: {
         id: product.id,
         name: product.name,

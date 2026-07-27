@@ -97,25 +97,34 @@ test('D1 checkout requires a valid signed proof for restricted Training Kit numb
 test('Stripe Checkout receives shirt details and verification status but never birth-day data', async () => {
   const proof = await issueTrainingKitEligibilityProof('9', '9', secretEnv);
   const originalFetch = globalThis.fetch;
-  let stripeBody = '';
+  const stripeRequests = [];
   globalThis.fetch = async (url, options) => {
-    stripeBody = String(options.body);
+    stripeRequests.push({
+      body: String(options.body),
+      idempotencyKey: options.headers['Idempotency-Key']
+    });
     return new Response(JSON.stringify({ id: 'cs_test_training_kit', url: 'https://checkout.stripe.com/test' }), {
       status: 200, headers: { 'Content-Type': 'application/json' }
     });
   };
   try {
-    const response = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/create-checkout-session', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        fulfilmentType: 'pickup', checkoutRequestId: 'training-kit-proof-9',
-        items: [{
-          productId: 'patagonia-fc-training-kit', quantity: 1, size: '8',
-          personalisation: { name: 'Nico', number: '9' }, shirtNumberEligibilityToken: proof.token
-        }]
-      })
-    }), { ...secretEnv, STRIPE_SECRET_KEY: 'sk_test_not_real', CHECKOUT_ENABLED: 'true' });
-    assert.equal(response.status, 200);
-    const decoded = decodeURIComponent(stripeBody.replace(/\+/g, ' '));
+    const payload = {
+      fulfilmentType: 'pickup', checkoutRequestId: 'training-kit-proof-9',
+      items: [{
+        productId: 'patagonia-fc-training-kit', variantId: 81, quantity: 1, size: '8',
+        personalisation: { name: 'Nico', number: '9' }, shirtNumberEligibilityToken: proof.token
+      }]
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/create-checkout-session', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      }), { ...secretEnv, DB: trainingDatabase(), INVENTORY_ENFORCEMENT: 'd1', STRIPE_SECRET_KEY: 'sk_test_not_real', CHECKOUT_ENABLED: 'true' });
+      assert.equal(response.status, 200);
+    }
+    assert.equal(stripeRequests.length, 2);
+    assert.equal(stripeRequests[0].idempotencyKey, stripeRequests[1].idempotencyKey);
+    assert.equal(stripeRequests[0].body, stripeRequests[1].body);
+    const decoded = decodeURIComponent(stripeRequests[0].body.replace(/\+/g, ' '));
     assert.match(decoded, /Requested shirt number: 9 \(\+\$20\.00\)/);
     assert.match(decoded, /restricted_number_eligibility_verified.*=1/);
     assert.doesNotMatch(decoded, /birth.?day|birthday|day.?of.?birth/i);
