@@ -2,6 +2,20 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-27
+
+### Added
+
+* Added authenticated Ready to Collect, resend, and Mark as Collected actions for eligible paid pickup orders.
+* Added a responsive branded Resend email with a plain-text fallback, friendly order number, configured pickup details, and no Stripe references.
+* Added durable collection timestamps, email delivery state, provider references, safe errors, email-attempt records, admin audit events, and collection filters.
+* Added explicit non-sensitive Training Kit restricted-number verification and availability snapshots to order items and invoices.
+
+### Security
+
+* Prevent duplicate collection emails with request IDs, a conditional D1 send lock, and Resend idempotency keys.
+* Keep the Birthday Day value transient and excluded from D1, Stripe, emails, invoices, reports, exports, and logs.
+
 ## 2026-07-25
 
 ### Added

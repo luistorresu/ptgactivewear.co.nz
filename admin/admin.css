@@ -188,7 +188,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   margin-bottom: 18px;
   padding: 16px;
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px);
+  grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(170px, 240px));
   gap: 14px;
   align-items: end;
   background: var(--white);
@@ -428,6 +428,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
 .order-facts > div { padding: 13px; border: 1px solid var(--line); border-radius: 6px; }
 .order-facts dt, .order-totals dt { color: var(--muted); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
 .order-facts dd, .order-totals dd { margin: 5px 0 0; overflow-wrap: anywhere; }
+.collection-workflow { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
+.collection-workflow h3 { margin: 3px 0 14px; font-size: 1.2rem; }
+.collection-facts { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.collection-facts > div { padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--soft); }
+.collection-facts dt { color: var(--muted); font-size: 0.73rem; font-weight: 700; text-transform: uppercase; }
+.collection-facts dd { margin: 4px 0 0; overflow-wrap: anywhere; font-weight: 700; text-transform: capitalize; }
+.collection-actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; }
 .order-items { margin: 22px 0; }
 .order-items h3 { margin-bottom: 10px; }
 .order-items > div { padding: 11px 0; display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
@@ -510,7 +517,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
   .form-actions { display: grid; grid-template-columns: 1fr; }
   .form-actions .button { width: 100%; }
   .picture-controls { position: static; }
-  .order-facts { grid-template-columns: 1fr; }
+  .order-facts, .collection-facts { grid-template-columns: 1fr; }
+  .collection-actions { display: grid; grid-template-columns: 1fr; }
   .gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-filter-actions, .report-filter-actions .button { width: 100%; }

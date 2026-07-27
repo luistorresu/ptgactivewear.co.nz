@@ -149,6 +149,14 @@ Invoices are rendered from the private D1 snapshot and are never exposed through
 
 Orders and invoices have no automatic deletion policy. Before schema changes, export D1 to the external `ptgactivewear-backups` folder. Restore an export only for confirmed corruption and only after preserving the newer database first.
 
+## Pickup Collection Workflow
+
+Paid pickup orders with a valid customer email expose `Mark Ready to Collect & Send Email` in the authenticated order-details view. The action marks the order `ready_for_collection`, sends a branded customer email through Resend, and records the delivery result, fulfilment history, and admin audit event. A sent message can be resent only through the separate confirmed resend action. `Mark as Collected` is available only after the order is ready and the first email was sent.
+
+The Worker prevents double sends with a per-order send lock, unique request records, disabled browser controls, and Resend idempotency keys. Failed provider requests leave the order ready but do not mark the email as sent.
+
+Collection email addresses are assembled from `PICKUP_ADDRESS_LINE_1`, `PICKUP_ADDRESS_LINE_2`, `PICKUP_CITY`, and `PICKUP_POSTCODE`. Production currently has no confirmed street address in these fields, so the email omits the address block until the business configures them. Do not invent an address.
+
 ## Rollback
 
 Code rollback uses the previous Cloudflare Worker version from **Workers & Pages > ptgactivewear > Deployments**, or reverts the release commit and redeploys it. Additive invoice/report tables and indexes may remain in place during a code rollback.

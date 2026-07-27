@@ -351,15 +351,19 @@ export async function commitPaidOrder(env, event, session, lineItems) {
         INSERT INTO order_items (
           order_id, product_id, variant_id, product_name, sku, quantity,
           unit_price_cents, player_name, player_number, customisation_total_cents, item_total_cents,
-          size, colour, style
+          size, colour, style, restricted_number, restricted_number_verified, number_subject_to_availability
         )
-        SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        SELECT id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         FROM orders WHERE stripe_checkout_session_id = ?
       `).bind(
         item.productId, item.variantId, item.name, item.sku, item.quantity,
         unitPrice, item.playerName, item.playerNumber,
         item.customisationAmountTotal, item.baseAmountTotal + item.customisationAmountTotal,
-        item.size, item.colour, item.style, session.id
+        item.size, item.colour, item.style,
+        item.productId === TRAINING_KIT_ID && RESTRICTED_SHIRT_NUMBERS.has(item.playerNumber) ? 1 : 0,
+        item.restrictedNumberEligibilityVerified ? 1 : 0,
+        item.productId === TRAINING_KIT_ID && Boolean(item.playerNumber) ? 1 : 0,
+        session.id
       )
     );
 
@@ -401,6 +405,13 @@ export async function commitPaidOrder(env, event, session, lineItems) {
 
   const order = await existingOrder(env.DB, session.id);
   await env.DB.prepare(`UPDATE orders SET order_number = printf('PTG-ORD-%s-%06d', strftime('%Y', created_at), id), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND order_number IS NULL`).bind(order.id).run();
+  if (verificationNote) {
+    const numberedOrder = await env.DB.prepare('SELECT order_number FROM orders WHERE id = ?').bind(order.id).first();
+    await env.DB.prepare(`INSERT INTO admin_audit_log
+      (admin_email, action, entity_type, entity_id, summary)
+      VALUES ('system:checkout', 'restricted_number_validation', 'order', ?, ?)`)
+      .bind(String(order.id), `Restricted Training Kit shirt-number eligibility verified for ${numberedOrder?.order_number || `order ${order.id}`}`).run();
+  }
   await ensureInvoiceSnapshot(env.DB, order.id);
   return { orderId: order.id, duplicate: false, emailStatus: order.email_status };
 }

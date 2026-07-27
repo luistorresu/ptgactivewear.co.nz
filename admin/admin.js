@@ -52,12 +52,12 @@ function renderOrderItemDetails(item, order) {
   const trainingKit = item.product_id === TRAINING_KIT_ID;
   if (item.player_name) details.push(`Player Name: ${item.player_name}${trainingKit ? ' (+$20.00)' : ''}`);
   if (item.player_number) details.push(`${trainingKit ? 'Requested Shirt Number' : 'Player Number'}: ${item.player_number}${trainingKit ? ' (+$20.00)' : ''}`);
-  if (trainingKit && RESTRICTED_SHIRT_NUMBERS.has(item.player_number)) {
-    const verified = restrictedNumberWasVerified(order, item.player_number);
+  if (trainingKit && (Number(item.restricted_number) === 1 || RESTRICTED_SHIRT_NUMBERS.has(item.player_number))) {
+    const verified = Number(item.restricted_number_verified) === 1 || restrictedNumberWasVerified(order, item.player_number);
     details.push('Restricted number: Yes');
     details.push(`Restricted-number eligibility: ${verified ? 'Server verified' : 'Not recorded'}`);
   }
-  if (trainingKit && item.player_number) details.push('Availability: Subject to final confirmation');
+  if (trainingKit && (Number(item.number_subject_to_availability) === 1 || item.player_number)) details.push('Availability: Subject to final confirmation');
   return details.filter(Boolean).map(escapeHtml).join(' · ');
 }
 
@@ -171,7 +171,7 @@ function renderReportSales(rows, total, page, limit) {
     <td>${escapeHtml(formatReportDate(order.created_at))}</td><td><strong>${escapeHtml(order.order_number || `Order ${order.id}`)}</strong></td>
     <td>${escapeHtml(order.customer_name || 'Not provided')}<small>${escapeHtml(order.customer_email || '')}</small></td>
     <td>${escapeHtml(order.fulfilment_type || 'Not recorded')}</td><td><span class="status-pill status-${escapeHtml(order.payment_status)}">${escapeHtml(order.payment_status)}</span></td>
-    <td>${escapeHtml(order.fulfilment_status)}</td><td>${escapeHtml(order.invoice_number || 'Not issued')}</td><td class="amount"><strong>${formatMoney(order.total_cents)}</strong>${Number(order.refunded_cents) ? `<small>Refunded ${formatMoney(order.refunded_cents)}</small>` : ''}</td>
+    <td>${escapeHtml(order.fulfilment_status)}${order.fulfilment_type === 'pickup' ? `<small>Ready email: ${escapeHtml(order.ready_for_collection_email_status || 'not sent')}</small>` : ''}</td><td>${escapeHtml(order.invoice_number || 'Not issued')}</td><td class="amount"><strong>${formatMoney(order.total_cents)}</strong>${Number(order.refunded_cents) ? `<small>Refunded ${formatMoney(order.refunded_cents)}</small>` : ''}</td>
     <td><button class="button button-secondary button-compact" type="button" data-report-order-id="${Number(order.id)}">View</button></td></tr>`).join('') : '<tr><td colspan="9" class="empty-cell">No sales match these filters.</td></tr>';
 }
 
@@ -201,7 +201,8 @@ async function loadReports() {
 async function loadOrders() {
   const search = document.querySelector('[data-order-search]').value.trim();
   const fulfilmentType = document.querySelector('[data-order-fulfilment-type]').value;
-  const data = await api(`/api/admin/orders?limit=100${search ? `&search=${encodeURIComponent(search)}` : ''}${fulfilmentType ? `&fulfilmentType=${encodeURIComponent(fulfilmentType)}` : ''}`);
+  const collectionState = document.querySelector('[data-order-collection-state]').value;
+  const data = await api(`/api/admin/orders?limit=100${search ? `&search=${encodeURIComponent(search)}` : ''}${fulfilmentType ? `&fulfilmentType=${encodeURIComponent(fulfilmentType)}` : ''}${collectionState ? `&collectionState=${encodeURIComponent(collectionState)}` : ''}`);
   state.orders = data.orders || [];
   renderOrders();
 }
@@ -219,6 +220,46 @@ function renderOrders() {
 
 function orderAddress(address = {}) {
   return [address.line1, address.line2, address.city, address.state, address.postal_code, address.country].filter(Boolean).map(escapeHtml).join(', ') || 'Not provided';
+}
+
+function orderDateTime(value) {
+  if (!value) return 'Not yet';
+  const parsed = new Date(String(value).includes('T') ? value : `${String(value).replace(' ', 'T')}Z`);
+  return Number.isNaN(parsed.getTime()) ? escapeHtml(value) : escapeHtml(parsed.toLocaleString('en-NZ', { dateStyle: 'medium', timeStyle: 'short' }));
+}
+
+function collectionWorkflow(order, fulfilmentType) {
+  if (fulfilmentType !== 'pickup') return '';
+  const emailStatus = order.ready_for_collection_email_status || 'not_sent';
+  const closed = ['cancelled', 'refunded', 'collected'].includes(order.fulfilment_status)
+    || ['fully_refunded', 'refunded'].includes(order.refund_status)
+    || Number(order.refunded_cents || 0) >= Number(order.total_cents || 0);
+  const eligible = order.payment_status === 'paid' && Boolean(order.customer_email) && !closed;
+  const sent = Boolean(order.ready_for_collection_email_sent_at) && emailStatus === 'sent';
+  const ready = order.fulfilment_status === 'ready_for_collection';
+  const collected = order.fulfilment_status === 'collected';
+  const emailAction = sent
+    ? `<button class="button button-secondary" type="button" disabled>Ready to Collect Email Sent</button>
+       <button class="button button-secondary button-compact" type="button" data-order-action="resend-ready">Resend Ready to Collect Email</button>`
+    : eligible
+      ? `<button class="button button-primary" type="button" data-order-action="ready">${emailStatus === 'failed' ? 'Retry Ready to Collect Email' : 'Mark Ready to Collect & Send Email'}</button>`
+      : '';
+  const collectedAction = ready && sent
+    ? '<button class="button button-secondary" type="button" data-order-action="collected">Mark as Collected</button>'
+    : '';
+
+  return `<section class="collection-workflow" aria-labelledby="collection-workflow-title">
+    <div><p class="eyebrow">Pickup workflow</p><h3 id="collection-workflow-title">${collected ? 'Collected' : ready ? 'Ready for collection' : 'Preparing order'}</h3></div>
+    <dl class="collection-facts">
+      <div><dt>Marked ready</dt><dd>${orderDateTime(order.ready_for_collection_at)}</dd></div>
+      <div><dt>Email status</dt><dd>${escapeHtml(emailStatus.replace(/_/g, ' '))}</dd></div>
+      <div><dt>Email sent</dt><dd>${orderDateTime(order.ready_for_collection_email_sent_at)}</dd></div>
+      <div><dt>Collected</dt><dd>${orderDateTime(order.collected_at)}</dd></div>
+      ${order.ready_for_collection_email_id ? `<div><dt>Resend reference</dt><dd>${escapeHtml(order.ready_for_collection_email_id)}</dd></div>` : ''}
+      ${order.ready_for_collection_email_error ? `<div><dt>Last email error</dt><dd>${escapeHtml(order.ready_for_collection_email_error)}</dd></div>` : ''}
+    </dl>
+    ${emailAction || collectedAction ? `<div class="collection-actions">${emailAction}${collectedAction}</div>` : ''}
+  </section>`;
 }
 
 async function openOrder(orderId) {
@@ -244,7 +285,52 @@ async function openOrder(orderId) {
       ${surchargeApplied ? `<div><dt>${escapeHtml(order.payment_surcharge_label)}</dt><dd>${formatMoney(order.payment_surcharge_cents)}</dd></div><div class="order-config"><dt>Configuration used</dt><dd>${escapeHtml(order.payment_surcharge_percent)}% + ${formatMoney(order.payment_surcharge_fixed_cents)}</dd></div>` : hasSnapshot ? '<div class="order-config"><dt>Card surcharge</dt><dd>Disabled for this order</dd></div>' : ''}
       <div class="grand"><dt>Total paid</dt><dd>${formatMoney(order.total_cents)}</dd></div>
       ${order.refunded_cents ? `<div><dt>Refunded</dt><dd>-${formatMoney(order.refunded_cents)}</dd></div>${surchargeApplied ? `<div><dt>Surcharge refunded</dt><dd>${formatMoney(order.payment_surcharge_refunded_cents)}</dd></div>` : ''}` : ''}
-    </dl>`;
+    </dl>
+    ${collectionWorkflow(order, fulfilmentType)}`;
+}
+
+async function handleOrderAction(button) {
+  const order = state.currentOrder;
+  if (!order || button.disabled) return;
+  const action = button.dataset.orderAction;
+  const settings = {
+    ready: {
+      path: 'ready-for-collection',
+      confirmation: `Mark ${order.order_number || 'this order'} ready and email the customer now?`,
+      success: 'The order is ready for collection and the customer email was sent.'
+    },
+    'resend-ready': {
+      path: 'resend-ready-for-collection',
+      confirmation: 'The customer has already received this message. Send another Ready to Collect email?',
+      success: 'The Ready to Collect email was sent again.'
+    },
+    collected: {
+      path: 'mark-collected',
+      confirmation: `Confirm that ${order.order_number || 'this order'} has been collected?`,
+      success: 'The order was marked as collected.'
+    }
+  }[action];
+  if (!settings || !confirm(settings.confirmation)) return;
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = action === 'collected' ? 'Updating...' : 'Sending...';
+  try {
+    await api(`/api/admin/orders/${Number(order.id)}/${settings.path}`, {
+      method: 'POST',
+      body: JSON.stringify({ requestId: crypto.randomUUID() })
+    });
+    await loadOrders();
+    await openOrder(order.id);
+    showNotice(settings.success, 'success', true);
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+    await openOrder(order.id).catch(() => {});
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 function switchView(viewName, updateHistory = true) {
@@ -894,6 +980,7 @@ document.querySelector('[data-product-filter]').addEventListener('change', rende
 document.querySelector('[data-order-search]').addEventListener('change', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-order-search]').addEventListener('search', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-order-fulfilment-type]').addEventListener('change', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
+document.querySelector('[data-order-collection-state]').addEventListener('change', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-refresh-orders]').addEventListener('click', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-refresh-reports]').addEventListener('click', () => loadReports().catch(error => showNotice(errorMessage(error), 'error')));
 reportFilters.addEventListener('submit', event => {
@@ -915,6 +1002,10 @@ reportSales.addEventListener('click', event => {
 orderList.addEventListener('click', event => {
   const row = event.target.closest('[data-order-id]');
   if (row) openOrder(Number(row.dataset.orderId)).catch(error => showNotice(errorMessage(error), 'error', true));
+});
+orderDetail.addEventListener('click', event => {
+  const button = event.target.closest('[data-order-action]');
+  if (button) handleOrderAction(button);
 });
 
 document.querySelectorAll('[data-view-target]').forEach(button => button.addEventListener('click', () => {

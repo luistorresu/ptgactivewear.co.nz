@@ -17,7 +17,10 @@ function itemOptions(item) {
   const trainingKit = item.product_id === 'patagonia-fc-training-kit';
   if (item.player_name) details.push(`Player Name: ${item.player_name}${trainingKit ? ' (+$20.00)' : ''}`);
   if (item.player_number) details.push(`${trainingKit ? 'Shirt Number' : 'Player Number'}: ${item.player_number}${trainingKit ? ' (+$20.00)' : ''}`);
-  if (trainingKit && item.player_number) details.push('Requested shirt number - subject to final availability');
+  if (trainingKit && Number(item.restricted_number) === 1) {
+    details.push(`Restricted-number eligibility: ${Number(item.restricted_number_verified) === 1 ? 'Server verified' : 'Not recorded'}`);
+  }
+  if (trainingKit && (Number(item.number_subject_to_availability) === 1 || item.player_number)) details.push('Requested shirt number - subject to final availability');
   return details.filter(Boolean).map(escapeHtml).join('<br>');
 }
 
