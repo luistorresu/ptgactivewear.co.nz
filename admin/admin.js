@@ -171,7 +171,7 @@ function renderReportSales(rows, total, page, limit) {
     <td>${escapeHtml(formatReportDate(order.created_at))}</td><td><strong>${escapeHtml(order.order_number || `Order ${order.id}`)}</strong></td>
     <td>${escapeHtml(order.customer_name || 'Not provided')}<small>${escapeHtml(order.customer_email || '')}</small></td>
     <td>${escapeHtml(order.fulfilment_type || 'Not recorded')}</td><td><span class="status-pill status-${escapeHtml(order.payment_status)}">${escapeHtml(order.payment_status)}</span></td>
-    <td>${escapeHtml(order.fulfilment_status)}${order.fulfilment_type === 'pickup' ? `<small>Ready email: ${escapeHtml(order.ready_for_collection_email_status || 'not sent')}</small>` : ''}</td><td>${escapeHtml(order.invoice_number || 'Not issued')}</td><td class="amount"><strong>${formatMoney(order.total_cents)}</strong>${Number(order.refunded_cents) ? `<small>Refunded ${formatMoney(order.refunded_cents)}</small>` : ''}</td>
+    <td>${escapeHtml(order.fulfilment_status)}${order.fulfilment_type === 'pickup' ? `<small>Ready email: ${escapeHtml(order.ready_for_collection_email_status || 'not sent')}</small>` : order.fulfilment_type === 'delivery' ? `<small>Delivery email: ${escapeHtml(order.out_for_delivery_email_status || 'not sent')}</small>` : ''}</td><td>${escapeHtml(order.invoice_number || 'Not issued')}</td><td class="amount"><strong>${formatMoney(order.total_cents)}</strong>${Number(order.refunded_cents) ? `<small>Refunded ${formatMoney(order.refunded_cents)}</small>` : ''}</td>
     <td><button class="button button-secondary button-compact" type="button" data-report-order-id="${Number(order.id)}">View</button></td></tr>`).join('') : '<tr><td colspan="9" class="empty-cell">No sales match these filters.</td></tr>';
 }
 
@@ -238,7 +238,9 @@ function collectionWorkflow(order, fulfilmentType) {
   const sent = Boolean(order.ready_for_collection_email_sent_at) && emailStatus === 'sent';
   const ready = order.fulfilment_status === 'ready_for_collection';
   const collected = order.fulfilment_status === 'collected';
-  const emailAction = sent
+  const emailAction = collected
+    ? ''
+    : sent
     ? `<button class="button button-secondary" type="button" disabled>Ready to Collect Email Sent</button>
        <button class="button button-secondary button-compact" type="button" data-order-action="resend-ready">Resend Ready to Collect Email</button>`
     : eligible
@@ -259,6 +261,43 @@ function collectionWorkflow(order, fulfilmentType) {
       ${order.ready_for_collection_email_error ? `<div><dt>Last email error</dt><dd>${escapeHtml(order.ready_for_collection_email_error)}</dd></div>` : ''}
     </dl>
     ${emailAction || collectedAction ? `<div class="collection-actions">${emailAction}${collectedAction}</div>` : ''}
+  </section>`;
+}
+
+function deliveryWorkflow(order, fulfilmentType) {
+  if (fulfilmentType !== 'delivery') return '';
+  const emailStatus = order.out_for_delivery_email_status || 'not_sent';
+  const closed = ['cancelled', 'refunded', 'completed'].includes(order.fulfilment_status)
+    || ['fully_refunded', 'refunded'].includes(order.refund_status)
+    || Number(order.refunded_cents || 0) >= Number(order.total_cents || 0);
+  const paid = order.payment_status === 'paid';
+  const canEmail = paid && Boolean(order.customer_email) && !closed;
+  const sent = Boolean(order.out_for_delivery_email_sent_at) && emailStatus === 'sent';
+  const dispatched = order.fulfilment_status === 'out_for_delivery';
+  const completed = order.fulfilment_status === 'completed';
+  const emailAction = completed
+    ? ''
+    : sent
+    ? `<button class="button button-secondary" type="button" disabled>Out for Delivery Email Sent</button>
+       <button class="button button-secondary button-compact" type="button" data-order-action="resend-delivery">Resend Out for Delivery Email</button>`
+    : canEmail
+      ? `<button class="button button-primary" type="button" data-order-action="out-for-delivery">${emailStatus === 'failed' ? 'Retry Out for Delivery Email' : 'Mark Out for Delivery & Send Email'}</button>`
+      : '';
+  const completedAction = paid && !closed
+    ? '<button class="button button-secondary" type="button" data-order-action="completed">Mark Completed</button>'
+    : '';
+
+  return `<section class="collection-workflow delivery-workflow" aria-labelledby="delivery-workflow-title">
+    <div><p class="eyebrow">Delivery workflow</p><h3 id="delivery-workflow-title">${completed ? 'Completed' : dispatched ? 'Out for delivery' : 'Preparing order'}</h3></div>
+    <dl class="collection-facts">
+      <div><dt>Out for delivery</dt><dd>${orderDateTime(order.out_for_delivery_at)}</dd></div>
+      <div><dt>Email status</dt><dd>${escapeHtml(emailStatus.replace(/_/g, ' '))}</dd></div>
+      <div><dt>Email sent</dt><dd>${orderDateTime(order.out_for_delivery_email_sent_at)}</dd></div>
+      <div><dt>Completed</dt><dd>${orderDateTime(order.completed_at)}</dd></div>
+      ${order.out_for_delivery_email_id ? `<div><dt>Resend reference</dt><dd>${escapeHtml(order.out_for_delivery_email_id)}</dd></div>` : ''}
+      ${order.out_for_delivery_email_error ? `<div><dt>Last email error</dt><dd>${escapeHtml(order.out_for_delivery_email_error)}</dd></div>` : ''}
+    </dl>
+    ${emailAction || completedAction ? `<div class="collection-actions">${emailAction}${completedAction}</div>` : ''}
   </section>`;
 }
 
@@ -286,7 +325,8 @@ async function openOrder(orderId) {
       <div class="grand"><dt>Total paid</dt><dd>${formatMoney(order.total_cents)}</dd></div>
       ${order.refunded_cents ? `<div><dt>Refunded</dt><dd>-${formatMoney(order.refunded_cents)}</dd></div>${surchargeApplied ? `<div><dt>Surcharge refunded</dt><dd>${formatMoney(order.payment_surcharge_refunded_cents)}</dd></div>` : ''}` : ''}
     </dl>
-    ${collectionWorkflow(order, fulfilmentType)}`;
+    ${collectionWorkflow(order, fulfilmentType)}
+    ${deliveryWorkflow(order, fulfilmentType)}`;
 }
 
 async function handleOrderAction(button) {
@@ -308,12 +348,27 @@ async function handleOrderAction(button) {
       path: 'mark-collected',
       confirmation: `Confirm that ${order.order_number || 'this order'} has been collected?`,
       success: 'The order was marked as collected.'
+    },
+    'out-for-delivery': {
+      path: 'out-for-delivery',
+      confirmation: `Mark ${order.order_number || 'this order'} out for delivery and email the customer now?`,
+      success: 'The order is out for delivery and the customer email was sent.'
+    },
+    'resend-delivery': {
+      path: 'resend-out-for-delivery',
+      confirmation: 'The customer has already received this message. Send another Out for Delivery email?',
+      success: 'The Out for Delivery email was sent again.'
+    },
+    completed: {
+      path: 'mark-completed',
+      confirmation: `Confirm that ${order.order_number || 'this order'} has been delivered and completed?`,
+      success: 'The order was marked as completed.'
     }
   }[action];
   if (!settings || !confirm(settings.confirmation)) return;
   const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = action === 'collected' ? 'Updating...' : 'Sending...';
+  button.textContent = ['collected', 'completed'].includes(action) ? 'Updating...' : 'Sending...';
   try {
     await api(`/api/admin/orders/${Number(order.id)}/${settings.path}`, {
       method: 'POST',

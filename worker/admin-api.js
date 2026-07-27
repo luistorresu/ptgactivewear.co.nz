@@ -5,6 +5,12 @@ import {
   sendReadyToCollectEmail,
   validateCollectionAction
 } from './collection.js';
+import {
+  buildOutForDeliveryEmail,
+  deliveryEmailConfigured,
+  sendOutForDeliveryEmail,
+  validateDeliveryAction
+} from './delivery.js';
 
 const PRODUCT_FIELDS = new Set([
   'slug', 'name', 'description', 'category', 'productType', 'badge', 'priceCents', 'currency', 'seoTitle', 'metaDescription', 'active',
@@ -13,7 +19,7 @@ const PRODUCT_FIELDS = new Set([
 ]);
 const CREATE_PRODUCT_FIELDS = new Set([...PRODUCT_FIELDS, 'variants']);
 const VARIANT_FIELDS = new Set(['sku', 'size', 'colour', 'style', 'active', 'allowPlayerName', 'allowPlayerNumber', 'version']);
-const FULFILMENT_STATUSES = new Set(['unfulfilled', 'paid', 'processing', 'ready_for_collection', 'collected', 'shipped', 'completed', 'cancelled', 'refunded']);
+const FULFILMENT_STATUSES = new Set(['unfulfilled', 'paid', 'processing', 'ready_for_collection', 'collected', 'shipped', 'out_for_delivery', 'completed', 'cancelled', 'refunded']);
 const PAYMENT_STATUSES = new Set(['paid', 'unpaid', 'failed', 'cancelled', 'expired']);
 const INVOICE_STATUSES = new Set(['issued', 'partially_refunded', 'refunded', 'not_issued']);
 const COLLECTION_STATES = new Set(['ready', 'not_sent', 'sent', 'collected']);
@@ -714,7 +720,8 @@ async function listOrders(db, url) {
       fulfilment_type, shipping_method,
       payment_status, fulfilment_status, refund_status, refunded_cents, invoice_number, email_status,
       ready_for_collection_at, ready_for_collection_email_sent_at, ready_for_collection_email_status,
-      collected_at, created_at
+      collected_at, out_for_delivery_at, out_for_delivery_email_sent_at,
+      out_for_delivery_email_status, completed_at, created_at
     FROM orders ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT ?
   `).bind(...values).all();
   return result.results || [];
@@ -739,8 +746,8 @@ async function updateOrder(db, orderId, body, identity) {
   if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
   const status = cleanText(body.fulfilmentStatus, 30).toLowerCase();
   if (!FULFILMENT_STATUSES.has(status)) return json({ ok: false, error: 'Invalid fulfilment status.' }, 400);
-  if (['ready_for_collection', 'collected'].includes(status)) {
-    return json({ ok: false, error: 'Use the dedicated pickup collection action for this status.' }, 400);
+  if (['ready_for_collection', 'collected', 'out_for_delivery', 'completed'].includes(status)) {
+    return json({ ok: false, error: 'Use the dedicated fulfilment action for this status.' }, 400);
   }
   const current = await db.prepare('SELECT fulfilment_status, internal_notes FROM orders WHERE id = ?').bind(orderId).first();
   if (!current) return json({ ok: false, error: 'Order not found.' }, 404);
@@ -920,6 +927,167 @@ async function markCollected(env, orderId, body, identity) {
       SELECT ?, 'order_marked_collected', 'order', ?, ?
       WHERE EXISTS (SELECT 1 FROM orders WHERE id = ? AND fulfilment_status = 'collected' AND collection_request_id = ?)`)
       .bind(identity.email, String(orderId), `Marked ${order.order_number || `order ${orderId}`} collected`, orderId, requestId)
+  ]);
+  if (!resultChanges(results[0])) {
+    return json({ ok: false, error: 'The order status changed in another session. Refresh and try again.', code: 'STATUS_CHANGED' }, 409);
+  }
+  return json({ ok: true, order: await getOrder(env.DB, orderId) });
+}
+
+async function deliveryOrder(db, orderId) {
+  return db.prepare(`SELECT id, order_number, customer_name, customer_email, payment_status,
+    fulfilment_status, fulfilment_type, refund_status, refunded_cents, total_cents,
+    out_for_delivery_at, out_for_delivery_email_sent_at, out_for_delivery_email_status,
+    out_for_delivery_email_lock_at, completed_at
+    FROM orders WHERE id = ?`).bind(orderId).first();
+}
+
+async function outForDelivery(env, orderId, body, identity, resend = false) {
+  const unknown = rejectUnknownFields(body, new Set(['requestId']));
+  if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
+  const requestId = requestIdentifier(body);
+  if (!requestId) return json({ ok: false, error: 'A valid request ID is required.' }, 400);
+  if (!deliveryEmailConfigured(env)) {
+    return json({ ok: false, error: 'Out for Delivery email is not configured.', code: 'EMAIL_NOT_CONFIGURED' }, 503);
+  }
+
+  const action = resend ? 'resend' : 'initial';
+  const existingAttempt = await env.DB.prepare('SELECT status FROM delivery_email_attempts WHERE request_id = ?').bind(requestId).first();
+  if (existingAttempt?.status === 'sent') {
+    return json({ ok: true, duplicate: true, order: await getOrder(env.DB, orderId) });
+  }
+  if (existingAttempt) {
+    return json({ ok: false, error: 'This email request has already been processed. Refresh the order before trying again.', code: 'REQUEST_REUSED' }, 409);
+  }
+
+  const order = await deliveryOrder(env.DB, orderId);
+  const eligibility = validateDeliveryAction(order, action);
+  if (eligibility.error) return json({ ok: false, error: eligibility.error, code: eligibility.code }, eligibility.status);
+
+  const lockToken = crypto.randomUUID();
+  const started = await env.DB.batch([
+    env.DB.prepare(`INSERT INTO delivery_email_attempts
+      (order_id, request_id, action, status, admin_email)
+      VALUES (?, ?, ?, 'pending', ?)`).bind(orderId, requestId, action, identity.email),
+    env.DB.prepare(`UPDATE orders SET
+      fulfilment_status = 'out_for_delivery',
+      out_for_delivery_at = COALESCE(out_for_delivery_at, CURRENT_TIMESTAMP),
+      out_for_delivery_email_status = 'sending',
+      out_for_delivery_email_error = '',
+      out_for_delivery_email_lock_token = ?,
+      out_for_delivery_email_lock_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+        AND fulfilment_type = 'delivery'
+        AND fulfilment_status != 'completed'
+        AND (out_for_delivery_email_status != 'sending'
+          OR out_for_delivery_email_lock_at IS NULL
+          OR out_for_delivery_email_lock_at < datetime('now', '-5 minutes'))`)
+      .bind(lockToken, orderId)
+  ]);
+
+  if (!resultChanges(started[1])) {
+    await env.DB.prepare(`UPDATE delivery_email_attempts
+      SET status = 'blocked', safe_error_code = 'SEND_IN_PROGRESS', completed_at = CURRENT_TIMESTAMP
+      WHERE request_id = ?`).bind(requestId).run();
+    return json({ ok: false, error: 'An Out for Delivery email is already being sent for this order.', code: 'SEND_IN_PROGRESS' }, 409);
+  }
+
+  if (order.fulfilment_status !== 'out_for_delivery') {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO fulfilment_history
+        (order_id, previous_status, new_status, reason, changed_by)
+        VALUES (?, ?, 'out_for_delivery', 'Order dispatched for delivery', ?)`)
+        .bind(orderId, order.fulfilment_status, identity.email),
+      env.DB.prepare(`INSERT INTO admin_audit_log
+        (admin_email, action, entity_type, entity_id, summary)
+        VALUES (?, 'order_marked_out_for_delivery', 'order', ?, ?)`)
+        .bind(identity.email, String(orderId), `Marked ${order.order_number || `order ${orderId}`} out for delivery`)
+    ]);
+  }
+
+  try {
+    const email = buildOutForDeliveryEmail(order, env);
+    const idempotencyKey = resend
+      ? `ptg-out-for-delivery-${orderId}-resend-${requestId}`
+      : `ptg-out-for-delivery-${orderId}-initial`;
+    const delivery = await sendOutForDeliveryEmail(env, email, idempotencyKey);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE orders SET
+        out_for_delivery_email_status = 'sent',
+        out_for_delivery_email_sent_at = CURRENT_TIMESTAMP,
+        out_for_delivery_email_id = ?,
+        out_for_delivery_email_error = '',
+        out_for_delivery_email_lock_token = '',
+        out_for_delivery_email_lock_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND out_for_delivery_email_lock_token = ?`)
+        .bind(delivery.id, orderId, lockToken),
+      env.DB.prepare(`UPDATE delivery_email_attempts SET
+        status = 'sent', provider_email_id = ?, completed_at = CURRENT_TIMESTAMP
+        WHERE request_id = ?`).bind(delivery.id, requestId),
+      env.DB.prepare(`INSERT INTO admin_audit_log
+        (admin_email, action, entity_type, entity_id, summary)
+        VALUES (?, ?, 'order', ?, ?)`)
+        .bind(identity.email, resend ? 'out_for_delivery_email_resent' : 'out_for_delivery_email_sent',
+          String(orderId), `${resend ? 'Resent' : 'Sent'} Out for Delivery email for ${order.order_number || `order ${orderId}`}`)
+    ]);
+    return json({ ok: true, order: await getOrder(env.DB, orderId) });
+  } catch (error) {
+    const safeCode = cleanText(error.code || 'EMAIL_SEND_FAILED', 80);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE orders SET
+        out_for_delivery_email_status = 'failed',
+        out_for_delivery_email_error = ?,
+        out_for_delivery_email_lock_token = '',
+        out_for_delivery_email_lock_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND out_for_delivery_email_lock_token = ?`)
+        .bind(safeCode, orderId, lockToken),
+      env.DB.prepare(`UPDATE delivery_email_attempts SET
+        status = 'failed', safe_error_code = ?, completed_at = CURRENT_TIMESTAMP
+        WHERE request_id = ?`).bind(safeCode, requestId),
+      env.DB.prepare(`INSERT INTO admin_audit_log
+        (admin_email, action, entity_type, entity_id, summary)
+        VALUES (?, 'out_for_delivery_email_failed', 'order', ?, ?)`)
+        .bind(identity.email, String(orderId), `Out for Delivery email failed with ${safeCode}`)
+    ]);
+    return json({
+      ok: false,
+      error: 'The order was marked out for delivery, but the email could not be sent. Please review the error and try again.',
+      code: safeCode,
+      order: await getOrder(env.DB, orderId)
+    }, 502);
+  }
+}
+
+async function markCompleted(env, orderId, body, identity) {
+  const unknown = rejectUnknownFields(body, new Set(['requestId']));
+  if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
+  const requestId = requestIdentifier(body);
+  if (!requestId) return json({ ok: false, error: 'A valid request ID is required.' }, 400);
+  const order = await deliveryOrder(env.DB, orderId);
+  if (order?.fulfilment_status === 'completed') {
+    return json({ ok: true, duplicate: true, order: await getOrder(env.DB, orderId) });
+  }
+  const eligibility = validateDeliveryAction(order, 'completed');
+  if (eligibility.error) return json({ ok: false, error: eligibility.error, code: eligibility.code }, eligibility.status);
+
+  const results = await env.DB.batch([
+    env.DB.prepare(`UPDATE orders SET fulfilment_status = 'completed',
+      completed_at = CURRENT_TIMESTAMP, completed_by_admin = ?, delivery_request_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND fulfilment_type = 'delivery' AND fulfilment_status = ?`)
+      .bind(identity.email, requestId, orderId, order.fulfilment_status),
+    env.DB.prepare(`INSERT INTO fulfilment_history
+      (order_id, previous_status, new_status, reason, changed_by)
+      SELECT ?, ?, 'completed', 'Delivery completed', ?
+      WHERE EXISTS (SELECT 1 FROM orders WHERE id = ? AND fulfilment_status = 'completed' AND delivery_request_id = ?)`)
+      .bind(orderId, order.fulfilment_status, identity.email, orderId, requestId),
+    env.DB.prepare(`INSERT INTO admin_audit_log
+      (admin_email, action, entity_type, entity_id, summary)
+      SELECT ?, 'order_marked_completed', 'order', ?, ?
+      WHERE EXISTS (SELECT 1 FROM orders WHERE id = ? AND fulfilment_status = 'completed' AND delivery_request_id = ?)`)
+      .bind(identity.email, String(orderId), `Marked ${order.order_number || `order ${orderId}`} completed`, orderId, requestId)
   ]);
   if (!resultChanges(results[0])) {
     return json({ ok: false, error: 'The order status changed in another session. Refresh and try again.', code: 'STATUS_CHANGED' }, 409);
@@ -1128,6 +1296,21 @@ async function routeAdminApi(request, env, identity) {
       const parsed = await readBody(request);
       return parsed.error ? json({ ok: false, error: parsed.error }, 400)
         : markCollected(env, Number(segments[1]), parsed.body, identity);
+    }
+    if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'out-for-delivery' && segments.length === 3) {
+      const parsed = await readBody(request);
+      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+        : outForDelivery(env, Number(segments[1]), parsed.body, identity);
+    }
+    if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'resend-out-for-delivery' && segments.length === 3) {
+      const parsed = await readBody(request);
+      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+        : outForDelivery(env, Number(segments[1]), parsed.body, identity, true);
+    }
+    if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'mark-completed' && segments.length === 3) {
+      const parsed = await readBody(request);
+      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+        : markCompleted(env, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'GET' && segments[0] === 'orders' && segments.length === 2) {
       const order = await getOrder(env.DB, Number(segments[1]));

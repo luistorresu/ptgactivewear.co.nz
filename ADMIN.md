@@ -157,6 +157,14 @@ The Worker prevents double sends with a per-order send lock, unique request reco
 
 Collection email addresses are assembled from `PICKUP_ADDRESS_LINE_1`, `PICKUP_ADDRESS_LINE_2`, `PICKUP_CITY`, and `PICKUP_POSTCODE`. Production currently has no confirmed street address in these fields, so the email omits the address block until the business configures them. Do not invent an address.
 
+## Delivery Completion Workflow
+
+Paid delivery orders expose `Mark Out for Delivery & Send Email` in the authenticated order-details view. The action changes the fulfilment status to `out_for_delivery`, sends a branded customer email through Resend, and records the dispatch timestamp, delivery result, fulfilment history, and admin audit event. A sent message can be resent only through the separate confirmed resend action.
+
+`Mark Completed` closes a paid delivery order and records the completion timestamp and administrator. It may be used after dispatch or directly for a historical order that was already delivered before this workflow existed. Pickup orders continue to use `Mark as Collected` instead.
+
+The Worker prevents duplicate dispatch messages with unique request records, a conditional D1 send lock, disabled browser controls, and Resend idempotency keys. Failed provider requests leave the order out for delivery without falsely marking the email as sent.
+
 ## Rollback
 
 Code rollback uses the previous Cloudflare Worker version from **Workers & Pages > ptgactivewear > Deployments**, or reverts the release commit and redeploys it. Additive invoice/report tables and indexes may remain in place during a code rollback.
