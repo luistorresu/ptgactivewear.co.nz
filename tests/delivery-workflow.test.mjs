@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   buildOutForDeliveryEmail,
+  isDeliveryOrder,
   sendOutForDeliveryEmail,
   validateDeliveryAction
 } from '../worker/delivery.js';
@@ -42,6 +43,24 @@ test('delivery actions reject unsafe orders and allow direct completion of a pai
     fulfilment_status: 'out_for_delivery',
     out_for_delivery_email_sent_at: '2026-07-27 01:00:00'
   }, 'resend'), { ok: true });
+});
+
+test('legacy delivery orders with a shipping address remain actionable', () => {
+  const legacyDelivery = {
+    ...eligibleOrder,
+    fulfilment_type: '',
+    shipping_address_json: JSON.stringify({
+      line1: '3 Renown Avenue',
+      city: 'Auckland',
+      postal_code: '1051',
+      country: 'NZ'
+    })
+  };
+  assert.equal(isDeliveryOrder(legacyDelivery), true);
+  assert.deepEqual(validateDeliveryAction(legacyDelivery, 'completed'), { ok: true });
+  assert.equal(isDeliveryOrder({ ...legacyDelivery, fulfilment_type: 'pickup' }), false);
+  assert.equal(isDeliveryOrder({ ...legacyDelivery, shipping_address_json: '{}' }), false);
+  assert.equal(validateDeliveryAction({ ...legacyDelivery, shipping_address_json: '{}' }, 'completed').code, 'NOT_DELIVERY');
 });
 
 test('Out for Delivery email is branded, responsive and excludes technical references', () => {
@@ -126,6 +145,8 @@ test('delivery migration and admin workflow are additive, protected and retry-sa
   assert.match(api, /out_for_delivery_email_sent/);
   assert.match(api, /out_for_delivery_email_failed/);
   assert.match(api, /order_marked_completed/);
+  assert.match(api, /SET fulfilment_type = 'delivery'/);
+  assert.match(api, /shipping_address_json NOT IN \('', '\{\}'\)/);
   assert.match(html, /Out for delivery/);
   assert.match(admin, /Mark Out for Delivery & Send Email/);
   assert.match(admin, /Resend Out for Delivery Email/);

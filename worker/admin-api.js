@@ -937,6 +937,7 @@ async function markCollected(env, orderId, body, identity) {
 async function deliveryOrder(db, orderId) {
   return db.prepare(`SELECT id, order_number, customer_name, customer_email, payment_status,
     fulfilment_status, fulfilment_type, refund_status, refunded_cents, total_cents,
+    shipping_address_json, shipping_address_line_1, shipping_city, shipping_country,
     out_for_delivery_at, out_for_delivery_email_sent_at, out_for_delivery_email_status,
     out_for_delivery_email_lock_at, completed_at
     FROM orders WHERE id = ?`).bind(orderId).first();
@@ -970,6 +971,8 @@ async function outForDelivery(env, orderId, body, identity, resend = false) {
       (order_id, request_id, action, status, admin_email)
       VALUES (?, ?, ?, 'pending', ?)`).bind(orderId, requestId, action, identity.email),
     env.DB.prepare(`UPDATE orders SET
+      fulfilment_type = 'delivery',
+      shipping_method = CASE WHEN shipping_method = '' THEN 'New Zealand Delivery' ELSE shipping_method END,
       fulfilment_status = 'out_for_delivery',
       out_for_delivery_at = COALESCE(out_for_delivery_at, CURRENT_TIMESTAMP),
       out_for_delivery_email_status = 'sending',
@@ -978,7 +981,12 @@ async function outForDelivery(env, orderId, body, identity, resend = false) {
       out_for_delivery_email_lock_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-        AND fulfilment_type = 'delivery'
+        AND (fulfilment_type = 'delivery'
+          OR (COALESCE(fulfilment_type, '') = ''
+            AND (shipping_address_json NOT IN ('', '{}')
+              OR shipping_address_line_1 != ''
+              OR shipping_city != ''
+              OR shipping_country != '')))
         AND fulfilment_status != 'completed'
         AND (out_for_delivery_email_status != 'sending'
           OR out_for_delivery_email_lock_at IS NULL
@@ -1074,9 +1082,18 @@ async function markCompleted(env, orderId, body, identity) {
   if (eligibility.error) return json({ ok: false, error: eligibility.error, code: eligibility.code }, eligibility.status);
 
   const results = await env.DB.batch([
-    env.DB.prepare(`UPDATE orders SET fulfilment_status = 'completed',
+    env.DB.prepare(`UPDATE orders SET fulfilment_type = 'delivery',
+      shipping_method = CASE WHEN shipping_method = '' THEN 'New Zealand Delivery' ELSE shipping_method END,
+      fulfilment_status = 'completed',
       completed_at = CURRENT_TIMESTAMP, completed_by_admin = ?, delivery_request_id = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND fulfilment_type = 'delivery' AND fulfilment_status = ?`)
+      WHERE id = ?
+        AND (fulfilment_type = 'delivery'
+          OR (COALESCE(fulfilment_type, '') = ''
+            AND (shipping_address_json NOT IN ('', '{}')
+              OR shipping_address_line_1 != ''
+              OR shipping_city != ''
+              OR shipping_country != '')))
+        AND fulfilment_status = ?`)
       .bind(identity.email, requestId, orderId, order.fulfilment_status),
     env.DB.prepare(`INSERT INTO fulfilment_history
       (order_id, previous_status, new_status, reason, changed_by)

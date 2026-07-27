@@ -23,9 +23,25 @@ export function deliveryEmailConfigured(env) {
   return provider === 'resend' && validEmail(cleanText(env.CONTACT_FROM_EMAIL, 254)) && Boolean(env.EMAIL_API_KEY);
 }
 
+export function isDeliveryOrder(order) {
+  const fulfilmentType = cleanText(order?.fulfilment_type, 20).toLowerCase();
+  if (fulfilmentType) return fulfilmentType === 'delivery';
+  if ([order?.shipping_address_line_1, order?.shipping_city, order?.shipping_country].some(value => cleanText(value, 200))) {
+    return true;
+  }
+  try {
+    const address = JSON.parse(String(order?.shipping_address_json || '{}'));
+    return Boolean(address && typeof address === 'object'
+      && [address.line1, address.line2, address.city, address.state, address.postal_code, address.country]
+        .some(value => cleanText(value, 200)));
+  } catch {
+    return false;
+  }
+}
+
 export function validateDeliveryAction(order, action) {
   if (!order) return { error: 'Order not found.', status: 404, code: 'ORDER_NOT_FOUND' };
-  if (order.fulfilment_type !== 'delivery') {
+  if (!isDeliveryOrder(order)) {
     return { error: 'Delivery actions are available only for delivery orders.', status: 409, code: 'NOT_DELIVERY' };
   }
   if (order.payment_status !== 'paid') {
