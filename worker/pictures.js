@@ -1,3 +1,5 @@
+import { readLimitedBytes } from './request-security.js';
+
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_MULTIPART_BYTES = 18 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 12000;
@@ -148,9 +150,16 @@ async function parseUpload(request) {
   if (!String(request.headers.get('content-type') || '').toLowerCase().startsWith('multipart/form-data')) {
     return { error: 'A multipart image upload is required.', code: 'INVALID_MULTIPART' };
   }
-  const length = Number(request.headers.get('content-length') || 0);
-  if (length > MAX_MULTIPART_BYTES) return { error: 'The upload request is too large.', code: 'REQUEST_TOO_LARGE' };
-  const form = await request.formData();
+  const limited = await readLimitedBytes(request, MAX_MULTIPART_BYTES);
+  if (limited.error) return { error: limited.error, code: limited.code, status: limited.status };
+  const headers = new Headers(request.headers);
+  headers.delete('content-length');
+  const formRequest = new Request(request.url, {
+    method: request.method,
+    headers,
+    body: limited.bytes
+  });
+  const form = await formRequest.formData();
   const file = form.get('file');
   if (!(file instanceof File) || !file.size) return { error: 'Choose an image to upload.', code: 'FILE_REQUIRED' };
   if (file.size > MAX_UPLOAD_BYTES) return { error: 'The image is larger than 8 MB.', code: 'FILE_TOO_LARGE' };
@@ -201,7 +210,7 @@ async function uploadPicture(request, env, identity, productId) {
   Object.assign(context, { mimeType: upload.type, fileSize: upload.file?.size || 0, width: upload.width || null, height: upload.height || null });
   if (upload.error) {
     logUpload({ ...context, status: 'rejected', errorCode: upload.code, durationMs: Date.now() - startedAt });
-    return failure(upload.code, upload.error, 400, requestId);
+    return failure(upload.code, upload.error, upload.status || 400, requestId);
   }
 
   const completed = await env.DB.prepare('SELECT id, product_id, active FROM product_images WHERE upload_request_id = ?').bind(requestId).first();
@@ -442,6 +451,13 @@ async function routePicturesApi(request, env, identity) {
 async function responseWithRequestId(response, requestId) {
   const headers = new Headers(response.headers);
   headers.set('X-Request-ID', requestId);
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Referrer-Policy', 'no-referrer');
+  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  headers.set('Strict-Transport-Security', 'max-age=31536000');
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Cache-Control', 'no-store');
   if (!String(headers.get('content-type') || '').includes('application/json')) {
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }

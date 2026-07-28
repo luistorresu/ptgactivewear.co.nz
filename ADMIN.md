@@ -39,7 +39,29 @@ Passwords are derived with PBKDF2-HMAC-SHA256 at Cloudflare Workers' supported 1
 
 Five failed logins for the same username and source address cause a 15-minute lockout. Authentication logs include safe request IDs and outcomes but never passwords, hashes, cookies, tokens, or secrets.
 
-Cloudflare Access can remain in front of `/admin*` and `/api/admin/*` as an additional edge layer. The Worker username/password session is still required behind Access.
+The hardened authentication flow supports three explicit modes:
+
+* `legacy`: signed Worker username/password sessions only. This remains the default until Access is verified.
+* `transition`: a valid Cloudflare Access identity is preferred, with the signed Worker session retained as rollback protection.
+* `access`: only a cryptographically verified Cloudflare Access JWT is accepted. Local login is disabled.
+
+Access JWTs are accepted only after verifying the RS256 signature against the account's Access signing keys, issuer, configured audience, expiry, subject, and an allowlist containing exactly three email addresses. State-changing requests also require exact same-origin validation, a safe content type, and `X-PTG-Admin-Request: 1`.
+
+## Cloudflare Access Transition
+
+Do not set `ADMIN_AUTH_MODE=access` until Email OTP has been tested successfully for every approved administrator.
+
+1. In Cloudflare Zero Trust, enable **One-time PIN** as an authentication method.
+2. Create a self-hosted Access application covering both `ptgactivewear.co.nz/admin*` and `ptgactivewear.co.nz/api/admin*`.
+3. Add one **Allow** policy whose include rule lists only the three approved email addresses. Do not use `Everyone`, an email-domain rule, or OTP login method alone as the allow rule.
+4. Record the Access team domain and Application Audience tag.
+5. In the Worker variables, set `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and `ADMIN_AUTH_MODE=transition`. `CF_ACCESS_AUD` may contain a comma-separated list only if Cloudflare requires separate applications for the two paths.
+6. Keep `ADMIN_ALLOWED_EMAILS` restricted to exactly the three approved addresses already recorded in project configuration.
+7. Verify that an approved address receives its six-digit OTP, can enter the portal, and can perform a read-only admin request. Verify that an unapproved address is denied.
+8. Set a separate encrypted `SHIRT_NUMBER_PROOF_SECRET` before removing `SESSION_SECRET`.
+9. After preview and production verification, change to `ADMIN_AUTH_MODE=access`. Remove the legacy username/password secrets and code only in a later deployment with a tested rollback point.
+
+Cloudflare Access must protect both the browser pages and the admin API. Protecting only `/admin*` leaves `/api/admin*` exposed to direct requests.
 
 ## Create Credentials
 

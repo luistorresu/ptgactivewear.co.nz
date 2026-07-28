@@ -22,7 +22,7 @@ const item = { productId: 'patagonia-fc-beanie', quantity: 1, size: 'One Size' }
 async function summary(fulfilmentType, extra = {}) {
   const response = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/checkout-summary', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' },
     body: JSON.stringify({ fulfilmentType, items: [item], shippingCents: 999999, totalCents: 1 })
   }), { ...env, ...extra });
   return { response, body: await response.json() };
@@ -63,7 +63,7 @@ test('Stripe parameters differ safely for pickup and NZ delivery', async () => {
   try {
     for (const fulfilmentType of ['pickup', 'delivery']) {
       const response = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/create-checkout-session', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fulfilmentType, items: [item], checkoutRequestId: `request-${fulfilmentType}` })
+        method: 'POST', headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' }, body: JSON.stringify({ fulfilmentType, items: [item], checkoutRequestId: `request-${fulfilmentType}` })
       }), { ...env, STRIPE_SECRET_KEY: 'sk_test_not_real', CHECKOUT_ENABLED: 'true' });
       assert.equal(response.status, 200);
     }

@@ -6,6 +6,13 @@ import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
 import { buildTrustedOrderSummary } from './worker/surcharge.js';
 import { publicFulfilment, selectFulfilment } from './worker/fulfilment.js';
 import {
+  checkKvRateLimit,
+  isJsonRequest,
+  isSameOriginRequest,
+  readLimitedJson,
+  readLimitedText
+} from './worker/request-security.js';
+import {
   RESTRICTED_SHIRT_NUMBERS,
   TRAINING_KIT_ID,
   issueTrainingKitEligibilityProof,
@@ -26,6 +33,10 @@ const PERSONALISATION_ADDON_NZD_CENTS = 2000;
 const MAX_CART_ITEMS = 30;
 const MAX_ITEM_QUANTITY = 20;
 const SITE_ORIGIN = 'https://ptgactivewear.co.nz';
+const CONTACT_BODY_BYTES = 16 * 1024;
+const ELIGIBILITY_BODY_BYTES = 4 * 1024;
+const CHECKOUT_BODY_BYTES = 64 * 1024;
+const STRIPE_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
 
 const SERVER_PRODUCTS = {
   'patagonia-fc-beanie': {
@@ -96,13 +107,18 @@ const SERVER_PRODUCTS = {
 const jsonHeaders = {
   'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store',
-  'X-Content-Type-Options': 'nosniff'
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Strict-Transport-Security': 'max-age=31536000',
+  'Cross-Origin-Resource-Policy': 'same-origin'
 };
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: jsonHeaders
+    headers: { ...jsonHeaders, ...headers }
   });
 }
 
@@ -209,12 +225,14 @@ function buildNewsletterEmail({ email }, toEmail) {
 
 async function sendWithResend(env, emailData) {
   const recipients = Array.isArray(emailData.to) ? emailData.to : [emailData.to];
+  const headers = {
+    Authorization: `Bearer ${env.EMAIL_API_KEY}`,
+    'Content-Type': 'application/json'
+  };
+  if (emailData.idempotencyKey) headers['Idempotency-Key'] = emailData.idempotencyKey;
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.EMAIL_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
+    headers,
     body: JSON.stringify({
       from: env.CONTACT_FROM_EMAIL,
       to: recipients,
@@ -226,15 +244,37 @@ async function sendWithResend(env, emailData) {
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Resend failed with ${response.status}: ${body}`);
+    const error = new Error('Email provider request failed.');
+    error.code = `RESEND_HTTP_${response.status}`;
+    throw error;
   }
 }
 
-async function readJson(request) {
+function verifiedBrowserJsonRequest(request) {
+  return isJsonRequest(request) && isSameOriginRequest(request);
+}
+
+async function limitedJsonResponse(request, maxBytes) {
+  const result = await readLimitedJson(request, maxBytes);
+  if (result.error) {
+    return {
+      response: jsonResponse({ ok: false, error: result.error, code: result.code }, result.status)
+    };
+  }
+  return { body: result.body };
+}
+
+async function rateLimitResponse(env, request, scope, options) {
   try {
-    return await request.json();
+    const result = await checkKvRateLimit(env, request, scope, options);
+    if (result.allowed) return null;
+    return jsonResponse(
+      { ok: false, error: 'Too many requests. Please wait and try again.', code: 'RATE_LIMITED' },
+      429,
+      { 'Retry-After': String(result.retryAfter) }
+    );
   } catch (error) {
+    console.error('Rate limit check failed', { scope, code: 'RATE_LIMIT_UNAVAILABLE' });
     return null;
   }
 }
@@ -247,10 +287,15 @@ async function handleEmailRequest(request, env, type) {
   if (request.method !== 'POST') {
     return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
   }
+  if (!verifiedBrowserJsonRequest(request)) {
+    return jsonResponse({ ok: false, error: 'Request verification failed.' }, 403);
+  }
 
-  const payload = await readJson(request);
-  if (!payload) {
-    return jsonResponse({ ok: false, error: 'Invalid JSON payload.' }, 400);
+  const parsed = await limitedJsonResponse(request, CONTACT_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const payload = parsed.body;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return jsonResponse({ ok: false, error: 'A JSON object is required.' }, 400);
   }
 
   const validation = type === 'contact'
@@ -260,6 +305,11 @@ async function handleEmailRequest(request, env, type) {
   if (validation.error) {
     return jsonResponse({ ok: false, error: validation.error }, 400);
   }
+  const limited = await rateLimitResponse(env, request, type, {
+    limit: type === 'contact' ? 10 : 20,
+    windowSeconds: type === 'contact' ? 15 * 60 : 60 * 60,
+  });
+  if (limited) return limited;
 
   const provider = String(env.EMAIL_PROVIDER || 'resend').toLowerCase();
   const toEmail = cleanText(env.CONTACT_TO_EMAIL, MAX_FIELD_LENGTHS.email);
@@ -272,6 +322,10 @@ async function handleEmailRequest(request, env, type) {
   const emailData = type === 'contact'
     ? buildContactEmail(validation, toEmail)
     : buildNewsletterEmail(validation, toEmail);
+  const requestKey = /^[A-Za-z0-9_-]{8,64}$/.test(String(request.headers.get('x-request-id') || ''))
+    ? String(request.headers.get('x-request-id'))
+    : crypto.randomUUID();
+  emailData.idempotencyKey = `ptg-${type}-${requestKey}`;
 
   try {
     if (provider === 'resend') {
@@ -280,16 +334,11 @@ async function handleEmailRequest(request, env, type) {
       return jsonResponse({ ok: false, error: `Unsupported email provider: ${provider}` }, 503);
     }
   } catch (error) {
-    console.error(`${type} email send failed`, error.message);
+    console.error(`${type} email send failed`, { code: error.code || 'EMAIL_PROVIDER_ERROR' });
     return jsonResponse({ ok: false, error: 'Email could not be sent.' }, 502);
   }
 
-  return jsonResponse({ ok: true });
-}
-
-function requireJsonRequest(request) {
-  const contentType = request.headers.get('content-type') || '';
-  return contentType.toLowerCase().includes('application/json');
+    return jsonResponse({ ok: true, requestId: requestKey });
 }
 
 function getApprovedSiteUrl(request, env) {
@@ -556,8 +605,15 @@ async function validateAndSummariseCheckout(payload, env) {
 async function handleTrainingKitNumberEligibility(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: jsonHeaders });
   if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
-  if (!requireJsonRequest(request)) return jsonResponse({ ok: false, error: 'JSON content type is required.' }, 415);
-  const body = await readJson(request);
+  if (!verifiedBrowserJsonRequest(request)) return jsonResponse({ ok: false, error: 'Request verification failed.' }, 403);
+  const parsed = await limitedJsonResponse(request, ELIGIBILITY_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
+  const limited = await rateLimitResponse(env, request, 'shirt-number-eligibility', {
+    limit: 30,
+    windowSeconds: 10 * 60
+  });
+  if (limited) return limited;
   const result = await issueTrainingKitEligibilityProof(body?.shirtNumber, body?.birthDay, env);
   if (result.error) return jsonResponse({ ok: false, error: result.error }, result.configurationError ? 503 : 400);
   return jsonResponse({ ok: true, eligibilityToken: result.token, expiresAt: result.expiresAt });
@@ -566,8 +622,10 @@ async function handleTrainingKitNumberEligibility(request, env) {
 async function handleCheckoutSummary(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: jsonHeaders });
   if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
-  if (!requireJsonRequest(request)) return jsonResponse({ ok: false, error: 'JSON content type is required.' }, 415);
-  const validation = await validateAndSummariseCheckout(await readJson(request), env);
+  if (!verifiedBrowserJsonRequest(request)) return jsonResponse({ ok: false, error: 'Request verification failed.' }, 403);
+  const parsed = await limitedJsonResponse(request, CHECKOUT_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const validation = await validateAndSummariseCheckout(parsed.body, env);
   if (validation.error) return jsonResponse({ ok: false, error: validation.error }, validation.configurationError ? 503 : 400);
   return jsonResponse({ ok: true, summary: publicCheckoutSummary(validation.summary, validation.fulfilment) });
 }
@@ -581,15 +639,17 @@ async function handleCreateCheckoutSession(request, env) {
     return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
   }
 
-  if (!requireJsonRequest(request)) {
-    return jsonResponse({ ok: false, error: 'JSON content type is required.' }, 415);
+  if (!verifiedBrowserJsonRequest(request)) {
+    return jsonResponse({ ok: false, error: 'Request verification failed.' }, 403);
   }
 
   if (String(env.CHECKOUT_ENABLED || 'true').toLowerCase() !== 'true') {
     return jsonResponse({ ok: false, error: 'Checkout is temporarily unavailable.' }, 503);
   }
 
-  const payload = await readJson(request);
+  const parsed = await limitedJsonResponse(request, CHECKOUT_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const payload = parsed.body;
   const validation = await validateAndSummariseCheckout(payload, env);
 
   if (validation.error) {
@@ -599,6 +659,11 @@ async function handleCreateCheckoutSession(request, env) {
   if (!env.STRIPE_SECRET_KEY) {
     return jsonResponse({ ok: false, error: 'Checkout is not configured yet.' }, 503);
   }
+  const limited = await rateLimitResponse(env, request, 'checkout-session', {
+    limit: 10,
+    windowSeconds: 10 * 60
+  });
+  if (limited) return limited;
 
   const siteUrl = getApprovedSiteUrl(request, env);
   const lineItems = buildStripeLineItems(validation.items, validation.summary, validation.fulfilment);
@@ -983,17 +1048,29 @@ async function sendOrderEmails(env, session, providedLineItems = null, event = n
   order.eventId = storedOrder?.stripe_event_id || event?.id || '';
   order.paymentIntentId = storedOrder?.stripe_payment_intent_id || order.paymentIntentId;
   const businessEmail = buildBusinessOrderEmail(order);
+  const emailIdempotencyKey = String(session.id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 180);
+  if (!emailIdempotencyKey) throw new Error('Checkout session identifier is invalid.');
 
   await sendWithResend(
     { ...env, CONTACT_FROM_EMAIL: fromEmail },
-    { ...businessEmail, to: toEmail, replyTo: order.customerEmail || undefined }
+    {
+      ...businessEmail,
+      to: toEmail,
+      replyTo: order.customerEmail || undefined,
+      idempotencyKey: `ptg-order-business-${emailIdempotencyKey}`
+    }
   );
 
   if (order.customerEmail) {
     const customerEmail = buildCustomerOrderEmail(order);
     await sendWithResend(
       { ...env, CONTACT_FROM_EMAIL: fromEmail },
-      { ...customerEmail, to: order.customerEmail, replyTo: toEmail }
+      {
+        ...customerEmail,
+        to: order.customerEmail,
+        replyTo: toEmail,
+        idempotencyKey: `ptg-order-customer-${emailIdempotencyKey}`
+      }
     );
   }
 }
@@ -1059,7 +1136,11 @@ async function handleStripeWebhook(request, env) {
     return jsonResponse({ ok: false, error: 'Webhook is not configured.' }, 503);
   }
 
-  const rawBody = await request.text();
+  const parsedBody = await readLimitedText(request, STRIPE_WEBHOOK_BODY_BYTES);
+  if (parsedBody.error) {
+    return jsonResponse({ ok: false, error: parsedBody.error, code: parsedBody.code }, parsedBody.status);
+  }
+  const rawBody = parsedBody.text;
   const signatureHeader = request.headers.get('stripe-signature') || '';
   const isValid = await verifyStripeWebhookSignature(rawBody, signatureHeader, env.STRIPE_WEBHOOK_SECRET);
 
@@ -1105,7 +1186,8 @@ function secureAssetResponse(response, { admin = false } = {}) {
   headers.set('X-Frame-Options', 'DENY');
   headers.set('Referrer-Policy', admin ? 'same-origin' : 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  headers.set('Strict-Transport-Security', 'max-age=31536000');
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
   headers.set('Content-Security-Policy', [
     "default-src 'self'",
     "base-uri 'self'",
@@ -1118,7 +1200,10 @@ function secureAssetResponse(response, { admin = false } = {}) {
     "img-src 'self' data: blob:",
     "connect-src 'self' https://cloudflareinsights.com"
   ].join('; '));
-  if (admin) headers.set('Cache-Control', 'no-store');
+  if (admin) {
+    headers.set('Cache-Control', 'no-store');
+    headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
@@ -1270,6 +1355,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    const localDevelopmentHost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    const productionRequest = String(env.ENVIRONMENT || '').trim().toLowerCase() === 'production';
+    if (productionRequest && url.protocol === 'http:' && !localDevelopmentHost) {
+      url.protocol = 'https:';
+      if (url.hostname.toLowerCase() === 'www.ptgactivewear.co.nz') url.hostname = 'ptgactivewear.co.nz';
+      return Response.redirect(url, 308);
+    }
+
     if (url.hostname.toLowerCase() === 'www.ptgactivewear.co.nz') {
       url.hostname = 'ptgactivewear.co.nz';
       return Response.redirect(url, 308);
@@ -1289,6 +1382,11 @@ export default {
       '/admin/admin.css'
     ]);
     if (publicAdminAssets.has(url.pathname)) {
+      if (url.pathname === '/admin/login' || url.pathname === '/admin/login.html') {
+        let identity = null;
+        try { identity = await getAdminIdentity(request, env); } catch {}
+        if (identity) return Response.redirect(new URL('/admin', request.url), 302);
+      }
       return serveAdminAsset(request, env);
     }
 
@@ -1316,13 +1414,18 @@ export default {
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
       let identity = null;
       try { identity = await getAdminIdentity(request, env); } catch (error) { console.error('Admin authentication failed', { message: error.message }); }
-      return identity ? serveAdminAsset(request, env) : Response.redirect(new URL('/admin/login', request.url), 302);
+      if (identity) return serveAdminAsset(request, env);
+      console.warn(JSON.stringify({ scope: 'admin_authorisation', requestId: crypto.randomUUID(), action: 'admin_page', status: 'denied', reason: 'missing_or_invalid_identity' }));
+      return Response.redirect(new URL('/admin/login', request.url), 302);
     }
 
     if (url.pathname === '/api/admin' || url.pathname.startsWith('/api/admin/')) {
       let identity = null;
       try { identity = await getAdminIdentity(request, env); } catch (error) { console.error('Admin authentication failed', { message: error.message }); }
-      if (!identity) return unauthorisedAdminResponse(true);
+      if (!identity) {
+        console.warn(JSON.stringify({ scope: 'admin_authorisation', requestId: crypto.randomUUID(), action: 'admin_api', status: 'denied', reason: 'missing_or_invalid_identity' }));
+        return unauthorisedAdminResponse(true);
+      }
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase()) && !isAdminMutationAllowed(request, identity)) {
         return jsonResponse({ ok: false, error: 'Admin request verification failed.' }, 403);
       }

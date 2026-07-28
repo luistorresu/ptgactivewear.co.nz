@@ -4,6 +4,15 @@
 ADMIN_USERNAME=
 ADMIN_PASSWORD_HASH=
 SESSION_SECRET=
+SHIRT_NUMBER_PROOF_SECRET=
+
+# Cloudflare Access transition. Keep legacy mode until Access OTP is live and verified.
+ADMIN_AUTH_MODE=legacy
+CF_ACCESS_TEAM_DOMAIN=
+# One audience tag, or a comma-separated list when separate Access apps protect
+# the admin UI and API.
+CF_ACCESS_AUD=
+ADMIN_ALLOWED_EMAILS=
 
 SITE_URL=https://ptgactivewear.co.nz
 

@@ -117,7 +117,7 @@ test('Stripe Checkout receives shirt details and verification status but never b
     };
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/create-checkout-session', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        method: 'POST', headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       }), { ...secretEnv, DB: trainingDatabase(), INVENTORY_ENFORCEMENT: 'd1', STRIPE_SECRET_KEY: 'sk_test_not_real', CHECKOUT_ENABLED: 'true' });
       assert.equal(response.status, 200);
     }
@@ -136,11 +136,11 @@ test('Stripe Checkout receives shirt details and verification status but never b
 
 test('public eligibility endpoint rejects mismatch and returns a non-sensitive proof for a match', async () => {
   const mismatch = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/training-kit-number-eligibility', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shirtNumber: '10', birthDay: '9' })
+    method: 'POST', headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' }, body: JSON.stringify({ shirtNumber: '10', birthDay: '9' })
   }), secretEnv);
   assert.equal(mismatch.status, 400);
   const accepted = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/training-kit-number-eligibility', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shirtNumber: '10', birthDay: '10' })
+    method: 'POST', headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' }, body: JSON.stringify({ shirtNumber: '10', birthDay: '10' })
   }), secretEnv);
   const body = await accepted.json();
   assert.equal(accepted.status, 200);

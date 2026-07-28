@@ -1142,8 +1142,13 @@ pictureGallery.addEventListener('click', event => {
 
 document.querySelector('[data-logout]').addEventListener('click', async event => {
   event.currentTarget.disabled = true;
-  try { await api('/api/admin/logout', { method: 'POST', body: '{}' }); }
-  finally { window.location.replace('/admin/login'); }
+  let logoutUrl = '/admin/login';
+  try {
+    const result = await api('/api/admin/logout', { method: 'POST', body: '{}' });
+    logoutUrl = result.logoutUrl || logoutUrl;
+  } finally {
+    window.location.replace(logoutUrl);
+  }
 });
 
 window.addEventListener('popstate', () => initialiseRoute(false));

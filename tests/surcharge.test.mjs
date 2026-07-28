@@ -62,7 +62,7 @@ test('refund records preserve the original surcharge and only mark it refunded w
 test('checkout summary ignores browser-edited prices and totals', async () => {
   const request = new Request('https://ptgactivewear.co.nz/api/checkout-summary', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' },
     body: JSON.stringify({
       fulfilmentType: 'pickup',
       items: [{ productId: 'patagonia-fc-beanie', quantity: 1, size: 'One Size', suppliedPrice: 1 }],
@@ -97,7 +97,7 @@ test('Stripe Checkout receives one surcharge line and stable idempotency key', a
     };
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/create-checkout-session', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        method: 'POST', headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       }), { ...enabledEnv, STRIPE_SECRET_KEY: 'sk_test_not_real', CHECKOUT_ENABLED: 'true' });
       assert.equal(response.status, 200);
     }

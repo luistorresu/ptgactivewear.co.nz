@@ -11,6 +11,7 @@ import {
   sendOutForDeliveryEmail,
   validateDeliveryAction
 } from './delivery.js';
+import { readLimitedJson } from './request-security.js';
 
 const PRODUCT_FIELDS = new Set([
   'slug', 'name', 'description', 'category', 'productType', 'badge', 'priceCents', 'currency', 'seoTitle', 'metaDescription', 'active',
@@ -69,15 +70,12 @@ function rejectUnknownFields(body, allowed) {
 }
 
 async function readBody(request) {
-  const length = Number(request.headers.get('content-length') || 0);
-  if (length > 64 * 1024) return { error: 'Request body is too large.' };
-  try {
-    const body = await request.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'A JSON object is required.' };
-    return { body };
-  } catch (error) {
-    return { error: 'Invalid JSON payload.' };
+  const result = await readLimitedJson(request, 64 * 1024);
+  if (result.error) return { error: result.error, status: result.status };
+  if (!result.body || typeof result.body !== 'object' || Array.isArray(result.body)) {
+    return { error: 'A JSON object is required.', status: 400 };
   }
+  return { body: result.body };
 }
 
 function mapProduct(row) {
@@ -1251,7 +1249,7 @@ async function routeAdminApi(request, env, identity) {
     }
     if (method === 'POST' && segments[0] === 'products' && segments.length === 1) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : createProduct(env.DB, parsed.body, identity);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400) : createProduct(env.DB, parsed.body, identity);
     }
     if (method === 'GET' && segments[0] === 'products' && segments.length === 2) {
       const product = await getProduct(env.DB, segments[1]);
@@ -1259,11 +1257,11 @@ async function routeAdminApi(request, env, identity) {
     }
     if (method === 'PUT' && segments[0] === 'products' && segments.length === 2) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : updateProduct(env.DB, segments[1], parsed.body, identity);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400) : updateProduct(env.DB, segments[1], parsed.body, identity);
     }
     if (method === 'POST' && segments[0] === 'products' && segments[2] === 'lifecycle' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : productLifecycle(env.DB, segments[1], parsed.body, identity);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400) : productLifecycle(env.DB, segments[1], parsed.body, identity);
     }
     if (method === 'POST' && segments[0] === 'products' && segments.length === 3
       && ['publish', 'unpublish', 'archive', 'restore'].includes(segments[2])) {
@@ -1282,15 +1280,15 @@ async function routeAdminApi(request, env, identity) {
     }
     if (method === 'POST' && segments[0] === 'products' && segments[2] === 'variants' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : createVariant(env.DB, segments[1], parsed.body, identity);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400) : createVariant(env.DB, segments[1], parsed.body, identity);
     }
     if (method === 'PUT' && segments[0] === 'variants' && segments.length === 2) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : updateVariant(env.DB, Number(segments[1]), parsed.body, identity);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400) : updateVariant(env.DB, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'POST' && segments[0] === 'variants' && segments[2] === 'adjust-stock' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : adjustStock(env.DB, Number(segments[1]), parsed.body, identity);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400) : adjustStock(env.DB, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'GET' && segments[0] === 'orders' && segments.length === 1) {
       return json({ ok: true, orders: await listOrders(env.DB, url) });
@@ -1301,32 +1299,32 @@ async function routeAdminApi(request, env, identity) {
     }
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'ready-for-collection' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
         : readyToCollect(env, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'resend-ready-for-collection' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
         : readyToCollect(env, Number(segments[1]), parsed.body, identity, true);
     }
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'mark-collected' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
         : markCollected(env, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'out-for-delivery' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
         : outForDelivery(env, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'resend-out-for-delivery' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
         : outForDelivery(env, Number(segments[1]), parsed.body, identity, true);
     }
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'mark-completed' && segments.length === 3) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400)
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
         : markCompleted(env, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'GET' && segments[0] === 'orders' && segments.length === 2) {
@@ -1335,7 +1333,7 @@ async function routeAdminApi(request, env, identity) {
     }
     if (method === 'PUT' && segments[0] === 'orders' && segments.length === 2) {
       const parsed = await readBody(request);
-      return parsed.error ? json({ ok: false, error: parsed.error }, 400) : updateOrder(env.DB, Number(segments[1]), parsed.body, identity);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400) : updateOrder(env.DB, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'GET' && segments[0] === 'stock-movements' && segments.length === 1) {
       return json({ ok: true, movements: await listMovements(env.DB, url) });
@@ -1375,6 +1373,13 @@ async function routeAdminApi(request, env, identity) {
 async function responseWithRequestId(response, requestId) {
   const headers = new Headers(response.headers);
   headers.set('X-Request-ID', requestId);
+  headers.set('X-Frame-Options', 'DENY');
+  headers.set('Referrer-Policy', 'no-referrer');
+  headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  headers.set('Strict-Transport-Security', 'max-age=31536000');
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Cache-Control', 'no-store');
   if (!String(headers.get('content-type') || '').includes('application/json')) {
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }

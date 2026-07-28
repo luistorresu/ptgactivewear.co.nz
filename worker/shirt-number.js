@@ -27,6 +27,10 @@ async function signingKey(secret) {
   );
 }
 
+function proofSecret(env) {
+  return String(env.SHIRT_NUMBER_PROOF_SECRET || env.SESSION_SECRET || '');
+}
+
 export function trainingKitPlayerNameIsValid(value) {
   return !value || /^[\p{L} '’-]{1,20}$/u.test(value);
 }
@@ -44,7 +48,8 @@ export async function issueTrainingKitEligibilityProof(numberValue, birthDayValu
   const birthDay = String(birthDayValue ?? '').trim();
   if (!RESTRICTED_SHIRT_NUMBERS.has(number)) return { error: 'This shirt number does not require birth-day validation.' };
   if (birthDay !== number) return { error: restrictedShirtNumberError(number) };
-  if (!env.SESSION_SECRET) return { error: 'Shirt-number validation is temporarily unavailable.', configurationError: true };
+  const secret = proofSecret(env);
+  if (!secret) return { error: 'Shirt-number validation is temporarily unavailable.', configurationError: true };
 
   const payload = base64Url(encoder.encode(JSON.stringify({
     v: PROOF_VERSION,
@@ -53,7 +58,7 @@ export async function issueTrainingKitEligibilityProof(numberValue, birthDayValu
     verified: true,
     exp: now + PROOF_LIFETIME_MS
   })));
-  const signature = await crypto.subtle.sign('HMAC', await signingKey(env.SESSION_SECRET), encoder.encode(payload));
+  const signature = await crypto.subtle.sign('HMAC', await signingKey(secret), encoder.encode(payload));
   return { token: `${payload}.${base64Url(signature)}`, expiresAt: now + PROOF_LIFETIME_MS };
 }
 
@@ -61,14 +66,15 @@ export async function verifyTrainingKitEligibilityProof(tokenValue, numberValue,
   const token = String(tokenValue ?? '').trim();
   const number = String(numberValue ?? '').trim();
   if (!RESTRICTED_SHIRT_NUMBERS.has(number)) return true;
-  if (!token || !env.SESSION_SECRET) return false;
+  const secret = proofSecret(env);
+  if (!token || !secret) return false;
   const [payload, signature, extra] = token.split('.');
   if (!payload || !signature || extra) return false;
 
   try {
     const validSignature = await crypto.subtle.verify(
       'HMAC',
-      await signingKey(env.SESSION_SECRET),
+      await signingKey(secret),
       decodeBase64Url(signature),
       encoder.encode(payload)
     );

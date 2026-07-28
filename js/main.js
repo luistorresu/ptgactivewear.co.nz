@@ -609,9 +609,10 @@ function setupNewsletterForm() {
     }
 
     try {
+      const requestId = crypto.randomUUID();
       const response = await fetch('/api/newsletter', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
         body: JSON.stringify({ email, website })
       });
       const result = await response.json().catch(() => ({}));
@@ -686,9 +687,10 @@ function setupContactForm() {
     }
 
     try {
+      const requestId = crypto.randomUUID();
       const response = await fetch('/api/contact', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
         body: JSON.stringify(data)
       });
       const result = await response.json().catch(() => ({}));

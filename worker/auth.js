@@ -1,14 +1,27 @@
+import { readLimitedJson } from './request-security.js';
+
 const SESSION_COOKIE = 'ptg_admin_session';
 const SESSION_SECONDS = 60 * 60 * 8;
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_MAX_FAILURES = 5;
 const PASSWORD_HASH_PATTERN = /^pbkdf2-sha256\$(\d+)\$([A-Za-z0-9_-]+)\$([A-Za-z0-9_-]+)$/;
+const ACCESS_CERT_CACHE_SECONDS = 5 * 60;
+const ACCESS_CLOCK_TOLERANCE_SECONDS = 30;
+let accessCertCache = { issuer: '', expiresAt: 0, keys: [] };
 
 function base64UrlToBytes(value) {
   const normalised = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalised.padEnd(Math.ceil(normalised.length / 4) * 4, '=');
   const binary = atob(padded);
   return Uint8Array.from(binary, character => character.charCodeAt(0));
+}
+
+function decodeJwtJson(value) {
+  try {
+    return JSON.parse(new TextDecoder().decode(base64UrlToBytes(value)));
+  } catch {
+    return null;
+  }
 }
 
 function bytesToBase64Url(bytes) {
@@ -53,6 +66,11 @@ function authJson(body, status = 200, requestId = '', headers = {}) {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'no-referrer',
+      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+      'Strict-Transport-Security': 'max-age=31536000',
+      'Cross-Origin-Resource-Policy': 'same-origin',
       'X-Request-ID': requestId,
       ...headers
     }
@@ -66,6 +84,136 @@ function configured(env) {
     && String(env.SESSION_SECRET || '').length >= 32
     && env.ORDER_EVENT_STORE
   );
+}
+
+function adminAuthMode(env) {
+  const mode = String(env.ADMIN_AUTH_MODE || 'legacy').trim().toLowerCase();
+  return ['legacy', 'transition', 'access'].includes(mode) ? mode : 'legacy';
+}
+
+function allowedAdminEmails(env) {
+  return new Set(String(env.ADMIN_ALLOWED_EMAILS || '')
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean));
+}
+
+function accessAudiences(env) {
+  return new Set(String(env.CF_ACCESS_AUD || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean));
+}
+
+function accessIssuer(env) {
+  const configuredDomain = String(env.CF_ACCESS_TEAM_DOMAIN || '').trim().replace(/\/+$/, '');
+  if (!configuredDomain) return '';
+  try {
+    const url = new URL(configuredDomain.includes('://') ? configuredDomain : `https://${configuredDomain}`);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return '';
+    if (url.pathname !== '/') return '';
+    if (!url.hostname.endsWith('.cloudflareaccess.com')) return '';
+    return url.origin;
+  } catch {
+    return '';
+  }
+}
+
+function accessConfigured(env) {
+  return Boolean(accessIssuer(env)
+    && accessAudiences(env).size > 0
+    && allowedAdminEmails(env).size === 3);
+}
+
+async function accessSigningKeys(issuer, forceRefresh = false) {
+  if (!forceRefresh
+    && accessCertCache.issuer === issuer
+    && accessCertCache.expiresAt > Date.now()
+    && accessCertCache.keys.length) {
+    return accessCertCache.keys;
+  }
+  const response = await fetch(`${issuer}/cdn-cgi/access/certs`, {
+    headers: { Accept: 'application/json' },
+    cf: { cacheTtl: ACCESS_CERT_CACHE_SECONDS, cacheEverything: true }
+  });
+  if (!response.ok) throw new Error('ACCESS_CERTS_UNAVAILABLE');
+  const body = await response.json();
+  const keys = Array.isArray(body?.keys) ? body.keys.filter(key => key?.kty === 'RSA' && key?.kid) : [];
+  if (!keys.length) throw new Error('ACCESS_CERTS_INVALID');
+  accessCertCache = {
+    issuer,
+    expiresAt: Date.now() + ACCESS_CERT_CACHE_SECONDS * 1000,
+    keys
+  };
+  return keys;
+}
+
+async function accessJwtIdentity(request, env, nowSeconds = Math.floor(Date.now() / 1000)) {
+  const token = String(request.headers.get('cf-access-jwt-assertion') || '').trim();
+  if (!token || !accessConfigured(env)) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts.some(part => !part || part.length > 12000)) return null;
+  const header = decodeJwtJson(parts[0]);
+  const payload = decodeJwtJson(parts[1]);
+  if (!header || !payload || header.alg !== 'RS256' || typeof header.kid !== 'string') return null;
+
+  const issuer = accessIssuer(env);
+  const audiences = accessAudiences(env);
+  const tokenAudience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  const email = String(payload.email || '').trim().toLowerCase();
+  if (payload.iss !== issuer
+    || !tokenAudience.some(audience => audiences.has(audience))
+    || !Number.isInteger(payload.exp)
+    || payload.exp <= nowSeconds
+    || (payload.nbf !== undefined && (!Number.isInteger(payload.nbf) || payload.nbf > nowSeconds + ACCESS_CLOCK_TOLERANCE_SECONDS))
+    || !payload.sub
+    || !allowedAdminEmails(env).has(email)) {
+    return null;
+  }
+
+  let keys;
+  try {
+    keys = await accessSigningKeys(issuer);
+  } catch {
+    return null;
+  }
+  let jwk = keys.find(key => key.kid === header.kid && (!key.alg || key.alg === 'RS256'));
+  if (!jwk) {
+    try {
+      keys = await accessSigningKeys(issuer, true);
+      jwk = keys.find(key => key.kid === header.kid && (!key.alg || key.alg === 'RS256'));
+    } catch {
+      return null;
+    }
+  }
+  if (!jwk) return null;
+  try {
+    const key = await crypto.subtle.importKey(
+      'jwk',
+      jwk,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    const valid = await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      base64UrlToBytes(parts[2]),
+      new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+    );
+    if (!valid) return null;
+  } catch {
+    return null;
+  }
+  return {
+    username: email,
+    email,
+    subject: String(payload.sub),
+    authMethod: 'cloudflare-access',
+    csrfToken: '',
+    sessionId: String(payload.jti || ''),
+    expiresAt: payload.exp * 1000
+  };
 }
 
 function cookieAttributes(request, maxAge) {
@@ -168,6 +316,12 @@ async function signedSessionIdentity(request, env) {
 }
 
 export async function getAdminIdentity(request, env) {
+  const mode = adminAuthMode(env);
+  if (mode !== 'legacy') {
+    const accessIdentity = await accessJwtIdentity(request, env);
+    if (accessIdentity) return accessIdentity;
+    if (mode === 'access' || request.headers.has('cf-access-jwt-assertion')) return null;
+  }
   return signedSessionIdentity(request, env);
 }
 
@@ -177,16 +331,12 @@ export async function handleAdminAuth(request, env) {
   const action = url.pathname.split('/').filter(Boolean).at(-1) || '';
   const startedAt = Date.now();
 
-  if (!configured(env)) {
-    return authJson({ ok: false, code: 'ADMIN_AUTH_NOT_CONFIGURED', error: 'Admin authentication is not configured.' }, 503, requestId);
-  }
-
   if (action === 'session' && request.method === 'GET') {
-    const identity = await signedSessionIdentity(request, env);
+    const identity = await getAdminIdentity(request, env);
     if (!identity) return authJson({ ok: false, error: 'Authentication is required.' }, 401, requestId);
     return authJson({
       ok: true,
-      identity: { username: identity.username },
+      identity: { username: identity.username, email: identity.email, authMethod: identity.authMethod || 'legacy' },
       csrfToken: identity.csrfToken,
       expiresAt: identity.expiresAt
     }, 200, requestId);
@@ -198,7 +348,10 @@ export async function handleAdminAuth(request, env) {
   }
 
   if (action === 'logout') {
-    const identity = await signedSessionIdentity(request, env);
+    const identity = await getAdminIdentity(request, env);
+    if (identity?.authMethod === 'cloudflare-access') {
+      return authJson({ ok: true, logoutUrl: '/cdn-cgi/access/logout' }, 200, requestId);
+    }
     if (identity && request.headers.get('x-csrf-token') === identity.csrfToken) {
       await env.ORDER_EVENT_STORE.delete(`admin:session:${await digest(identity.sessionId)}`);
       console.log(JSON.stringify({ scope: 'admin_auth', requestId, admin: identity.username, action: 'logout', status: 'succeeded', durationMs: Date.now() - startedAt }));
@@ -209,9 +362,20 @@ export async function handleAdminAuth(request, env) {
   }
 
   if (action !== 'login') return authJson({ ok: false, error: 'Not found.' }, 404, requestId);
-  let body;
-  try { body = await request.json(); }
-  catch { return authJson({ ok: false, error: 'Invalid request.' }, 400, requestId); }
+  if (adminAuthMode(env) === 'access') {
+    return authJson({ ok: false, error: 'Local administrator login is disabled.' }, 404, requestId);
+  }
+  if (!configured(env)) {
+    return authJson({ ok: false, code: 'ADMIN_AUTH_NOT_CONFIGURED', error: 'Admin authentication is not configured.' }, 503, requestId);
+  }
+  const parsed = await readLimitedJson(request, 4 * 1024);
+  if (parsed.error) {
+    return authJson({ ok: false, error: parsed.error, code: parsed.code }, parsed.status, requestId);
+  }
+  const body = parsed.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return authJson({ ok: false, error: 'A JSON object is required.' }, 400, requestId);
+  }
   const username = String(body?.username || '').trim();
   const password = String(body?.password || '');
   if (!username || !password || username.length > 160 || password.length > 1024) {
@@ -254,14 +418,21 @@ export function isAdminMutationAllowed(request, identity) {
   const safeContentType = contentType.includes('application/json')
     || contentType.startsWith('multipart/form-data;')
     || bodylessDelete;
-  return Boolean(identity?.csrfToken)
+  const accessIdentity = identity?.authMethod === 'cloudflare-access';
+  return Boolean(accessIdentity || identity?.csrfToken)
     && origin === requestUrl.origin
     && safeContentType
     && request.headers.get('x-ptg-admin-request') === '1'
-    && request.headers.get('x-csrf-token') === identity.csrfToken;
+    && (accessIdentity || request.headers.get('x-csrf-token') === identity.csrfToken);
 }
 
 export const authInternals = {
+  accessJwtIdentity,
+  accessAudiences,
+  accessConfigured,
+  accessIssuer,
+  adminAuthMode,
+  allowedAdminEmails,
   verifyPassword,
   safeEqual,
   cookieAttributes,
