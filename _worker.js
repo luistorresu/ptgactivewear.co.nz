@@ -460,8 +460,8 @@ function buildOptionDescription(item) {
   const details = [];
   if (item.size) details.push(`Size: ${item.size}`);
   if (item.variant) details.push(`Colour/style: ${item.variant}`);
-  if (item.playerName) details.push(`Player name: ${item.playerName}${item.product.id === TRAINING_KIT_ID ? ' (+$20.00)' : ''}`);
-  if (item.playerNumber) details.push(`${item.product.id === TRAINING_KIT_ID ? 'Requested shirt number' : 'Player number'}: ${item.playerNumber}${item.product.id === TRAINING_KIT_ID ? ' (+$20.00)' : ''}`);
+  if (item.playerName) details.push(`Player name: ${item.playerName}`);
+  if (item.playerNumber) details.push(`${item.product.id === TRAINING_KIT_ID ? 'Requested shirt number' : 'Player number'}: ${item.playerNumber}`);
   if (item.product.id === TRAINING_KIT_ID && item.playerNumber) details.push('Subject to final shirt-number availability');
   return details.length ? details.join(' | ') : 'Standard item';
 }
@@ -833,8 +833,8 @@ function describeStripeLineItem(item) {
 
   if (metadata.size) details.push(`Size: ${metadata.size}`);
   if (metadata.colour_style) details.push(`Colour/style: ${metadata.colour_style}`);
-  if (metadata.player_name) details.push(`Player name: ${metadata.player_name}${metadata.product_id === TRAINING_KIT_ID ? ' (+$20.00)' : ''}`);
-  if (metadata.player_number) details.push(`${metadata.product_id === TRAINING_KIT_ID ? 'Requested shirt number' : 'Player number'}: ${metadata.player_number}${metadata.product_id === TRAINING_KIT_ID ? ' (+$20.00)' : ''}`);
+  if (metadata.player_name) details.push(`Player name: ${metadata.player_name}`);
+  if (metadata.player_number) details.push(`${metadata.product_id === TRAINING_KIT_ID ? 'Requested shirt number' : 'Player number'}: ${metadata.player_number}`);
   if (metadata.product_id === TRAINING_KIT_ID && metadata.player_number) details.push('Subject to final shirt-number availability');
   if (metadata.product_id === TRAINING_KIT_ID && metadata.restricted_number_eligibility_verified === '1') details.push('Restricted-number eligibility: verified');
   if (metadata.item_kind && metadata.item_kind !== 'base_product') details.push(`Charge: ${metadata.item_kind.replace(/_/g, ' ')}`);

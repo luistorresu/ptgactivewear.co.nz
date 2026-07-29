@@ -135,7 +135,8 @@ test('Stripe Checkout receives shirt details and verification status but never b
     assert.equal(stripeRequests[0].idempotencyKey, stripeRequests[1].idempotencyKey);
     assert.equal(stripeRequests[0].body, stripeRequests[1].body);
     const decoded = decodeURIComponent(stripeRequests[0].body.replace(/\+/g, ' '));
-    assert.match(decoded, /Requested shirt number: 9 \(\+\$20\.00\)/);
+    assert.match(decoded, /Requested shirt number: 9/);
+    assert.doesNotMatch(decoded, /\+\$20\.00/);
     assert.match(decoded, /restricted_number_eligibility_verified.*=1/);
     assert.doesNotMatch(decoded, /birth.?day|birthday|day.?of.?birth/i);
     assert.doesNotMatch(decoded, new RegExp(proof.token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
