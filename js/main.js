@@ -43,7 +43,6 @@ function formatMoney(value) {
 }
 
 function personalisationOptionPrice(product, field) {
-  if (product?.id === TRAINING_KIT_ID) return PERSONALISATION_ADDON_PRICE;
   return Number(product?.[field] ?? PERSONALISATION_ADDON_PRICE);
 }
 
@@ -81,9 +80,10 @@ function renderPersonalisationDetails(item) {
   const namePrice = Number(item.personalisationPrices?.name ?? PERSONALISATION_ADDON_PRICE);
   const numberPrice = Number(item.personalisationPrices?.number ?? PERSONALISATION_ADDON_PRICE);
   const isTrainingKit = item.id === TRAINING_KIT_ID;
-  if (personalisation.name) details.push(`${isTrainingKit ? 'Player Name' : 'Name'}: ${escapeHtml(personalisation.name)} (+${formatMoney(namePrice)})`);
+  const priceSuffix = price => price > 0 ? ` (+${formatMoney(price)})` : '';
+  if (personalisation.name) details.push(`${isTrainingKit ? 'Player Name' : 'Name'}: ${escapeHtml(personalisation.name)}${priceSuffix(namePrice)}`);
   if (personalisation.number) {
-    details.push(`${isTrainingKit ? 'Shirt Number' : 'Number'}: ${escapeHtml(personalisation.number)} (+${formatMoney(numberPrice)})`);
+    details.push(`${isTrainingKit ? 'Shirt Number' : 'Number'}: ${escapeHtml(personalisation.number)}${priceSuffix(numberPrice)}`);
     if (isTrainingKit) details.push('Requested shirt number — subject to final availability.');
     if (isTrainingKit && RESTRICTED_SHIRT_NUMBERS.has(personalisation.number)) {
       details.push(`Restricted number eligibility: ${item.restrictedNumberEligibilityVerified ? 'verified' : 'verification required'}.`);

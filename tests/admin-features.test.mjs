@@ -190,11 +190,12 @@ test('windbreaker remains one NZD 95 product with the four active sizes and thre
   assert.doesNotMatch(updateMigration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
 });
 
-test('training kit is one NZD 95 personalisable product with a complete kit gallery', async () => {
-  const [products, seed, migration] = await Promise.all([
+test('training kit is one NZD 95 product with free personalisation options and a complete kit gallery', async () => {
+  const [products, seed, migration, freePersonalisationMigration] = await Promise.all([
     readFile(new URL('js/products.js', root), 'utf8'),
     readFile(new URL('seed/seed-products.sql', root), 'utf8'),
-    readFile(new URL('migrations/0010_training_kit_and_windbreaker_sizes.sql', root), 'utf8')
+    readFile(new URL('migrations/0010_training_kit_and_windbreaker_sizes.sql', root), 'utf8'),
+    readFile(new URL('migrations/0018_training_kit_free_personalisation.sql', root), 'utf8')
   ]);
   for (const source of [products, seed, migration]) {
     assert.match(source, /patagonia-fc-training-kit/);
@@ -207,7 +208,11 @@ test('training kit is one NZD 95 personalisable product with a complete kit gall
     assert.match(source, /PTG-PFC-TRAINING-KIT-XS/);
   }
   assert.match(products, /Includes shirt, shorts and socks/);
-  assert.match(migration, /player_name_price_cents = 2000/);
+  assert.match(products, /playerNamePrice: 0/);
+  assert.match(products, /playerNumberPrice: 0/);
+  assert.match(freePersonalisationMigration, /player_name_price_cents = 0/);
+  assert.match(freePersonalisationMigration, /player_number_price_cents = 0/);
+  assert.doesNotMatch(freePersonalisationMigration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
   assert.match(migration, /Patagonia FC Training Shorts and Socks/);
   assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
 });
@@ -242,6 +247,20 @@ test('pictures API validates uploads and never accepts browser object keys', asy
   assert.match(worker, /function isAdminPicturesPath/);
   assert.match(worker, /segments\[0\] === 'products'.*segments\[2\] === 'pictures'/s);
   assert.deepEqual(config.r2_buckets, [{ binding: 'PRODUCT_IMAGES', bucket_name: 'ptgactivewear-product-images' }]);
+});
+
+test('picture manager requires an explicit product and keeps replace controls available', async () => {
+  const [html, admin] = await Promise.all([
+    readFile(new URL('admin/index.html', root), 'utf8'),
+    readFile(new URL('admin/admin.js', root), 'utf8')
+  ]);
+  assert.match(html, /data-picture-product[^>]*aria-describedby="picture-product-status"/);
+  assert.match(html, /data-picture-product-status/);
+  assert.match(admin, /new Option\('Select a product', ''\)/);
+  assert.match(admin, /\['Current products', state\.products\.filter\(product => !product\.archived\)\]/);
+  assert.match(admin, /Select a product before uploading a picture\./);
+  assert.match(admin, /state\.pictureProductId !== productId/);
+  assert.match(admin, />Replace Picture<\/button>/);
 });
 
 test('product lifecycle is soft-delete based and requires sellable content before enablement', async () => {

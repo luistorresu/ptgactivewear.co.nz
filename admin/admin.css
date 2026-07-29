@@ -378,6 +378,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
 .picture-layout { display: grid; grid-template-columns: minmax(290px, 390px) minmax(0, 1fr); gap: 20px; align-items: start; }
 .picture-controls { display: grid; gap: 16px; position: sticky; top: 20px; }
 .picture-controls form { display: grid; gap: 14px; }
+.picture-controls select:disabled, .picture-controls form :disabled { cursor: not-allowed; }
 .picture-upload-preview { aspect-ratio: 4 / 3; display: grid; place-items: center; overflow: hidden; color: var(--muted); background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
 .picture-upload-preview img { width: 100%; height: 100%; object-fit: contain; }
 .upload-progress { height: 10px; overflow: hidden; background: #dce5e9; border-radius: 999px; }

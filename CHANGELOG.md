@@ -2,6 +2,18 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-07-29
+
+### Changed
+
+* Kept the Patagonia FC Training Kit Player Name and Shirt Number options while removing both $20 personalisation charges from product display, cart, server checkout, Stripe line items, admin orders, invoices, and exports.
+
+## 2026-07-28
+
+### Fixed
+
+* Made the admin Pictures product chooser explicit and reliable, grouped current and archived products, guarded uploads until a product is selected, and preserved per-picture replacement and gallery controls.
+
 ## 2026-07-27
 
 ### Added

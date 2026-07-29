@@ -43,6 +43,16 @@ test('Training Kit accepts safe optional names and whole shirt numbers 1 to 99 o
   for (const number of ['0', '00', '1.5', '-1', '100', 'A', '<script>']) assert.equal(trainingKitShirtNumberIsValid(number), false, number);
 });
 
+test('Training Kit keeps name and shirt number options without adding a charge', async () => {
+  const result = await validateD1CheckoutPayload(d1Payload('25', '', 'Nico'), {
+    DB: trainingDatabase(),
+    LOW_STOCK_THRESHOLD: '5'
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.items[0].nameAddOn, 0);
+  assert.equal(result.items[0].numberAddOn, 0);
+});
+
 test('Training Kit displays the approved number-selection notice in order', async () => {
   const source = await readFile(new URL('../js/main.js', import.meta.url), 'utf8');
   const approvedCopy = [
@@ -85,8 +95,8 @@ test('D1 checkout requires a valid signed proof for restricted Training Kit numb
     const accepted = await validateD1CheckoutPayload(d1Payload(number, proof.token), env);
     assert.equal(accepted.error, undefined);
     assert.equal(accepted.items[0].restrictedNumberEligibilityVerified, true);
-    assert.equal(accepted.items[0].nameAddOn, 2000);
-    assert.equal(accepted.items[0].numberAddOn, 2000);
+    assert.equal(accepted.items[0].nameAddOn, 0);
+    assert.equal(accepted.items[0].numberAddOn, 0);
     assert.equal('shirtNumberEligibilityToken' in accepted.items[0], false);
   }
   for (const number of ['', '2', '8', '11', '25', '99']) {
@@ -166,7 +176,8 @@ test('paid orders persist only the non-sensitive restricted-number verification 
   assert.match(inventory, /\[system:training-kit-restricted-number-verified=/);
   assert.doesNotMatch(inventory.match(/function restrictedNumberVerificationNote[\s\S]*?\n\}/)?.[0] || '', /birth|birthday/i);
   assert.match(admin, /Server verified.*Not recorded/);
-  assert.match(admin, /Requested Shirt Number.*\(\+\$20\.00\)/);
+  assert.doesNotMatch(admin, /Requested Shirt Number.*\(\+\$20\.00\)/);
+  assert.match(admin, /customisation_total_cents/);
   assert.match(exports, /eligibilityVerified \? 'Server verified' : 'Not recorded'/);
   assert.match(exports, /Player Name Charge NZD.*Shirt Number Charge NZD/);
   assert.match(exports, /systemMarkers.*suppliedNotes/s);

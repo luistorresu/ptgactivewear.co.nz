@@ -107,8 +107,8 @@ window.PTG_PRODUCTS = [
     personalisable: true,
     allowPlayerName: true,
     allowPlayerNumber: true,
-    playerNamePrice: 20,
-    playerNumberPrice: 20,
+    playerNamePrice: 0,
+    playerNumberPrice: 0,
     featured: false
   },
   {

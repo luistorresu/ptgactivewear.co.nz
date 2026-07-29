@@ -205,4 +205,6 @@ Active saleable products have canonical `/products/{slug}` pages with Product/Br
 
 The Patagonia FC Personalised Mug remains one product with Style 1 and Style 2 variants. Style 1 disallows Player Name and Player Number. Style 2 permits both options at the existing product prices, currently zero dollars; no new fee is inferred.
 
+The Patagonia FC Training Kit keeps optional Player Name and Shirt Number fields at no additional charge. D1 is authoritative for both zero-cent option prices, and checkout must not replace those values with a hardcoded personalisation fee.
+
 Public stock labels are `In Stock`, `Only a few left`, and `Out of Stock`. Exact quantities remain admin-only. D1 validates stock at checkout and the verified Stripe webhook performs idempotent deductions.

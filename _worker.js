@@ -91,6 +91,8 @@ const SERVER_PRODUCTS = {
     sizes: ['8', '10', '12', 'XS'],
     variants: [],
     personalisable: true,
+    playerNamePriceCents: 0,
+    playerNumberPriceCents: 0,
     available: true
   },
   'patagonia-fc-windbreaker-jacket': {
@@ -435,8 +437,12 @@ async function validateCheckoutPayload(payload, env) {
       }
     }
 
-    const nameAddOn = product.personalisable && item.playerName ? PERSONALISATION_ADDON_NZD_CENTS : 0;
-    const numberAddOn = product.personalisable && item.playerNumber ? PERSONALISATION_ADDON_NZD_CENTS : 0;
+    const nameAddOn = product.personalisable && item.playerName
+      ? Number(product.playerNamePriceCents ?? PERSONALISATION_ADDON_NZD_CENTS)
+      : 0;
+    const numberAddOn = product.personalisable && item.playerNumber
+      ? Number(product.playerNumberPriceCents ?? PERSONALISATION_ADDON_NZD_CENTS)
+      : 0;
 
     checkedItems.push({
       ...item,

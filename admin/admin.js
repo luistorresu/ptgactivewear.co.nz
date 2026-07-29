@@ -29,6 +29,7 @@ const createVariants = document.querySelector('[data-create-variants]');
 const createVariantTemplate = document.querySelector('[data-create-variant-template]');
 const existingVariants = document.querySelector('[data-existing-variants]');
 const pictureProduct = document.querySelector('[data-picture-product]');
+const pictureProductStatus = document.querySelector('[data-picture-product-status]');
 const pictureGallery = document.querySelector('[data-picture-gallery]');
 const pictureUploadForm = document.querySelector('[data-picture-upload-form]');
 const picturePreview = document.querySelector('[data-picture-preview]');
@@ -50,8 +51,13 @@ function restrictedNumberWasVerified(order, number) {
 function renderOrderItemDetails(item, order) {
   const details = [[item.size, item.colour, item.style].filter(Boolean).join(' / ')];
   const trainingKit = item.product_id === TRAINING_KIT_ID;
-  if (item.player_name) details.push(`Player Name: ${item.player_name}${trainingKit ? ' (+$20.00)' : ''}`);
-  if (item.player_number) details.push(`${trainingKit ? 'Requested Shirt Number' : 'Player Number'}: ${item.player_number}${trainingKit ? ' (+$20.00)' : ''}`);
+  const selectedOptions = Number(Boolean(item.player_name)) + Number(Boolean(item.player_number));
+  const optionChargeCents = selectedOptions && Number(item.customisation_total_cents || 0) > 0
+    ? Math.round(Number(item.customisation_total_cents) / Math.max(1, Number(item.quantity || 1)) / selectedOptions)
+    : 0;
+  const charge = optionChargeCents > 0 ? ` (+${formatMoney(optionChargeCents)})` : '';
+  if (item.player_name) details.push(`Player Name: ${item.player_name}${charge}`);
+  if (item.player_number) details.push(`${trainingKit ? 'Requested Shirt Number' : 'Player Number'}: ${item.player_number}${charge}`);
   if (trainingKit && (Number(item.restricted_number) === 1 || RESTRICTED_SHIRT_NUMBERS.has(item.player_number))) {
     const verified = Number(item.restricted_number_verified) === 1 || restrictedNumberWasVerified(order, item.player_number);
     details.push('Restricted number: Yes');
@@ -787,30 +793,68 @@ async function addExistingVariant(button) {
 }
 
 function renderPictureProductOptions() {
-  const current = state.pictureProductId || pictureProduct.value;
-  pictureProduct.innerHTML = state.products.map(product => `<option value="${escapeHtml(product.id)}">${escapeHtml(product.name)} (${productStatus(product).label})</option>`).join('');
-  if (state.products.some(product => product.id === current)) pictureProduct.value = current;
-  else if (state.products.length) pictureProduct.value = state.products[0].id;
+  const requestedProductId = state.pictureProductId || pictureProduct.value;
+  const placeholder = new Option('Select a product', '');
+  const groups = [
+    ['Current products', state.products.filter(product => !product.archived)],
+    ['Archived products', state.products.filter(product => product.archived)]
+  ];
+  const nodes = [placeholder];
+  for (const [label, products] of groups) {
+    if (!products.length) continue;
+    const group = document.createElement('optgroup');
+    group.label = label;
+    for (const product of products) {
+      group.append(new Option(`${product.name} (${productStatus(product).label})`, product.id));
+    }
+    nodes.push(group);
+  }
+  pictureProduct.replaceChildren(...nodes);
+  const selectedProduct = state.products.find(product => product.id === requestedProductId);
+  pictureProduct.value = selectedProduct?.id || '';
+  state.pictureProductId = pictureProduct.value;
+  pictureProduct.disabled = !state.products.length;
+  updatePictureWorkspace();
+}
+
+function updatePictureWorkspace({ loading = false } = {}) {
+  const product = state.products.find(item => item.id === state.pictureProductId);
+  const enabled = Boolean(product) && !loading;
+  for (const control of pictureUploadForm.elements) control.disabled = !enabled;
+  pictureProductStatus.textContent = product
+    ? `${loading ? 'Loading' : 'Managing'} pictures for ${product.name}.`
+    : state.products.length
+      ? 'Select a product to view or update its pictures.'
+      : 'Create a product before uploading pictures.';
+  document.querySelector('[data-gallery-title]').textContent = product?.name || 'Product pictures';
+  pictureGallery.setAttribute('aria-busy', loading ? 'true' : 'false');
+  if (!product) {
+    state.pictures = [];
+    pictureGallery.innerHTML = '<div class="empty-state"><p>Select a product to view, replace or upload pictures.</p></div>';
+  }
 }
 
 async function openPictures(productId = '', updateHistory = true) {
   clearNotice();
+  if (productId && state.products.some(product => product.id === productId)) state.pictureProductId = productId;
   renderPictureProductOptions();
-  state.pictureProductId = productId && state.products.some(product => product.id === productId) ? productId : pictureProduct.value;
-  pictureProduct.value = state.pictureProductId;
   switchView('pictures', updateHistory);
-  await loadPictures();
+  if (state.pictureProductId) await loadPictures();
 }
 
 async function loadPictures() {
   if (!state.pictureProductId) {
-    pictureGallery.innerHTML = '<div class="empty-state"><p>Create a product before uploading pictures.</p></div>';
+    updatePictureWorkspace();
     return;
   }
-  const data = await api(`/api/admin/products/${encodeURIComponent(state.pictureProductId)}/pictures`);
+  const productId = state.pictureProductId;
+  updatePictureWorkspace({ loading: true });
+  const data = await api(`/api/admin/products/${encodeURIComponent(productId)}/pictures`);
+  if (state.pictureProductId !== productId) return;
   state.pictures = data.pictures || [];
   document.querySelector('[data-gallery-title]').textContent = data.product?.name || 'Product pictures';
   pictureUploadForm.elements.altText.value ||= data.product?.name || '';
+  updatePictureWorkspace();
   renderPictureGallery();
   history.replaceState({}, '', routeFor('pictures'));
 }
@@ -832,7 +876,7 @@ function renderPictureGallery() {
         ${picture.isPrimary ? '' : '<button class="button button-secondary" type="button" data-picture-action="primary">Set Main</button>'}
         <button class="button button-secondary" type="button" data-picture-action="up" ${index === 0 ? 'disabled' : ''}>Move Up</button>
         <button class="button button-secondary" type="button" data-picture-action="down" ${index === state.pictures.length - 1 ? 'disabled' : ''}>Move Down</button>
-        <button class="button button-secondary" type="button" data-picture-action="replace">Replace</button>
+        <button class="button button-secondary" type="button" data-picture-action="replace">Replace Picture</button>
         <button class="button button-danger" type="button" data-picture-action="delete">Delete</button>
       </div>
     </div>
@@ -930,6 +974,11 @@ async function uploadPicture(productId, file, altText, variantStyle, replacePict
 
 async function submitPictureUpload() {
   if (pendingPicturePromise) return pendingPicturePromise;
+  if (!state.products.some(product => product.id === state.pictureProductId)) {
+    showNotice('Select a product before uploading a picture.', 'error');
+    pictureProduct.focus();
+    return;
+  }
   const file = pictureUploadForm.elements.picture.files[0];
   if (!file) {
     showNotice('Choose a picture to upload.', 'error');
@@ -1114,9 +1163,17 @@ document.querySelector('[data-editor-archive]').addEventListener('click', event 
 document.querySelector('[data-permanent-delete]').addEventListener('click', permanentlyDeleteCurrentProduct);
 
 pictureProduct.addEventListener('change', async () => {
-  state.pictureProductId = pictureProduct.value;
+  state.pictureProductId = state.products.some(product => product.id === pictureProduct.value) ? pictureProduct.value : '';
   resetPictureUpload();
-  await loadPictures().catch(error => showNotice(errorMessage(error), 'error'));
+  updatePictureWorkspace();
+  if (!state.pictureProductId) {
+    history.replaceState({}, '', routeFor('pictures'));
+    return;
+  }
+  await loadPictures().catch(error => {
+    updatePictureWorkspace();
+    showNotice(errorMessage(error), 'error', true);
+  });
 });
 pictureUploadForm.elements.picture.addEventListener('change', event => {
   const file = event.target.files[0];
