@@ -1,4 +1,4 @@
-import { readLimitedBytes } from './request-security.js';
+import { readLimitedBytes, readLimitedJson } from './request-security.js';
 
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_MULTIPART_BYTES = 18 * 1024 * 1024;
@@ -294,7 +294,9 @@ async function uploadPicture(request, env, identity, productId) {
 }
 
 async function updatePicture(request, env, identity, pictureId) {
-  const body = await request.json().catch(() => null);
+  const parsed = await readLimitedJson(request, 8 * 1024);
+  if (parsed.error) return json({ ok: false, error: parsed.error, code: parsed.code }, parsed.status);
+  const body = parsed.body;
   if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ ok: false, error: 'A JSON object is required.' }, 400);
   const unknown = Object.keys(body).find(key => !['altText', 'variantStyle'].includes(key));
   if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
@@ -325,7 +327,9 @@ async function setPrimary(env, identity, pictureId) {
 }
 
 async function reorder(request, env, identity, productId) {
-  const body = await request.json().catch(() => null);
+  const parsed = await readLimitedJson(request, 64 * 1024);
+  if (parsed.error) return json({ ok: false, error: parsed.error, code: parsed.code }, parsed.status);
+  const body = parsed.body;
   const ids = Array.isArray(body?.pictureIds) ? body.pictureIds.map(validId) : [];
   if (!ids.length || ids.some(id => !id) || new Set(ids).size !== ids.length) return json({ ok: false, error: 'A unique ordered picture list is required.' }, 400);
   const current = await listProductPictures(env.DB, productId);

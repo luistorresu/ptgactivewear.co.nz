@@ -137,7 +137,7 @@ Stripe test webhook setup if Stripe CLI is unavailable:
 3. Go to Developers.
 4. Open Webhooks.
 5. Add an endpoint with URL `https://ptgactivewear.co.nz/api/stripe-webhook`.
-6. Subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and `checkout.session.async_payment_failed`.
+6. Subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, and `charge.refunded`.
 7. Reveal the signing secret.
 8. Add it to Cloudflare as encrypted secret `STRIPE_WEBHOOK_SECRET`.
 9. Redeploy the Worker after adding the secret.
@@ -207,4 +207,4 @@ The Patagonia FC Personalised Mug remains one product with Style 1 and Style 2 v
 
 The Patagonia FC Training Kit keeps optional Player Name and Shirt Number fields at no additional charge. D1 is authoritative for both zero-cent option prices, and checkout must not replace those values with a hardcoded personalisation fee.
 
-Public stock labels are `In Stock`, `Only a few left`, and `Out of Stock`. Exact quantities remain admin-only. D1 validates stock at checkout and the verified Stripe webhook performs idempotent deductions.
+Public stock labels are `In Stock`, `Only a few left`, and `Out of Stock`. Exact quantities remain admin-only. D1 validates and atomically reserves tracked stock before Stripe Checkout; the verified paid webhook commits that reservation to the order without deducting it twice. Failed and expired checkout attempts release the reservation idempotently.

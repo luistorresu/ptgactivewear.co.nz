@@ -2,6 +2,27 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-08-01
+
+### Added
+
+* Added atomic D1 checkout inventory reservations so concurrent customers cannot pay for the same final unit.
+* Added a verified order-status endpoint and payment-confirmation polling before the success page clears the cart.
+* Added searchable product selection, selected-product context, image metadata, and editable alt text/style fields to Admin Pictures.
+* Added GitHub Actions syntax and regression checks for production-branch changes.
+
+### Changed
+
+* Product cards now use R2 thumbnails while product galleries and lightboxes retain full-size images.
+* Improved public page landmarks, skip links, cart focus management, mobile-menu state, control labels, and touch targets.
+* Cloudflare Access expiry now restarts secure authentication instead of leaving the admin product selector empty.
+
+### Security
+
+* Checkout attempt IDs are stable across retries, D1 reservations are committed only by verified paid webhooks, and abandoned or failed reservations are released idempotently.
+* Delayed Stripe payments retain their reservation until the corresponding success or failure event.
+* Picture metadata and reorder JSON bodies now use bounded request readers.
+
 ## 2026-07-29
 
 ### Changed

@@ -1,7 +1,18 @@
 import { getAdminIdentity, handleAdminAuth, isAdminMutationAllowed } from './worker/auth.js';
 import { handleAdminApi } from './worker/admin-api.js';
 import { getPublicProductBySlug, getPublicProducts, isD1CatalogueEnabled } from './worker/catalog.js';
-import { commitPaidOrder, markOrderEmailResult, recordStripeRefund, validateD1CheckoutPayload } from './worker/inventory.js';
+import {
+  attachCheckoutReservation,
+  checkoutReservationFingerprint,
+  commitPaidOrder,
+  markCheckoutReservationPaymentPending,
+  markOrderEmailResult,
+  recordStripeRefund,
+  releaseCheckoutInventory,
+  releaseExpiredCheckoutReservations,
+  reserveCheckoutInventory,
+  validateD1CheckoutPayload
+} from './worker/inventory.js';
 import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
 import { buildTrustedOrderSummary } from './worker/surcharge.js';
 import { publicFulfilment, selectFulfilment } from './worker/fulfilment.js';
@@ -567,7 +578,10 @@ async function createStripeCheckoutSession(env, sessionParams, idempotencyKey = 
     console.error('Stripe Checkout Session creation failed', {
       ...stripeError
     });
-    throw new Error('Stripe session creation failed.');
+    const error = new Error('Stripe session creation failed.');
+    error.stripeStatus = response.status;
+    error.safeToReleaseReservation = response.status >= 400 && response.status < 500;
+    throw error;
   }
 
   return body;
@@ -631,6 +645,7 @@ async function handleCheckoutSummary(request, env) {
   if (!verifiedBrowserJsonRequest(request)) return jsonResponse({ ok: false, error: 'Request verification failed.' }, 403);
   const parsed = await limitedJsonResponse(request, CHECKOUT_BODY_BYTES);
   if (parsed.response) return parsed.response;
+  await releaseExpiredInventoryBeforeCheckout(env);
   const validation = await validateAndSummariseCheckout(parsed.body, env);
   if (validation.error) return jsonResponse({ ok: false, error: validation.error }, validation.configurationError ? 503 : 400);
   return jsonResponse({ ok: true, summary: publicCheckoutSummary(validation.summary, validation.fulfilment) });
@@ -656,6 +671,7 @@ async function handleCreateCheckoutSession(request, env) {
   const parsed = await limitedJsonResponse(request, CHECKOUT_BODY_BYTES);
   if (parsed.response) return parsed.response;
   const payload = parsed.body;
+  await releaseExpiredInventoryBeforeCheckout(env);
   const validation = await validateAndSummariseCheckout(payload, env);
 
   if (validation.error) {
@@ -674,8 +690,39 @@ async function handleCreateCheckoutSession(request, env) {
   const siteUrl = getApprovedSiteUrl(request, env);
   const lineItems = buildStripeLineItems(validation.items, validation.summary, validation.fulfilment);
   const params = new URLSearchParams();
+  const requestId = /^[A-Za-z0-9_-]{8,64}$/.test(String(payload.checkoutRequestId || '')) ? String(payload.checkoutRequestId) : '';
+  const useReservations = Boolean(env.DB)
+    && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1'
+    && validation.items.some(item => item.trackInventory);
+  // Stripe requires at least 30 minutes from the moment it receives the request.
+  // The extra minute prevents network and processing time from crossing that boundary.
+  const expiresAtUnix = Math.floor(Date.now() / 1000) + 31 * 60;
+  const expiresAtSql = new Date(expiresAtUnix * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  let reservation = { required: false };
+  let reservationFingerprint = '';
+
+  if (useReservations) {
+    if (!requestId) return jsonResponse({ ok: false, error: 'Checkout needs a fresh request reference. Please refresh your cart and try again.' }, 400);
+    try {
+      reservationFingerprint = await checkoutReservationFingerprint(validation.items, validation.summary, validation.fulfilment);
+      reservation = await reserveCheckoutInventory(env, {
+        reservationId: requestId,
+        fingerprint: reservationFingerprint,
+        items: validation.items,
+        expiresAt: expiresAtSql
+      });
+    } catch (error) {
+      console.error('Checkout reservation preparation failed', { requestId, message: error.message });
+      return jsonResponse({ ok: false, error: 'Checkout stock could not be reserved. Please try again.' }, 503);
+    }
+    if (reservation.error) return jsonResponse({ ok: false, error: reservation.error, code: reservation.code || 'CHECKOUT_RESERVATION_FAILED' }, reservation.status || 409);
+    if (reservation.checkoutUrl) {
+      return jsonResponse({ ok: true, url: reservation.checkoutUrl, summary: publicCheckoutSummary(validation.summary, validation.fulfilment) });
+    }
+  }
 
   params.append('mode', 'payment');
+  params.append('expires_at', String(expiresAtUnix));
   if (validation.summary.surcharge.enabled) params.append('payment_method_types[0]', 'card');
   params.append('success_url', `${siteUrl}/order-success?session_id={CHECKOUT_SESSION_ID}`);
   params.append('cancel_url', `${siteUrl}/cart?checkout=cancelled`);
@@ -709,16 +756,62 @@ async function handleCreateCheckoutSession(request, env) {
   params.append('metadata[payment_surcharge_label]', validation.summary.surcharge.label);
   params.append('metadata[payment_surcharge_description]', validation.summary.surcharge.description);
   params.append('metadata[total_cents]', String(validation.summary.totalCents));
+  if (reservation.required) {
+    params.append('metadata[checkout_request_id]', requestId);
+    params.append('metadata[inventory_reserved]', '1');
+  }
 
   lineItems.forEach((line, index) => appendStripeLineItem(params, index, line));
 
   try {
-    const requestId = /^[A-Za-z0-9_-]{8,64}$/.test(String(payload.checkoutRequestId || '')) ? String(payload.checkoutRequestId) : '';
     const session = await createStripeCheckoutSession(env, params, requestId);
+    if (reservation.required) {
+      await attachCheckoutReservation(env.DB, requestId, reservationFingerprint, session);
+    }
     return jsonResponse({ ok: true, url: session.url, summary: publicCheckoutSummary(validation.summary, validation.fulfilment) });
   } catch (error) {
+    if (reservation.required && error.safeToReleaseReservation) {
+      await releaseCheckoutInventory(env, { reservationId: requestId, reason: `stripe_${error.stripeStatus}` }).catch(releaseError => {
+        console.error('Checkout reservation release failed', { requestId, message: releaseError.message });
+      });
+    }
     return jsonResponse({ ok: false, error: 'Checkout could not be started. Please try again.' }, 502);
   }
+}
+
+async function releaseExpiredInventoryBeforeCheckout(env) {
+  if (!env.DB || String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() !== 'd1') return;
+  try {
+    await releaseExpiredCheckoutReservations(env, 10);
+  } catch (error) {
+    console.error('Expired checkout reservation cleanup failed', { message: error.message });
+  }
+}
+
+async function handleCheckoutStatus(request, env) {
+  if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  if (!env.DB) return jsonResponse({ ok: false, error: 'Order confirmation is temporarily unavailable.' }, 503);
+  const limited = await rateLimitResponse(env, request, 'checkout-status', {
+    limit: 60,
+    windowSeconds: 10 * 60
+  });
+  if (limited) return limited;
+  const sessionId = new URL(request.url).searchParams.get('session_id') || '';
+  if (!/^cs_(?:test|live)_[A-Za-z0-9]{10,200}$/.test(sessionId)) {
+    return jsonResponse({ ok: false, error: 'A valid checkout reference is required.' }, 400);
+  }
+  const order = await env.DB.prepare(`SELECT order_number, payment_status, fulfilment_status
+    FROM orders WHERE stripe_checkout_session_id = ?`).bind(sessionId).first();
+  if (!order) return jsonResponse({ ok: true, status: 'pending' });
+  if (!['paid', 'no_payment_required'].includes(String(order.payment_status || '').toLowerCase())) {
+    return jsonResponse({ ok: true, status: 'pending' });
+  }
+  return jsonResponse({
+    ok: true,
+    status: 'confirmed',
+    orderNumber: order.order_number || '',
+    fulfilmentStatus: order.fulfilment_status || 'pending'
+  });
 }
 
 function parseStripeSignatureHeader(header) {
@@ -1089,6 +1182,9 @@ async function handleSuccessfulCheckoutEvent(env, event) {
   }
 
   if (session.payment_status && session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+    if (env.DB && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1') {
+      await markCheckoutReservationPaymentPending(env.DB, session);
+    }
     return;
   }
 
@@ -1133,6 +1229,25 @@ async function handleSuccessfulCheckoutEvent(env, event) {
   }
 }
 
+async function handleReleasedCheckoutEvent(env, event, reason) {
+  if (!env.DB || String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() !== 'd1') return;
+  const reserved = await reserveWebhookEvent(env, event.id);
+  if (!reserved) return;
+  try {
+    const session = event.data?.object || {};
+    const bySession = session.id
+      ? await releaseCheckoutInventory(env, { sessionId: session.id, reason })
+      : { released: false };
+    if (!bySession.released && session.metadata?.checkout_request_id) {
+      await releaseCheckoutInventory(env, { reservationId: session.metadata.checkout_request_id, reason });
+    }
+    await markWebhookEventProcessed(env, event.id);
+  } catch (error) {
+    await releaseWebhookEvent(env, event.id);
+    throw error;
+  }
+}
+
 async function handleStripeWebhook(request, env) {
   if (request.method !== 'POST') {
     return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
@@ -1165,7 +1280,9 @@ async function handleStripeWebhook(request, env) {
     if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
       await handleSuccessfulCheckoutEvent(env, event);
     } else if (event.type === 'checkout.session.async_payment_failed') {
-      console.log('Stripe async payment failed', event.id);
+      await handleReleasedCheckoutEvent(env, event, 'async_payment_failed');
+    } else if (event.type === 'checkout.session.expired') {
+      await handleReleasedCheckoutEvent(env, event, 'expired');
     } else if (event.type === 'charge.refunded') {
       const reserved = await reserveWebhookEvent(env, event.id);
       if (reserved) {
@@ -1459,6 +1576,10 @@ export default {
 
     if (url.pathname === '/api/checkout-summary') {
       return handleCheckoutSummary(request, env);
+    }
+
+    if (url.pathname === '/api/checkout-status') {
+      return handleCheckoutStatus(request, env);
     }
 
     if (url.pathname === '/api/stripe-webhook') {

@@ -15,7 +15,7 @@ The public website, cart, checkout, Stripe webhook, contact form, and Resend int
 
 ## Storage
 
-* D1 binding `DB`: products, variants, stock, image metadata, orders, order items, stock movements, Stripe events, and audit records.
+* D1 binding `DB`: products, variants, stock, checkout reservations, image metadata, orders, order items, stock movements, Stripe events, and audit records.
 * R2 binding `PRODUCT_IMAGES`: administrator-uploaded product images and generated thumbnails.
 * KV binding `ORDER_EVENT_STORE`: signed-session revocation records and login rate-limit state.
 * Checked-in `/photos` assets remain valid fallback catalogue images.
@@ -131,7 +131,7 @@ node .\tests\admin-integration.mjs
 
 ## Picture Workflow
 
-The Pictures screen supports preview, JPEG/PNG/WebP upload, main-picture selection, gallery ordering, replacement, and deletion. The maximum original upload is 8 MB, 12,000 pixels per edge, and 60 megapixels. The Worker validates file signatures and dimensions rather than trusting extensions.
+The Pictures screen supports searchable product selection, selected-product confirmation, preview, JPEG/PNG/WebP upload, main-picture selection, gallery ordering, replacement, deletion, and alt-text/style editing. The maximum original upload is 8 MB, 12,000 pixels per edge, and 60 megapixels. The Worker validates file signatures and dimensions rather than trusting extensions.
 
 R2 object keys are UUID-based and generated only on the server. Upload request IDs make retries idempotent. If an R2 write succeeds but D1 fails, the new R2 object is removed. Picture removal snapshots R2 objects before deletion and restores them if D1 cannot commit. An active product cannot lose its final picture; unpublish it first.
 
@@ -161,7 +161,9 @@ Apply pending additive migrations only after a successful export. Deploy only af
 
 ## Orders, Invoices And Reports
 
-Verified paid Stripe webhooks write orders and item snapshots to D1 before stock is deducted. Checkout Session IDs, Stripe event IDs, and Payment Intent IDs are unique or idempotently handled, so duplicate webhook delivery does not create another order or deduct stock twice.
+Tracked stock is reserved atomically in D1 before Stripe Checkout is created. A verified paid webhook commits the reservation to the new order; failed, expired, or abandoned attempts release it idempotently. Delayed payments remain reserved until Stripe reports success or failure. Checkout Session IDs, Stripe event IDs, Payment Intent IDs, and browser checkout-attempt IDs are unique or idempotently handled, so concurrent checkouts and duplicate webhook delivery cannot create another order or deduct stock twice.
+
+The Stripe webhook must subscribe to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, and `charge.refunded`. The Worker also lazily releases abandoned reservations before cart summary and checkout validation as a fallback for an expired-event delivery delay.
 
 Invoice creation assigns a unique `PTG-INV-YYYY-NNNNNN` number and stores a durable JSON snapshot plus searchable invoice totals in D1. Product edits do not alter the stored snapshot. Refund webhooks update the invoice refund status and refunded amount without replacing its original item and pricing details.
 

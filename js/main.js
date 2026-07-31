@@ -9,15 +9,34 @@ try {
 const PERSONALISATION_ADDON_PRICE = 20;
 const TRAINING_KIT_ID = 'patagonia-fc-training-kit';
 const RESTRICTED_SHIRT_NUMBERS = new Set(['1', '7', '9', '10']);
+const CHECKOUT_ATTEMPT_KEY = 'ptg-checkout-attempt';
 let checkoutSummaryTimer = 0;
 let checkoutSummaryRequest = 0;
 let fulfilmentType = ['pickup', 'delivery'].includes(localStorage.getItem('ptg-fulfilment'))
   ? localStorage.getItem('ptg-fulfilment')
   : '';
 
-function saveCart() {
+function saveCart({ invalidateCheckout = true } = {}) {
   localStorage.setItem('ptg-cart', JSON.stringify(cart, (key, value) =>
     ['birthDay', 'birthdayDay', 'dayOfBirth'].includes(key) ? undefined : value));
+  if (invalidateCheckout) clearCheckoutAttempt();
+}
+
+function clearCheckoutAttempt() {
+  try { sessionStorage.removeItem(CHECKOUT_ATTEMPT_KEY); } catch {}
+}
+
+function checkoutRequestId(payload) {
+  const signature = JSON.stringify({ fulfilmentType: payload.fulfilmentType, items: payload.items });
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(CHECKOUT_ATTEMPT_KEY) || 'null');
+    if (stored?.signature === signature && /^[A-Za-z0-9_-]{8,64}$/.test(stored.requestId || '')) return stored.requestId;
+    const requestId = crypto.randomUUID();
+    sessionStorage.setItem(CHECKOUT_ATTEMPT_KEY, JSON.stringify({ signature, requestId }));
+    return requestId;
+  } catch {
+    return crypto.randomUUID();
+  }
 }
 
 function escapeHtml(value) {
@@ -125,10 +144,10 @@ function updateCartUI() {
             ${renderPersonalisationDetails(item)}
           </div>
           <div class="flex items-center gap-2 shrink-0">
-            <button onclick="changeQty(${i},-1)" class="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-gray-600 hover:border-brand hover:text-brand text-base leading-none transition-colors">−</button>
+            <button type="button" onclick="changeQty(${i},-1)" aria-label="Decrease quantity for ${escapeHtml(item.name)}" class="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-600 hover:border-brand hover:text-brand text-base leading-none transition-colors">−</button>
             <span class="text-sm font-semibold w-5 text-center">${item.qty}</span>
-            <button onclick="changeQty(${i},1)"  class="w-7 h-7 rounded-full border border-gray-200 flex items-center justify-center text-gray-600 hover:border-brand hover:text-brand text-base leading-none transition-colors">+</button>
-            <button onclick="removeItem(${i})" class="ml-1 text-gray-300 hover:text-red-400 transition-colors">
+            <button type="button" onclick="changeQty(${i},1)" aria-label="Increase quantity for ${escapeHtml(item.name)}" class="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-600 hover:border-brand hover:text-brand text-base leading-none transition-colors">+</button>
+            <button type="button" onclick="removeItem(${i})" aria-label="Remove ${escapeHtml(item.name)} from cart" class="ml-1 w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
               </svg>
@@ -316,13 +335,32 @@ function removeItem(index) {
 }
 
 // ── Cart sidebar ─────────────────────────────────────────────────────────────
-function toggleCart() {
+let lastCartTrigger = null;
+
+function toggleCart(forceOpen) {
   const sidebar  = document.getElementById('cart-sidebar');
   const overlay  = document.getElementById('cart-overlay');
   if (!sidebar) return;
-  const isOpen = sidebar.classList.toggle('open');
+  const wasOpen = sidebar.classList.contains('open');
+  const isOpen = typeof forceOpen === 'boolean' ? forceOpen : !wasOpen;
+  sidebar.classList.toggle('open', isOpen);
   overlay.classList.toggle('hidden', !isOpen);
+  sidebar.setAttribute('role', 'dialog');
+  sidebar.setAttribute('aria-modal', 'true');
+  sidebar.setAttribute('aria-hidden', String(!isOpen));
+  document.querySelectorAll('[onclick="toggleCart()"]:not(#cart-overlay)')
+    .forEach(button => button.setAttribute('aria-expanded', String(isOpen)));
+  document.querySelectorAll('body > header, body > main, body > footer, body > section').forEach(element => {
+    if (element !== sidebar) element.toggleAttribute('inert', isOpen);
+  });
   document.body.style.overflow = isOpen ? 'hidden' : '';
+  if (isOpen) {
+    lastCartTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    requestAnimationFrame(() => sidebar.querySelector('button[aria-label="Close cart"]')?.focus());
+  } else if (wasOpen) {
+    lastCartTrigger?.focus();
+    lastCartTrigger = null;
+  }
 }
 
 function buildCheckoutPayload() {
@@ -383,6 +421,7 @@ function getCartSummaryElements() {
       input.addEventListener('change', () => {
         fulfilmentType = input.value;
         localStorage.setItem('ptg-fulfilment', fulfilmentType);
+        clearCheckoutAttempt();
         fulfilment.querySelectorAll('.fulfilment-option').forEach(option => option.classList.toggle('is-selected', option.contains(input)));
         scheduleCheckoutSummary();
       });
@@ -518,13 +557,24 @@ function setupCheckout() {
 
       try {
         await fetchCheckoutSummary(payload);
-        payload.checkoutRequestId = crypto.randomUUID();
-        const response = await fetch('/api/create-checkout-session', {
+        payload.checkoutRequestId = checkoutRequestId(payload);
+        let response = await fetch('/api/create-checkout-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        const result = await response.json().catch(() => ({}));
+        let result = await response.json().catch(() => ({}));
+
+        if (response.status === 409 && result.code === 'CHECKOUT_ATTEMPT_INACTIVE') {
+          clearCheckoutAttempt();
+          payload.checkoutRequestId = checkoutRequestId(payload);
+          response = await fetch('/api/create-checkout-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          result = await response.json().catch(() => ({}));
+        }
 
         if (!response.ok || !result.ok || !result.url) {
           throw new Error(result.error || 'Checkout could not be started.');
@@ -543,7 +593,11 @@ function setupCheckout() {
 // ── Mobile menu ──────────────────────────────────────────────────────────────
 function toggleMobileMenu() {
   const menu = document.getElementById('mobile-menu');
-  if (menu) menu.classList.toggle('hidden');
+  if (!menu) return;
+  const isOpen = menu.classList.toggle('hidden') === false;
+  document.querySelectorAll('[onclick="toggleMobileMenu()"]')
+    .forEach(button => button.setAttribute('aria-expanded', String(isOpen)));
+  if (isOpen) menu.querySelector('a, button')?.focus();
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -754,7 +808,7 @@ function renderHomeProductCarousel() {
   track.innerHTML = products.map((product, index) => `
     <article class="home-carousel-slide" aria-hidden="${index ? 'true' : 'false'}">
       <a class="home-carousel-image" href="/products/${encodeURIComponent(product.slug || product.id)}">
-        <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" ${index ? 'loading="lazy"' : 'fetchpriority="high"'} decoding="async">
+        <img src="${escapeHtml(product.cardImage || product.image)}" alt="${escapeHtml(product.name)}" width="480" height="480" ${index ? 'loading="lazy"' : 'fetchpriority="high"'} decoding="async">
       </a>
       <div class="home-carousel-copy">
         <p class="home-carousel-kicker">${escapeHtml(product.productType || product.type || 'Sportswear')}</p>
@@ -833,16 +887,18 @@ function renderProductCard(product, isShop, isProductPage = false) {
   const variantMarkup = hasInventoryVariants ? renderInventoryVariantSelect(product, isShop) : renderVariantSelect(product, isShop);
   const sizeMarkup = hasInventoryVariants ? '' : renderSizeSelect(product, isShop);
   const initialStyle = product.inventoryVariants?.find(variant => variant.available)?.style || '';
-  const gallery = getProductGallery(product, initialStyle);
+  const useThumbnails = !isProductPage;
+  const gallery = getProductGallery(product, initialStyle, useThumbnails);
   const galleryCount = gallery.length;
+  const displayImage = isProductPage ? product.image : (product.cardImage || product.image);
   const namePrice = personalisationOptionPrice(product, 'playerNamePrice');
   const numberPrice = personalisationOptionPrice(product, 'playerNumberPrice');
 
   return `
-      <div class="${cardClasses}" data-product-id="${escapeHtml(product.id)}" data-product-name="${escapeHtml(product.name)}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}" data-allow-player-name="${product.allowPlayerName ?? product.personalisable ? 'true' : 'false'}" data-allow-player-number="${product.allowPlayerNumber ?? product.personalisable ? 'true' : 'false'}" data-name-price="${namePrice}" data-number-price="${numberPrice}">
+      <div class="${cardClasses}" data-product-id="${escapeHtml(product.id)}" data-product-name="${escapeHtml(product.name)}" data-product-page="${isProductPage ? 'true' : 'false'}" data-category="${escapeHtml(product.category)}" data-personalisable="${product.personalisable ? 'true' : 'false'}" data-allow-player-name="${product.allowPlayerName ?? product.personalisable ? 'true' : 'false'}" data-allow-player-number="${product.allowPlayerNumber ?? product.personalisable ? 'true' : 'false'}" data-name-price="${namePrice}" data-number-price="${numberPrice}">
         <div class="product-image-wrap relative overflow-hidden ${imageHeight}">
           <button type="button" class="product-image-button" onclick='openProductLightbox(${escapeJsString(product.name)}, 0, this)' aria-label="View ${escapeHtml(product.name)} image gallery">
-            <img data-product-image src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" loading="lazy" decoding="async" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
+            <img data-product-image src="${escapeHtml(displayImage)}" alt="${escapeHtml(product.name)}" width="480" height="480" loading="lazy" decoding="async" class="product-image w-full h-full group-hover:scale-105 transition-transform duration-500">
             ${galleryCount > 1 ? `<span class="product-gallery-count">${galleryCount} angles</span>` : ''}
           </button>
           ${product.badge ? `<span class="absolute top-3 left-3 bg-brand text-white ${badgeTextSize} py-1 rounded-full font-semibold">${escapeHtml(product.badge)}</span>` : ''}
@@ -921,12 +977,17 @@ let activeLightboxImages = [];
 let activeLightboxIndex = 0;
 let activeLightboxTrigger = null;
 
-function getProductGallery(product, style = '') {
+function getProductGallery(product, style = '', thumbnails = false) {
   if (style && Array.isArray(product.galleryImages)) {
-    const styled = product.galleryImages.filter(image => !image.style || image.style === style).map(image => image.src).filter(Boolean);
+    const styled = product.galleryImages
+      .filter(image => !image.style || image.style === style)
+      .map(image => thumbnails ? (image.thumbnailSrc || image.src) : image.src)
+      .filter(Boolean);
     if (styled.length) return styled;
   }
-  const gallery = Array.isArray(product.gallery) && product.gallery.length ? product.gallery : [product.image];
+  const gallery = thumbnails && Array.isArray(product.galleryThumbnails) && product.galleryThumbnails.length
+    ? product.galleryThumbnails
+    : Array.isArray(product.gallery) && product.gallery.length ? product.gallery : [product.image];
   return gallery.filter(Boolean);
 }
 
@@ -936,7 +997,8 @@ function setupProductCardCarousels() {
   document.querySelectorAll('.product-card').forEach(card => {
     const product = products.find(item => item.name === card.dataset.productName);
     const image = card.querySelector('[data-product-image]');
-    let gallery = product ? getProductGallery(product, card.querySelector('[data-inventory-variant] option:checked')?.dataset.style || '') : [];
+    const thumbnails = card.dataset.productPage !== 'true';
+    let gallery = product ? getProductGallery(product, card.querySelector('[data-inventory-variant] option:checked')?.dataset.style || '', thumbnails) : [];
 
     if (!product || !image || gallery.length < 2) return;
 
@@ -978,7 +1040,7 @@ function setupProductCardCarousels() {
     card.addEventListener('focusout', stopCarousel);
     card.addEventListener('pointerdown', stopCarousel);
     card.querySelector('[data-inventory-variant]')?.addEventListener('change', event => {
-      gallery = getProductGallery(product, event.target.options[event.target.selectedIndex]?.dataset.style || '');
+      gallery = getProductGallery(product, event.target.options[event.target.selectedIndex]?.dataset.style || '', thumbnails);
       activeIndex = 0;
       if (gallery[0]) image.src = gallery[0];
     });
@@ -1009,7 +1071,7 @@ function setupProductLightbox() {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
             </svg>
           </button>
-          <img id="product-lightbox-image" class="product-lightbox-image" src="" alt="">
+          <img id="product-lightbox-image" class="product-lightbox-image" alt="">
           <button type="button" class="product-lightbox-nav product-lightbox-next" onclick="changeLightboxImage(1)" aria-label="Next image">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
@@ -1198,7 +1260,7 @@ function setupProductVariants() {
     const image = card?.querySelector('[data-product-image]');
     select.addEventListener('change', () => {
       const selected = select.options[select.selectedIndex];
-      const gallery = product ? getProductGallery(product, selected?.dataset.style || '') : [];
+      const gallery = product ? getProductGallery(product, selected?.dataset.style || '', card?.dataset.productPage !== 'true') : [];
       if (image && gallery[0]) { image.src = gallery[0]; image.alt = `${product.name} ${selected?.dataset.style || ''}`.trim(); }
       updatePersonalisationForVariant(card);
     });
@@ -1241,6 +1303,42 @@ function initialiseProductExperience() {
   setupProductCardCarousels();
 }
 
+function setupAccessibleNavigation() {
+  const sidebar = document.getElementById('cart-sidebar');
+  const mobileMenu = document.getElementById('mobile-menu');
+  if (sidebar) {
+    sidebar.setAttribute('role', 'dialog');
+    sidebar.setAttribute('aria-modal', 'true');
+    sidebar.setAttribute('aria-hidden', 'true');
+  }
+  document.querySelectorAll('[onclick="toggleCart()"]:not(#cart-overlay)')
+    .forEach(button => button.setAttribute('aria-expanded', 'false'));
+  document.querySelectorAll('[onclick="toggleMobileMenu()"]')
+    .forEach(button => {
+      button.setAttribute('aria-expanded', 'false');
+      if (mobileMenu?.id) button.setAttribute('aria-controls', mobileMenu.id);
+    });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && sidebar?.classList.contains('open')) {
+      event.preventDefault();
+      toggleCart(false);
+      return;
+    }
+    if (event.key !== 'Tab' || !sidebar?.classList.contains('open')) return;
+    const controls = [...sidebar.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+    if (!controls.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
 function refreshCartFromDatabaseProducts() {
   let changed = false;
   cart.forEach(item => {
@@ -1263,7 +1361,7 @@ function refreshCartFromDatabaseProducts() {
     }
     changed = true;
   });
-  if (changed) saveCart();
+  if (changed) saveCart({ invalidateCheckout: false });
 }
 
 async function loadDatabaseProducts() {
@@ -1282,6 +1380,7 @@ async function loadDatabaseProducts() {
 }
 
 initialiseProductExperience();
+setupAccessibleNavigation();
 setupNewsletterForm();
 setupContactForm();
 setupCheckout();

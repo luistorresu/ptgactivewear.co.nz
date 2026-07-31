@@ -29,7 +29,9 @@ const createVariants = document.querySelector('[data-create-variants]');
 const createVariantTemplate = document.querySelector('[data-create-variant-template]');
 const existingVariants = document.querySelector('[data-existing-variants]');
 const pictureProduct = document.querySelector('[data-picture-product]');
+const pictureProductSearch = document.querySelector('[data-picture-product-search]');
 const pictureProductStatus = document.querySelector('[data-picture-product-status]');
+const pictureSelectedProduct = document.querySelector('[data-picture-selected-product]');
 const pictureGallery = document.querySelector('[data-picture-gallery]');
 const pictureUploadForm = document.querySelector('[data-picture-upload-form]');
 const picturePreview = document.querySelector('[data-picture-preview]');
@@ -110,6 +112,10 @@ function errorMessage(error) {
   return error?.requestId ? `${message} Reference: ${error.requestId}` : message;
 }
 
+function restartAdminAuthentication() {
+  window.location.replace(`${window.location.pathname}${window.location.search}`);
+}
+
 async function api(path, options = {}) {
   const method = String(options.method || 'GET').toUpperCase();
   const headers = new Headers(options.headers || {});
@@ -119,7 +125,12 @@ async function api(path, options = {}) {
     headers.set('X-CSRF-Token', state.csrfToken);
     if (options.body !== undefined && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   }
-  const response = await fetch(path, { ...options, method, headers, credentials: 'same-origin' });
+  const response = await fetch(path, { ...options, method, headers, credentials: 'same-origin', redirect: 'manual' });
+  const contentType = response.headers.get('content-type') || '';
+  if (response.type === 'opaqueredirect' || response.redirected || (response.ok && !contentType.includes('application/json'))) {
+    restartAdminAuthentication();
+    throw new Error('Your secure access session has expired.');
+  }
   if (response.status === 401) {
     window.location.replace('/admin/login');
     throw new Error('Your admin session has expired.');
@@ -402,7 +413,16 @@ function switchView(viewName, updateHistory = true) {
 }
 
 async function loadSession() {
-  const response = await fetch('/api/admin/session', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+  const response = await fetch('/api/admin/session', {
+    credentials: 'same-origin',
+    redirect: 'manual',
+    headers: { Accept: 'application/json' }
+  });
+  const contentType = response.headers.get('content-type') || '';
+  if (response.type === 'opaqueredirect' || response.redirected || (response.ok && !contentType.includes('application/json'))) {
+    restartAdminAuthentication();
+    return false;
+  }
   if (!response.ok) {
     window.location.replace('/admin/login');
     return false;
@@ -794,10 +814,15 @@ async function addExistingVariant(button) {
 
 function renderPictureProductOptions() {
   const requestedProductId = state.pictureProductId || pictureProduct.value;
+  const search = pictureProductSearch.value.trim().toLowerCase();
+  const visibleProducts = state.products.filter(product => {
+    if (product.id === requestedProductId) return true;
+    return !search || [product.name, product.id, product.slug].some(value => String(value || '').toLowerCase().includes(search));
+  });
   const placeholder = new Option('Select a product', '');
   const groups = [
-    ['Current products', state.products.filter(product => !product.archived)],
-    ['Archived products', state.products.filter(product => product.archived)]
+    ['Current products', visibleProducts.filter(product => !product.archived)],
+    ['Archived products', visibleProducts.filter(product => product.archived)]
   ];
   const nodes = [placeholder];
   for (const [label, products] of groups) {
@@ -808,6 +833,11 @@ function renderPictureProductOptions() {
       group.append(new Option(`${product.name} (${productStatus(product).label})`, product.id));
     }
     nodes.push(group);
+  }
+  if (search && !visibleProducts.length) {
+    const noResults = new Option('No matching products', '');
+    noResults.disabled = true;
+    nodes.push(noResults);
   }
   pictureProduct.replaceChildren(...nodes);
   const selectedProduct = state.products.find(product => product.id === requestedProductId);
@@ -826,6 +856,11 @@ function updatePictureWorkspace({ loading = false } = {}) {
     : state.products.length
       ? 'Select a product to view or update its pictures.'
       : 'Create a product before uploading pictures.';
+  pictureSelectedProduct.hidden = !product;
+  pictureSelectedProduct.innerHTML = product ? `
+    ${product.primaryImage ? `<img src="${escapeHtml(product.primaryImage)}" alt="" loading="lazy">` : '<span class="picture-selected-placeholder" aria-hidden="true">No image</span>'}
+    <span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.id)} | ${escapeHtml(productStatus(product).label)}</small></span>
+  ` : '';
   document.querySelector('[data-gallery-title]').textContent = product?.name || 'Product pictures';
   pictureGallery.setAttribute('aria-busy', loading ? 'true' : 'false');
   if (!product) {
@@ -864,15 +899,22 @@ function renderPictureGallery() {
     pictureGallery.innerHTML = '<div class="empty-state"><p>No pictures yet. Upload the first picture using the form.</p></div>';
     return;
   }
-  pictureGallery.innerHTML = state.pictures.map((picture, index) => `<article class="gallery-card" data-picture-id="${picture.id}">
+  pictureGallery.innerHTML = state.pictures.map((picture, index) => {
+    const dimensions = picture.width && picture.height ? `${picture.width} x ${picture.height}px` : 'Dimensions unavailable';
+    const size = picture.fileSize ? `${(picture.fileSize / 1024 / 1024).toFixed(2)} MB` : 'Static asset';
+    return `<article class="gallery-card" data-picture-id="${picture.id}">
     <div class="gallery-image">
       <img src="${escapeHtml(picture.thumbnailUrl || picture.url)}" alt="${escapeHtml(picture.altText)}" loading="lazy">
       ${picture.isPrimary ? '<span class="status-pill status-active">Main picture</span>' : ''}
     </div>
     <div class="gallery-details">
-      <strong>${escapeHtml(picture.altText || 'Product picture')}</strong>
-      <small>${escapeHtml(picture.variantStyle || 'Gallery image')} | ${picture.storage}</small>
+      <small>${escapeHtml(dimensions)} | ${escapeHtml(size)} | ${escapeHtml(picture.storage)}</small>
+      <div class="gallery-metadata">
+        <label><span>Alt text</span><input data-picture-alt maxlength="200" value="${escapeHtml(picture.altText)}" required></label>
+        <label><span>Style or angle</span><input data-picture-style maxlength="80" value="${escapeHtml(picture.variantStyle)}" placeholder="Front, back, Style 1"></label>
+      </div>
       <div class="gallery-actions">
+        <button class="button button-primary" type="button" data-picture-action="save-details">Save Details</button>
         ${picture.isPrimary ? '' : '<button class="button button-secondary" type="button" data-picture-action="primary">Set Main</button>'}
         <button class="button button-secondary" type="button" data-picture-action="up" ${index === 0 ? 'disabled' : ''}>Move Up</button>
         <button class="button button-secondary" type="button" data-picture-action="down" ${index === state.pictures.length - 1 ? 'disabled' : ''}>Move Down</button>
@@ -880,7 +922,8 @@ function renderPictureGallery() {
         <button class="button button-danger" type="button" data-picture-action="delete">Delete</button>
       </div>
     </div>
-  </article>`).join('');
+  </article>`;
+  }).join('');
 }
 
 function resetPictureUpload() {
@@ -945,6 +988,12 @@ async function uploadPicture(productId, file, altText, variantStyle, replacePict
       if (xhr.status === 401) {
         window.location.replace('/admin/login');
         reject(new Error('Your admin session has expired.'));
+        return;
+      }
+      const contentType = xhr.getResponseHeader('content-type') || '';
+      if (xhr.status >= 200 && xhr.status < 300 && !contentType.includes('application/json')) {
+        restartAdminAuthentication();
+        reject(new Error('Your secure access session has expired.'));
         return;
       }
       let data = {};
@@ -1023,10 +1072,23 @@ async function submitPictureUpload() {
   }
 }
 
-async function handlePictureAction(pictureId, action) {
+async function handlePictureAction(pictureId, action, trigger) {
   const picture = state.pictures.find(item => item.id === pictureId);
-  if (!picture) return;
+  if (!picture || trigger?.disabled) return;
+  if (trigger) trigger.disabled = true;
   try {
+    if (action === 'save-details') {
+      const card = pictureGallery.querySelector(`[data-picture-id="${pictureId}"]`);
+      const altText = card?.querySelector('[data-picture-alt]')?.value.trim() || '';
+      const variantStyle = card?.querySelector('[data-picture-style]')?.value.trim() || '';
+      if (!altText) {
+        card?.querySelector('[data-picture-alt]')?.focus();
+        throw new Error('Alt text is required.');
+      }
+      await api(`/api/admin/pictures/${pictureId}`, {
+        method: 'PUT', body: JSON.stringify({ altText, variantStyle })
+      });
+    }
     if (action === 'primary') await api(`/api/admin/pictures/${pictureId}/set-primary`, { method: 'POST', body: '{}' });
     if (action === 'delete') {
       if (!confirm('Delete this picture? This cannot be undone.')) return;
@@ -1054,9 +1116,18 @@ async function handlePictureAction(pictureId, action) {
     }
     await loadPictures();
     await loadProducts();
-    showNotice(action === 'delete' ? 'Picture deleted successfully.' : action === 'primary' ? 'Main picture updated.' : 'Picture order updated.', 'success');
+    const messages = {
+      delete: 'Picture deleted successfully.',
+      primary: 'Main picture updated.',
+      'save-details': 'Picture details saved.',
+      up: 'Picture order updated.',
+      down: 'Picture order updated.'
+    };
+    showNotice(messages[action] || 'Picture updated.', 'success');
   } catch (error) {
     showNotice(errorMessage(error), 'error', true);
+  } finally {
+    if (trigger?.isConnected) trigger.disabled = false;
   }
 }
 
@@ -1175,6 +1246,7 @@ pictureProduct.addEventListener('change', async () => {
     showNotice(errorMessage(error), 'error', true);
   });
 });
+pictureProductSearch.addEventListener('input', renderPictureProductOptions);
 pictureUploadForm.elements.picture.addEventListener('change', event => {
   const file = event.target.files[0];
   state.uploadRequestId = crypto.randomUUID();
@@ -1194,7 +1266,7 @@ document.querySelector('[data-cancel-replace]').addEventListener('click', resetP
 pictureGallery.addEventListener('click', event => {
   const button = event.target.closest('[data-picture-action]');
   const card = event.target.closest('[data-picture-id]');
-  if (button && card) handlePictureAction(Number(card.dataset.pictureId), button.dataset.pictureAction);
+  if (button && card) handlePictureAction(Number(card.dataset.pictureId), button.dataset.pictureAction, button);
 });
 
 document.querySelector('[data-logout]').addEventListener('click', async event => {

@@ -284,12 +284,17 @@
       <div class="picture-layout">
         <section class="form-section picture-controls">
           <label>
+            <span>Find product</span>
+            <input type="search" data-picture-product-search placeholder="Search by product name or ID" autocomplete="off">
+          </label>
+          <label>
             <span>Product</span>
             <select data-picture-product aria-describedby="picture-product-status">
               <option value="">Select a product</option>
             </select>
             <small id="picture-product-status" data-picture-product-status>Select a product to view or update its pictures.</small>
           </label>
+          <div class="picture-selected-product" data-picture-selected-product hidden></div>
           <div class="picture-upload-preview" data-picture-preview>
             <span>No picture selected</span>
           </div>

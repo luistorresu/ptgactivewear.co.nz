@@ -379,6 +379,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
 .picture-controls { display: grid; gap: 16px; position: sticky; top: 20px; }
 .picture-controls form { display: grid; gap: 14px; }
 .picture-controls select:disabled, .picture-controls form :disabled { cursor: not-allowed; }
+.picture-selected-product { min-height: 66px; padding: 10px; display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 11px; align-items: center; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
+.picture-selected-product[hidden] { display: none; }
+.picture-selected-product img, .picture-selected-placeholder { width: 46px; height: 46px; display: grid; place-items: center; object-fit: contain; background: var(--white); border: 1px solid var(--line); border-radius: 4px; }
+.picture-selected-placeholder { padding: 3px; color: var(--muted); font-size: 0.62rem; text-align: center; }
+.picture-selected-product span { min-width: 0; display: grid; gap: 3px; }
+.picture-selected-product strong, .picture-selected-product small { overflow-wrap: anywhere; }
+.picture-selected-product small { color: var(--muted); }
 .picture-upload-preview { aspect-ratio: 4 / 3; display: grid; place-items: center; overflow: hidden; color: var(--muted); background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
 .picture-upload-preview img { width: 100%; height: 100%; object-fit: contain; }
 .upload-progress { height: 10px; overflow: hidden; background: #dce5e9; border-radius: 999px; }
@@ -392,6 +399,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
 .gallery-details { padding: 12px; display: grid; gap: 10px; }
 .gallery-details strong, .gallery-details small { overflow-wrap: anywhere; }
 .gallery-details small { color: var(--muted); }
+.gallery-metadata { display: grid; gap: 8px; }
+.gallery-metadata label { gap: 4px; }
+.gallery-metadata label > span { font-size: 0.72rem; }
+.gallery-metadata input { min-height: 40px; padding: 8px 10px; font-size: 0.82rem; }
 .gallery-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .gallery-actions .button { min-height: 38px; padding: 7px; font-size: 0.76rem; }
 

@@ -22,11 +22,14 @@ function trainingDatabase() {
     id: 81, product_id: product.id, sku: 'PTG-PFC-TRAINING-KIT-8', size: '8', colour: '', style: '',
     stock_quantity: 0, active: 1, allow_player_name: 1, allow_player_number: 1
   };
-  return { prepare(sql) { return { bind(...values) { return { async first() {
-    if (sql.includes('FROM products WHERE id')) return values[0] === product.id ? product : null;
-    if (sql.includes('FROM product_variants WHERE id')) return values[0] === variant.id ? variant : null;
-    return null;
-  } }; } }; } };
+  return { prepare(sql) { return { bind(...values) { return {
+    async first() {
+      if (sql.includes('FROM products WHERE id')) return values[0] === product.id ? product : null;
+      if (sql.includes('FROM product_variants WHERE id')) return values[0] === variant.id ? variant : null;
+      return null;
+    },
+    async all() { return { results: [] }; }
+  }; } }; } };
 }
 
 function d1Payload(number = '', token = '', name = "O'Connor") {

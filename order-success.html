@@ -31,6 +31,7 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="font-sans text-gray-900 bg-white">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
 
   <header class="site-header sticky top-0 z-50 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
@@ -68,19 +69,19 @@
     </div>
   </header>
 
-  <main class="min-h-[70vh] bg-brand-light px-4 sm:px-6 lg:px-8 py-20">
+  <main id="main-content" class="min-h-[70vh] bg-brand-light px-4 sm:px-6 lg:px-8 py-20">
     <section class="max-w-2xl mx-auto bg-white rounded-2xl border border-brand/20 shadow-sm p-8 sm:p-10 text-center">
-      <span class="text-brand text-xs font-semibold tracking-widest uppercase">Payment Received</span>
-      <h1 class="text-3xl sm:text-4xl font-black text-gray-900 mt-3 mb-4">Thank you for your order.</h1>
-      <p class="text-gray-500 text-sm sm:text-base leading-relaxed mb-6">
-        Stripe has redirected you back to PTG Activewear after payment. A verified payment webhook will confirm the order and send the order emails.
+      <span id="payment-status-eyebrow" class="text-brand text-xs font-semibold tracking-widest uppercase">Confirming Payment</span>
+      <h1 id="payment-status-title" class="text-3xl sm:text-4xl font-black text-gray-900 mt-3 mb-4">We are confirming your order.</h1>
+      <p id="payment-status-message" class="text-gray-500 text-sm sm:text-base leading-relaxed mb-6" role="status" aria-live="polite">
+        Please wait while PTG Activewear verifies your payment securely.
       </p>
       <div class="bg-gray-50 rounded-xl border border-gray-100 p-4 mb-8">
         <p class="text-xs uppercase tracking-widest text-gray-400 font-semibold mb-1">Order reference</p>
-        <p id="session-reference" class="text-sm font-semibold text-gray-800 break-all">Checking reference...</p>
+        <p id="session-reference" class="text-sm font-semibold text-gray-800">Checking...</p>
       </div>
       <p class="text-xs text-gray-400 leading-relaxed mb-8">
-        This page is not used to fulfil orders by itself. Fulfilment starts only after Stripe confirms payment through the verified webhook.
+        Your order is created only after Stripe confirms payment through our secure webhook.
       </p>
       <a href="shop.html" class="btn-primary px-8 py-3 text-sm">Continue Shopping</a>
     </section>
@@ -117,8 +118,47 @@
   <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full text-sm font-medium z-[60] whitespace-nowrap shadow-lg"></div>
 
   <script>
-    const sessionId = new URLSearchParams(window.location.search).get('session_id');
-    document.getElementById('session-reference').textContent = sessionId || 'Not provided';
+    (async () => {
+      const sessionId = new URLSearchParams(window.location.search).get('session_id');
+      const eyebrow = document.getElementById('payment-status-eyebrow');
+      const title = document.getElementById('payment-status-title');
+      const message = document.getElementById('payment-status-message');
+      const reference = document.getElementById('session-reference');
+      const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+      if (!sessionId) {
+        eyebrow.textContent = 'Order Not Verified';
+        title.textContent = 'We could not confirm this order.';
+        message.textContent = 'Return to your cart and start checkout again, or contact us if you completed payment.';
+        reference.textContent = 'No order reference was provided.';
+        return;
+      }
+
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        try {
+          const response = await fetch(`/api/checkout-status?session_id=${encodeURIComponent(sessionId)}`, {
+            headers: { Accept: 'application/json' }, cache: 'no-store'
+          });
+          const result = await response.json().catch(() => ({}));
+          if (response.ok && result.status === 'confirmed') {
+            localStorage.removeItem('ptg-cart');
+            sessionStorage.removeItem('ptg-checkout-attempt');
+            eyebrow.textContent = 'Payment Confirmed';
+            title.textContent = 'Thank you for your order.';
+            message.textContent = 'Your payment is confirmed. We have sent your order details by email.';
+            reference.textContent = result.orderNumber || 'Confirmed';
+            return;
+          }
+          if (!response.ok && response.status === 400) break;
+        } catch {}
+        await wait(2000);
+      }
+
+      eyebrow.textContent = 'Confirmation Pending';
+      title.textContent = 'Your payment is still being confirmed.';
+      message.textContent = 'This can take a little longer for some payment methods. Please check your email, or contact us if no confirmation arrives.';
+      reference.textContent = 'Waiting for secure payment confirmation';
+    })();
   </script>
   <script src="js/products.js"></script>
   <script src="js/main.js"></script>

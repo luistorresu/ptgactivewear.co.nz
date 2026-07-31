@@ -20,9 +20,14 @@ Remove-Item -LiteralPath $site -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $site | Out-Null
 
 $npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
+$localWrangler = Join-Path $repo 'node_modules\.bin\wrangler.cmd'
 $bundledPnpm = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback\pnpm.cmd'
 $bundledNode = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin'
-if ($npx) {
+if (Test-Path -LiteralPath $localWrangler) {
+  if (Test-Path -LiteralPath $bundledNode) { $env:PATH = "$bundledNode;$env:PATH" }
+  $runner = $localWrangler
+  $runnerPrefix = @()
+} elseif ($npx) {
   $runner = $npx.Source
   $runnerPrefix = @('--yes', 'wrangler')
 } elseif (Test-Path -LiteralPath $bundledPnpm) {
@@ -49,7 +54,7 @@ try {
   & $runner @runnerPrefix d1 execute ptgactivewear-catalog --local --persist-to $state --file seed\seed-products.sql
   if ($LASTEXITCODE -ne 0) { throw 'Local product seed failed.' }
 
-  Copy-Item -LiteralPath 'css', 'js', 'admin', 'photos' -Destination $site -Recurse -Force
+  Copy-Item -LiteralPath 'assets', 'css', 'js', 'admin', 'photos' -Destination $site -Recurse -Force
   Copy-Item -LiteralPath 'index.html', 'shop.html', 'product.html', 'about.html', 'contact.html', 'cart.html', 'order-success.html', 'robots.txt', 'sitemap.xml', 'favicon.png' -Destination $site -Force
 
   Write-Host "Starting PTG Activewear locally at http://127.0.0.1:$Port"

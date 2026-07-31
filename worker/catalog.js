@@ -51,11 +51,13 @@ function publicProduct(product, images, variants, threshold) {
   const publicImages = images.map(image => ({
     id: image.id,
     src: imageUrl(image),
+    thumbnailSrc: imageUrl(image, true),
     alt: image.alt_text || product.name,
     style: image.variant_style || '',
     isPrimary: asBoolean(image.is_primary)
   }));
   const gallery = publicImages.map(image => image.src);
+  const galleryThumbnails = publicImages.map(image => image.thumbnailSrc);
   const overallStatus = !product.active || !product.available_for_sale || !availableVariants.length
     ? 'out_of_stock'
     : availableVariants.some(variant => variant.stockStatus === 'in_stock')
@@ -82,7 +84,9 @@ function publicProduct(product, images, variants, threshold) {
     playerNamePrice: product.player_name_price_cents / 100,
     playerNumberPrice: product.player_number_price_cents / 100,
     image: gallery[0] || '',
+    cardImage: galleryThumbnails[0] || gallery[0] || '',
     gallery,
+    galleryThumbnails,
     galleryImages: publicImages,
     sizes: unique(publicVariants.map(variant => variant.size)),
     inventoryVariants: publicVariants,

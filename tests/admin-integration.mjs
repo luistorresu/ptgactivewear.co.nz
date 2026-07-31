@@ -176,6 +176,11 @@ try {
   pass('JPEG, PNG and WebP upload repeatedly with server-generated names and idempotent retry');
 
   const pictureIds = webp.data.pictures.map(picture => picture.id);
+  const metadata = await request(`/api/admin/pictures/${pictureIds[0]}`, {
+    method: 'PUT', body: JSON.stringify({ altText: 'Updated integration-test alt text', variantStyle: 'Detail' })
+  });
+  assert.equal(metadata.data.pictures.find(picture => picture.id === pictureIds[0]).altText, 'Updated integration-test alt text');
+  pass('Picture alt text and style metadata update successfully');
   await request(`/api/admin/pictures/${pictureIds.at(-1)}/set-primary`, { method: 'POST', body: '{}' });
   await request(`/api/admin/products/${encodeURIComponent(productId)}/pictures/reorder`, {
     method: 'POST', body: JSON.stringify({ pictureIds: [...pictureIds].reverse() })

@@ -10,6 +10,7 @@ import {
 } from './shirt-number.js';
 
 const MAX_ITEM_QUANTITY = 20;
+const ACTIVE_RESERVATION_STATES = new Set(['reserved', 'session_created', 'payment_pending']);
 
 function cleanText(value, maxLength) {
   return String(value ?? '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
@@ -104,11 +105,172 @@ export async function validateD1CheckoutPayload(payload, env) {
         personalisable: allowPlayerName || allowPlayerNumber
       },
       sku: variant.sku,
+      trackInventory: Boolean(product.track_inventory),
       stockStatus: product.track_inventory && variant.stock_quantity <= threshold ? 'low_stock' : 'in_stock'
     });
   }
 
   return { items: checkedItems };
+}
+
+function reservationItems(items) {
+  const grouped = new Map();
+  for (const item of items) {
+    if (!item.trackInventory) continue;
+    const variantId = Number(item.variantId);
+    grouped.set(variantId, (grouped.get(variantId) || 0) + Number(item.quantity));
+  }
+  return [...grouped.entries()].map(([variantId, quantity]) => ({ variantId, quantity }));
+}
+
+function canonicalCheckoutSnapshot(items, summary, fulfilment) {
+  return JSON.stringify({
+    items: items.map(item => ({
+      productId: item.productId,
+      variantId: Number(item.variantId),
+      quantity: Number(item.quantity),
+      playerName: item.playerName,
+      playerNumber: item.playerNumber,
+      nameAddOn: Number(item.nameAddOn),
+      numberAddOn: Number(item.numberAddOn)
+    })),
+    fulfilmentType: fulfilment.type,
+    shippingCents: Number(summary.shippingCents),
+    totalCents: Number(summary.totalCents)
+  });
+}
+
+export async function checkoutReservationFingerprint(items, summary, fulfilment) {
+  const bytes = new TextEncoder().encode(canonicalCheckoutSnapshot(items, summary, fulfilment));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function checkoutReservation(db, reservationId) {
+  return db.prepare('SELECT * FROM checkout_inventory_reservations WHERE id = ?').bind(reservationId).first();
+}
+
+async function reservationResult(db, reservationId, fingerprint) {
+  const existing = await checkoutReservation(db, reservationId);
+  if (!existing) return null;
+  if (existing.cart_fingerprint !== fingerprint) {
+    return { error: 'Your cart changed while checkout was being prepared. Please try again.', code: 'CHECKOUT_ATTEMPT_CHANGED', status: 409 };
+  }
+  if (existing.status === 'session_created' && existing.checkout_url) {
+    return { reservationId, reused: true, checkoutUrl: existing.checkout_url };
+  }
+  if (existing.status === 'reserved') return { reservationId, reused: false };
+  return { error: 'This checkout attempt is no longer active. Please try again.', code: 'CHECKOUT_ATTEMPT_INACTIVE', status: 409 };
+}
+
+export async function reserveCheckoutInventory(env, { reservationId, fingerprint, items, expiresAt }) {
+  const trackedItems = reservationItems(items);
+  if (!trackedItems.length) return { required: false };
+
+  const existing = await reservationResult(env.DB, reservationId, fingerprint);
+  if (existing) return { required: true, ...existing };
+
+  const statements = [
+    env.DB.prepare(`INSERT INTO checkout_inventory_reservations
+      (id, cart_fingerprint, status, expires_at) VALUES (?, ?, 'reserved', ?)`)
+      .bind(reservationId, fingerprint, expiresAt)
+  ];
+  for (const item of trackedItems) {
+    const operationId = `reservation:${reservationId}:${item.variantId}`.slice(0, 240);
+    statements.push(
+      env.DB.prepare(`UPDATE product_variants SET
+        stock_quantity = stock_quantity - ?, version = version + 1,
+        last_adjustment_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`).bind(item.quantity, operationId, item.variantId),
+      env.DB.prepare(`INSERT INTO checkout_inventory_reservation_items
+        (reservation_id, product_variant_id, quantity) VALUES (?, ?, ?)`)
+        .bind(reservationId, item.variantId, item.quantity),
+      env.DB.prepare(`INSERT INTO stock_movements (
+        product_variant_id, change_quantity, quantity_before, quantity_after,
+        reason, reference_type, reference_id, changed_by
+      ) SELECT id, ?, stock_quantity + ?, stock_quantity,
+        'Stripe checkout stock reservation', 'checkout_reservation', ?, 'system:checkout'
+        FROM product_variants WHERE id = ? AND last_adjustment_id = ?`)
+        .bind(-item.quantity, item.quantity, reservationId, item.variantId, operationId)
+    );
+  }
+
+  try {
+    await env.DB.batch(statements);
+    return { required: true, reservationId, reused: false };
+  } catch (error) {
+    const raced = await reservationResult(env.DB, reservationId, fingerprint).catch(() => null);
+    if (raced) return { required: true, ...raced };
+    console.error('Checkout stock reservation failed', { reservationId, message: error.message });
+    return { required: true, error: 'Stock changed while checkout was being prepared. Please review your cart and try again.', status: 409 };
+  }
+}
+
+export async function attachCheckoutReservation(db, reservationId, fingerprint, session) {
+  const result = await db.prepare(`UPDATE checkout_inventory_reservations SET
+    status = 'session_created', stripe_checkout_session_id = ?, checkout_url = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND cart_fingerprint = ? AND status IN ('reserved', 'session_created')`)
+    .bind(session.id, cleanText(session.url, 1000), reservationId, fingerprint).run();
+  if (!result.meta?.changes) throw new Error('Checkout stock reservation could not be linked to Stripe.');
+}
+
+export async function markCheckoutReservationPaymentPending(db, session) {
+  const reservationId = cleanText(session.metadata?.checkout_request_id, 64);
+  if (!session.id && !reservationId) return { marked: false };
+  const result = await db.prepare(`UPDATE checkout_inventory_reservations SET
+    status = 'payment_pending', stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, ?),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE (stripe_checkout_session_id = ? OR (? != '' AND id = ?))
+      AND status IN ('reserved', 'session_created', 'payment_pending')`)
+    .bind(session.id || null, session.id || '', reservationId, reservationId).run();
+  return { marked: Boolean(result.meta?.changes) };
+}
+
+export async function releaseCheckoutInventory(env, { reservationId = '', sessionId = '', reason = 'released' }) {
+  const reservation = reservationId
+    ? await checkoutReservation(env.DB, reservationId)
+    : await env.DB.prepare('SELECT * FROM checkout_inventory_reservations WHERE stripe_checkout_session_id = ?').bind(sessionId).first();
+  if (!reservation || !ACTIVE_RESERVATION_STATES.has(reservation.status)) return { released: false };
+
+  const result = await env.DB.prepare(`SELECT product_variant_id, quantity
+    FROM checkout_inventory_reservation_items WHERE reservation_id = ? ORDER BY product_variant_id`)
+    .bind(reservation.id).all();
+  const statements = [];
+  for (const item of result.results || []) {
+    const operationId = `reservation-release:${reservation.id}:${item.product_variant_id}`.slice(0, 240);
+    statements.push(
+      env.DB.prepare(`UPDATE product_variants SET
+        stock_quantity = stock_quantity + ?, version = version + 1,
+        last_adjustment_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND EXISTS (
+          SELECT 1 FROM checkout_inventory_reservations
+          WHERE id = ? AND status IN ('reserved', 'session_created', 'payment_pending')
+        )`).bind(item.quantity, operationId, item.product_variant_id, reservation.id),
+      env.DB.prepare(`INSERT INTO stock_movements (
+        product_variant_id, change_quantity, quantity_before, quantity_after,
+        reason, reference_type, reference_id, changed_by
+      ) SELECT id, ?, stock_quantity - ?, stock_quantity,
+        'Released Stripe checkout reservation', 'checkout_reservation', ?, 'system:checkout'
+        FROM product_variants WHERE id = ? AND last_adjustment_id = ?`)
+        .bind(item.quantity, item.quantity, reservation.id, item.product_variant_id, operationId)
+    );
+  }
+  statements.push(env.DB.prepare(`UPDATE checkout_inventory_reservations SET
+    status = ?, release_reason = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND status IN ('reserved', 'session_created', 'payment_pending')`)
+    .bind(reason === 'expired' ? 'expired' : 'released', cleanText(reason, 120), reservation.id));
+  await env.DB.batch(statements);
+  return { released: true, reservationId: reservation.id };
+}
+
+export async function releaseExpiredCheckoutReservations(env, limit = 10) {
+  const result = await env.DB.prepare(`SELECT id FROM checkout_inventory_reservations
+    WHERE status IN ('reserved', 'session_created') AND expires_at <= CURRENT_TIMESTAMP
+    ORDER BY expires_at LIMIT ?`).bind(Math.max(1, Math.min(50, Number(limit) || 10))).all();
+  for (const row of result.results || []) {
+    await releaseCheckoutInventory(env, { reservationId: row.id, reason: 'expired' });
+  }
+  return (result.results || []).length;
 }
 
 function lineMetadata(lineItem) {
@@ -247,6 +409,33 @@ async function existingOrder(db, sessionId) {
   return db.prepare('SELECT id, email_status FROM orders WHERE stripe_checkout_session_id = ?').bind(sessionId).first();
 }
 
+async function paidCheckoutReservation(db, session, catalogue) {
+  const requestId = cleanText(session.metadata?.checkout_request_id, 64);
+  const reservation = await db.prepare(`SELECT * FROM checkout_inventory_reservations
+    WHERE stripe_checkout_session_id = ? OR (? != '' AND id = ?)
+    ORDER BY CASE WHEN stripe_checkout_session_id = ? THEN 0 ELSE 1 END LIMIT 1`)
+    .bind(session.id, requestId, requestId, session.id).first();
+  if (!reservation) return null;
+  if (!ACTIVE_RESERVATION_STATES.has(reservation.status)) {
+    throw new Error(`Checkout inventory reservation is ${reservation.status}.`);
+  }
+
+  const rows = await db.prepare(`SELECT product_variant_id, quantity
+    FROM checkout_inventory_reservation_items WHERE reservation_id = ? ORDER BY product_variant_id`)
+    .bind(reservation.id).all();
+  const reserved = new Map((rows.results || []).map(row => [Number(row.product_variant_id), Number(row.quantity)]));
+  const expected = new Map();
+  for (const item of catalogue) {
+    if (!item.track_inventory) continue;
+    expected.set(Number(item.variantId), (expected.get(Number(item.variantId)) || 0) + Number(item.quantity));
+  }
+  if (reserved.size !== expected.size
+    || [...expected].some(([variantId, quantity]) => reserved.get(variantId) !== quantity)) {
+    throw new Error('Checkout inventory reservation does not match the paid Stripe items.');
+  }
+  return reservation;
+}
+
 export async function commitPaidOrder(env, event, session, lineItems) {
   const existing = await existingOrder(env.DB, session.id);
   if (existing) {
@@ -282,6 +471,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
   const shippingAddressText = [shippingAddress.line1, shippingAddress.line2, shippingAddress.city, shippingAddress.state, shippingAddress.postal_code].filter(Boolean).join(' ');
   const shippingRural = /\b(?:rural|r\.?d\.?\s*\d+)\b/i.test(shippingAddressText) ? 1 : 0;
   const verificationNote = restrictedNumberVerificationNote(catalogue);
+  const reservation = await paidCheckoutReservation(env.DB, session, catalogue);
   const statements = [
     env.DB.prepare(`
       INSERT INTO stripe_events (event_id, event_type, stripe_checkout_session_id, status)
@@ -366,7 +556,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
       )
     );
 
-    if (item.track_inventory) {
+    if (item.track_inventory && !reservation) {
       statements.push(
         env.DB.prepare(`
           UPDATE product_variants SET
@@ -385,6 +575,18 @@ export async function commitPaidOrder(env, event, session, lineItems) {
         `).bind(-item.quantity, item.quantity, session.id, item.variantId, operationId)
       );
     }
+  }
+
+  if (reservation) {
+    statements.push(
+      env.DB.prepare(`UPDATE checkout_inventory_reservations SET
+        status = 'committed', stripe_checkout_session_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status IN ('reserved', 'session_created', 'payment_pending')`)
+        .bind(session.id, reservation.id),
+      env.DB.prepare(`UPDATE checkout_inventory_reservation_items SET
+        committed_order_id = (SELECT id FROM orders WHERE stripe_checkout_session_id = ?)
+        WHERE reservation_id = ?`).bind(session.id, reservation.id)
+    );
   }
 
   statements.push(

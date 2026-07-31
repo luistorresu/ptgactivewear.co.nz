@@ -10,12 +10,14 @@ async function source(path) {
 
 test('public header creates one decorative local football without touching admin', async () => {
   const javascript = await source('js/theme.js');
+  const devScript = await source('scripts/dev.ps1');
   assert.match(javascript, /header\.querySelector\('\.floating-football-animation'\)/);
   assert.match(javascript, /stage\.setAttribute\('aria-hidden', 'true'\)/);
   assert.match(javascript, /ball\.alt = ''/);
   assert.match(javascript, /ball\.src = '\/assets\/images\/soccer-ball\.svg'/);
   assert.match(javascript, /header\.append\(stage\)/);
   assert.match(javascript, /document\.addEventListener\('visibilitychange'/);
+  assert.match(devScript, /'assets', 'css', 'js', 'admin', 'photos'/);
   assert.doesNotMatch(await source('admin/index.html'), /header-football|soccer-ball/);
 });
 
@@ -41,6 +43,6 @@ test('football uses slow randomized header motion, responsive sizing and reduced
   assert.match(javascript, /stage\.clientWidth - size - padding/);
   assert.match(javascript, /stage\.clientHeight - size - padding/);
   assert.match(css, /@media \(max-width: 900px\)[\s\S]*--football-size:\s*26px/);
-  assert.match(css, /@media \(max-width: 480px\)[\s\S]*--football-size:\s*22px/);
+  assert.match(css, /@media \(max-width: 640px\)[\s\S]*\.floating-football-animation\s*\{\s*display:\s*none/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.floating-football-animation\s*\{\s*display:\s*none/);
 });

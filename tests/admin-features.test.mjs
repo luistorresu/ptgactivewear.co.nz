@@ -255,12 +255,17 @@ test('picture manager requires an explicit product and keeps replace controls av
     readFile(new URL('admin/admin.js', root), 'utf8')
   ]);
   assert.match(html, /data-picture-product[^>]*aria-describedby="picture-product-status"/);
+  assert.match(html, /data-picture-product-search/);
+  assert.match(html, /data-picture-selected-product/);
   assert.match(html, /data-picture-product-status/);
   assert.match(admin, /new Option\('Select a product', ''\)/);
-  assert.match(admin, /\['Current products', state\.products\.filter\(product => !product\.archived\)\]/);
+  assert.match(admin, /\['Current products', visibleProducts\.filter\(product => !product\.archived\)\]/);
   assert.match(admin, /Select a product before uploading a picture\./);
   assert.match(admin, /state\.pictureProductId !== productId/);
   assert.match(admin, />Replace Picture<\/button>/);
+  assert.match(admin, /data-picture-action="save-details"/);
+  assert.match(admin, /method: 'PUT'.*altText, variantStyle/s);
+  assert.match(admin, /response\.type === 'opaqueredirect'/);
 });
 
 test('product lifecycle is soft-delete based and requires sellable content before enablement', async () => {
