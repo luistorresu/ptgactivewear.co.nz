@@ -5,6 +5,8 @@ _worker.js.map
 .git
 .git/
 .git/**
+.github/
+.github/**
 .claude/
 .claude/**
 .dev.vars
