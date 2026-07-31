@@ -694,16 +694,17 @@ async function handleCreateCheckoutSession(request, env) {
   const useReservations = Boolean(env.DB)
     && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1'
     && validation.items.some(item => item.trackInventory);
-  // Stripe requires at least 30 minutes from the moment it receives the request.
-  // The extra minute prevents network and processing time from crossing that boundary.
-  const expiresAtUnix = Math.floor(Date.now() / 1000) + 31 * 60;
-  const expiresAtSql = new Date(expiresAtUnix * 1000).toISOString().slice(0, 19).replace('T', ' ');
   let reservation = { required: false };
   let reservationFingerprint = '';
+  let reservationExpiresAtUnix = 0;
 
   if (useReservations) {
     if (!requestId) return jsonResponse({ ok: false, error: 'Checkout needs a fresh request reference. Please refresh your cart and try again.' }, 400);
     try {
+      // Stripe requires at least 30 minutes. Persisting this value keeps every
+      // idempotent retry byte-for-byte stable, including concurrent retries.
+      const requestedExpiresAtUnix = Math.floor(Date.now() / 1000) + 31 * 60;
+      const expiresAtSql = new Date(requestedExpiresAtUnix * 1000).toISOString().slice(0, 19).replace('T', ' ');
       reservationFingerprint = await checkoutReservationFingerprint(validation.items, validation.summary, validation.fulfilment);
       reservation = await reserveCheckoutInventory(env, {
         reservationId: requestId,
@@ -719,10 +720,15 @@ async function handleCreateCheckoutSession(request, env) {
     if (reservation.checkoutUrl) {
       return jsonResponse({ ok: true, url: reservation.checkoutUrl, summary: publicCheckoutSummary(validation.summary, validation.fulfilment) });
     }
+    reservationExpiresAtUnix = Math.floor(Date.parse(`${String(reservation.expiresAt || '').replace(' ', 'T')}Z`) / 1000);
+    if (!Number.isSafeInteger(reservationExpiresAtUnix)) {
+      await releaseCheckoutInventory(env, { reservationId: requestId, reason: 'invalid_expiry' }).catch(() => {});
+      return jsonResponse({ ok: false, error: 'Checkout stock could not be reserved. Please try again.' }, 503);
+    }
   }
 
   params.append('mode', 'payment');
-  params.append('expires_at', String(expiresAtUnix));
+  if (reservation.required) params.append('expires_at', String(reservationExpiresAtUnix));
   if (validation.summary.surcharge.enabled) params.append('payment_method_types[0]', 'card');
   params.append('success_url', `${siteUrl}/order-success?session_id={CHECKOUT_SESSION_ID}`);
   params.append('cancel_url', `${siteUrl}/cart?checkout=cancelled`);

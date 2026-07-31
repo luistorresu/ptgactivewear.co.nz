@@ -49,11 +49,19 @@ test('checkout reserves before Stripe and releases only deterministic failures',
   const reserveIndex = worker.indexOf('await reserveCheckoutInventory');
   const stripeIndex = worker.indexOf('const session = await createStripeCheckoutSession', reserveIndex);
   assert.ok(reserveIndex > -1 && stripeIndex > reserveIndex);
-  assert.match(worker, /expiresAtUnix = Math\.floor\(Date\.now\(\) \/ 1000\) \+ 31 \* 60/);
+  assert.match(worker, /requestedExpiresAtUnix = Math\.floor\(Date\.now\(\) \/ 1000\) \+ 31 \* 60/);
+  assert.match(worker, /if \(reservation\.required\) params\.append\('expires_at', String\(reservationExpiresAtUnix\)\)/);
+  assert.doesNotMatch(worker, /params\.append\('expires_at', String\(requestedExpiresAtUnix\)\)/);
   assert.match(worker, /checkout\.session\.async_payment_failed/);
   assert.match(worker, /checkout\.session\.expired/);
   assert.match(worker, /markCheckoutReservationPaymentPending/);
   assert.match(worker, /error\.safeToReleaseReservation/);
+});
+
+test('reservation expiry is persisted so Stripe retries keep identical parameters', async () => {
+  const inventory = await readFile(new URL('worker/inventory.js', root), 'utf8');
+  assert.match(inventory, /existing\.expires_at/);
+  assert.match(inventory, /required: true, reservationId, reused: false, expiresAt/);
 });
 
 test('success page confirms the paid order before clearing the cart', async () => {

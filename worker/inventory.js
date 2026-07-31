@@ -157,9 +157,9 @@ async function reservationResult(db, reservationId, fingerprint) {
     return { error: 'Your cart changed while checkout was being prepared. Please try again.', code: 'CHECKOUT_ATTEMPT_CHANGED', status: 409 };
   }
   if (existing.status === 'session_created' && existing.checkout_url) {
-    return { reservationId, reused: true, checkoutUrl: existing.checkout_url };
+    return { reservationId, reused: true, checkoutUrl: existing.checkout_url, expiresAt: existing.expires_at };
   }
-  if (existing.status === 'reserved') return { reservationId, reused: false };
+  if (existing.status === 'reserved') return { reservationId, reused: false, expiresAt: existing.expires_at };
   return { error: 'This checkout attempt is no longer active. Please try again.', code: 'CHECKOUT_ATTEMPT_INACTIVE', status: 409 };
 }
 
@@ -197,7 +197,7 @@ export async function reserveCheckoutInventory(env, { reservationId, fingerprint
 
   try {
     await env.DB.batch(statements);
-    return { required: true, reservationId, reused: false };
+    return { required: true, reservationId, reused: false, expiresAt };
   } catch (error) {
     const raced = await reservationResult(env.DB, reservationId, fingerprint).catch(() => null);
     if (raced) return { required: true, ...raced };
