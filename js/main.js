@@ -485,6 +485,7 @@ function getCartSummaryElements() {
         };
         saveCheckoutCustomerDetails();
         clearCheckoutAttempt();
+        clearInlineStatus(document.querySelector('[data-checkout-status]'));
         const key = input === customerNameInput ? 'customerName' : 'childName';
         const errorElement = customerDetails.querySelector(`[data-checkout-customer-error="${key}"]`);
         input.removeAttribute('aria-invalid');
