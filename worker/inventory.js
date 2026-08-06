@@ -1,5 +1,6 @@
 import { calculateRefundBreakdown } from './surcharge.js';
 import { ensureInvoiceSnapshot } from './invoices.js';
+import { validateCheckoutCustomerDetails } from './customer-details.js';
 import {
   RESTRICTED_SHIRT_NUMBERS,
   TRAINING_KIT_ID,
@@ -123,7 +124,7 @@ function reservationItems(items) {
   return [...grouped.entries()].map(([variantId, quantity]) => ({ variantId, quantity }));
 }
 
-function canonicalCheckoutSnapshot(items, summary, fulfilment) {
+function canonicalCheckoutSnapshot(items, summary, fulfilment, customerDetails = {}) {
   return JSON.stringify({
     items: items.map(item => ({
       productId: item.productId,
@@ -135,13 +136,15 @@ function canonicalCheckoutSnapshot(items, summary, fulfilment) {
       numberAddOn: Number(item.numberAddOn)
     })),
     fulfilmentType: fulfilment.type,
+    customerName: customerDetails.customerName || '',
+    childName: customerDetails.childName || '',
     shippingCents: Number(summary.shippingCents),
     totalCents: Number(summary.totalCents)
   });
 }
 
-export async function checkoutReservationFingerprint(items, summary, fulfilment) {
-  const bytes = new TextEncoder().encode(canonicalCheckoutSnapshot(items, summary, fulfilment));
+export async function checkoutReservationFingerprint(items, summary, fulfilment, customerDetails = {}) {
+  const bytes = new TextEncoder().encode(canonicalCheckoutSnapshot(items, summary, fulfilment, customerDetails));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -460,6 +463,14 @@ export async function commitPaidOrder(env, event, session, lineItems) {
   }
 
   const customer = session.customer_details || {};
+  const metadata = session.metadata || {};
+  const checkoutDetails = metadata.checkout_details_version === '1'
+    ? validateCheckoutCustomerDetails({
+        customerName: metadata.checkout_customer_name,
+        childName: metadata.child_name
+      })
+    : { customerName: cleanText(customer.name, 100), childName: '' };
+  if (checkoutDetails.error) throw new Error('Paid checkout customer details are invalid.');
   const personalisationCents = catalogue.reduce((sum, item) => sum + item.customisationAmountTotal, 0);
   const snapshot = verifyStripeCheckoutSnapshot(session, lineItems, personalisationCents);
   const shipping = session.shipping_details || session.collected_information?.shipping_details || {};
@@ -480,7 +491,7 @@ export async function commitPaidOrder(env, event, session, lineItems) {
     env.DB.prepare(`
       INSERT INTO orders (
         stripe_checkout_session_id, stripe_payment_intent_id, stripe_event_id,
-        customer_name, customer_email, customer_phone, shipping_address_json,
+        customer_name, child_name, customer_email, customer_phone, shipping_address_json,
         subtotal_cents, shipping_cents, total_cents, currency, payment_status,
         fulfilment_status, email_status, billing_address_json, payment_date,
         personalisation_cents, discount_cents, tax_cents, refund_status, payment_method_label, internal_notes,
@@ -489,12 +500,13 @@ export async function commitPaidOrder(env, event, session, lineItems) {
         fulfilment_type, shipping_method, pickup_location, pickup_instructions,
         shipping_name, shipping_phone, shipping_address_line_1, shipping_address_line_2,
         shipping_suburb, shipping_city, shipping_region, shipping_postcode, shipping_country, shipping_rural
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       session.id,
       typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
       event.id,
-      cleanText(customer.name || shipping.name, 200),
+      checkoutDetails.customerName || cleanText(customer.name || shipping.name, 200),
+      checkoutDetails.childName || null,
       cleanText(customer.email || session.customer_email, 254),
       cleanText(shipping.phone || customer.phone, 50),
       JSON.stringify(shippingAddress),

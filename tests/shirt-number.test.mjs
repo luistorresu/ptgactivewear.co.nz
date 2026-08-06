@@ -123,6 +123,7 @@ test('Stripe Checkout receives shirt details and verification status but never b
   try {
     const payload = {
       fulfilmentType: 'pickup', checkoutRequestId: 'training-kit-proof-9',
+      customerDetails: { customerName: 'Test Customer', childName: 'Test Child' },
       items: [{
         productId: 'patagonia-fc-training-kit', variantId: 81, quantity: 1, size: '8',
         personalisation: { name: 'Nico', number: '9' }, shirtNumberEligibilityToken: proof.token

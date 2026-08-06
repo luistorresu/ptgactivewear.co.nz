@@ -13,6 +13,7 @@ const eligibleOrder = {
   id: 2,
   order_number: 'PTG-ORD-2026-000002',
   customer_name: 'Test Customer',
+  child_name: 'Test Child',
   customer_email: 'customer@example.com',
   payment_status: 'paid',
   fulfilment_status: 'paid',

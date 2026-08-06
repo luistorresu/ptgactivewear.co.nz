@@ -51,12 +51,12 @@ export async function ensureInvoiceSnapshot(db, orderId, identity = null) {
     const invoiceStatus = Number(order.refunded_cents || 0) >= Number(order.total_cents || 0)
       ? 'refunded' : Number(order.refunded_cents || 0) > 0 ? 'partially_refunded' : 'issued';
     await db.prepare(`INSERT OR IGNORE INTO invoices (
-      order_id, invoice_number, issue_date, customer_name, customer_email,
+      order_id, invoice_number, issue_date, customer_name, child_name, customer_email,
       billing_details_json, fulfilment_details_json, items_json,
       subtotal_cents, personalisation_cents, shipping_cents, processing_surcharge_cents,
       discount_cents, tax_cents, total_cents, refunded_cents, currency, status, snapshot_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(orderId, order.invoice_number, order.invoice_created_at || new Date().toISOString(), order.customer_name, order.customer_email,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(orderId, order.invoice_number, order.invoice_created_at || new Date().toISOString(), order.customer_name, order.child_name || null, order.customer_email,
         JSON.stringify(order.billing_address || {}), JSON.stringify({ type: order.fulfilment_type, method: order.shipping_method, pickupLocation: order.pickup_location, pickupInstructions: order.pickup_instructions, shippingAddress: order.shipping_address || {} }), JSON.stringify(order.items || []),
         order.subtotal_cents, order.personalisation_cents, order.shipping_cents, order.payment_surcharge_cents,
         order.discount_cents, order.tax_cents, order.total_cents, order.refunded_cents, order.currency, invoiceStatus, JSON.stringify(snapshot)).run();

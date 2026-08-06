@@ -71,14 +71,19 @@ export function buildOutForDeliveryEmail(order, env) {
   const supportEmail = cleanText(env.CONTACT_TO_EMAIL, 254) || SUPPORT_EMAIL;
   const orderNumber = cleanText(order.order_number, 80) || 'PTG Activewear order';
   const greetingName = firstName(order.customer_name);
+  const childName = cleanText(order.child_name, 60);
+  const deliveryMessage = childName
+    ? `Good news - your PTG Activewear order for ${childName} is now out for delivery.`
+    : 'Good news - your PTG Activewear order is now out for delivery.';
   const text = [
     `Hi ${greetingName},`,
     '',
-    'Good news - your PTG Activewear order is now out for delivery.',
+    deliveryMessage,
     '',
     'Order number:',
     orderNumber,
     '',
+    ...(childName ? ["Child's Name:", childName, ''] : []),
     'Please keep an eye out for your delivery. Delivery timing can vary depending on the courier and destination.',
     '',
     `If you have any questions, contact us at ${supportEmail}.`,
@@ -97,7 +102,8 @@ export function buildOutForDeliveryEmail(order, env) {
           <tr><td style="padding:30px 28px">
             <p style="margin:0 0 18px">Hi ${escapeHtml(greetingName)},</p>
             <h1 style="margin:0 0 14px;font-size:26px;line-height:1.2">Your order is out for delivery</h1>
-            <p style="margin:0 0 24px;line-height:1.6">Good news - your PTG Activewear order is now out for delivery.</p>
+            <p style="margin:0 0 24px;line-height:1.6">${escapeHtml(deliveryMessage)}</p>
+            ${childName ? `<div style="margin:0 0 18px"><strong style="display:block;color:#586574;font-size:12px;text-transform:uppercase">Child's Name</strong><span>${escapeHtml(childName)}</span></div>` : ''}
             <div style="margin:0 0 22px"><strong style="display:block;color:#586574;font-size:12px;text-transform:uppercase">Order number</strong><span style="font-size:20px;font-weight:700">${escapeHtml(orderNumber)}</span></div>
             <p style="margin:0 0 20px;line-height:1.6">Please keep an eye out for your delivery. Delivery timing can vary depending on the courier and destination.</p>
             <p style="margin:0;line-height:1.6">If you have any questions, contact <a href="mailto:${escapeHtml(supportEmail)}" style="color:#087f9b">${escapeHtml(supportEmail)}</a>.<br><br>Thank you for your order.<br><strong>PTG Activewear</strong></p>

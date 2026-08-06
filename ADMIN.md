@@ -22,6 +22,8 @@ The public website, cart, checkout, Stripe webhook, contact form, and Resend int
 
 The admin uses additive migrations only. Existing tables and records are preserved.
 
+Paid orders include the required checkout Child's Name in D1 and show it in the dashboard, order details, collection/delivery workflows, invoice view, reports, search, and CSV exports. Historical orders created before migration `0020_order_child_name.sql` display `Not recorded` where appropriate and remain valid.
+
 ## Authentication
 
 Required Worker variables and secrets:

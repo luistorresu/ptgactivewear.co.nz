@@ -190,7 +190,7 @@ async function dashboard(db, threshold) {
         (SELECT COALESCE(SUM(total_cents), 0) FROM orders WHERE payment_status = 'paid' AND strftime('%Y-%m', payment_date) = strftime('%Y-%m', 'now')) AS sales_month,
         (SELECT COUNT(*) FROM orders WHERE payment_status = 'paid' AND fulfilment_status NOT IN ('completed', 'cancelled', 'refunded')) AS awaiting_fulfilment
     `).bind(threshold).first(),
-    db.prepare('SELECT id, order_number, stripe_checkout_session_id, customer_name, customer_email, total_cents, currency, payment_status, fulfilment_status, invoice_number, created_at FROM orders ORDER BY created_at DESC LIMIT 6').all(),
+    db.prepare('SELECT id, order_number, stripe_checkout_session_id, customer_name, child_name, customer_email, total_cents, currency, payment_status, fulfilment_status, invoice_number, created_at FROM orders ORDER BY created_at DESC LIMIT 6').all(),
     db.prepare(`
       SELECT sm.id, sm.change_quantity, sm.quantity_before, sm.quantity_after, sm.reason, sm.changed_by, sm.created_at,
              pv.sku, p.name AS product_name
@@ -308,8 +308,8 @@ function reportWhere(filters, { invoicesOnly = false, defaultPaid = true } = {})
   const values = [];
   if (filters.search) {
     const term = `%${filters.search}%`;
-    clauses.push(`(o.order_number LIKE ? OR o.invoice_number LIKE ? OR o.customer_name LIKE ? OR o.customer_email LIKE ? OR o.stripe_payment_intent_id LIKE ? OR EXISTS (SELECT 1 FROM order_items osi WHERE osi.order_id = o.id AND (osi.product_name LIKE ? OR osi.sku LIKE ?)))`);
-    values.push(term, term, term, term, term, term, term);
+    clauses.push(`(o.order_number LIKE ? OR o.invoice_number LIKE ? OR o.customer_name LIKE ? OR o.child_name LIKE ? OR o.customer_email LIKE ? OR o.stripe_payment_intent_id LIKE ? OR EXISTS (SELECT 1 FROM order_items osi WHERE osi.order_id = o.id AND (osi.product_name LIKE ? OR osi.sku LIKE ?)))`);
+    values.push(term, term, term, term, term, term, term, term);
   }
   if (filters.payment) { clauses.push('o.payment_status = ?'); values.push(filters.payment); }
   else if (defaultPaid) clauses.push("o.payment_status = 'paid'");
@@ -701,7 +701,7 @@ async function listOrders(db, url) {
   const collectionState = cleanText(url.searchParams.get('collectionState'), 20).toLowerCase();
   const from = cleanText(url.searchParams.get('from'), 10);
   const to = cleanText(url.searchParams.get('to'), 10);
-  if (search) { clauses.push('(order_number LIKE ? OR customer_name LIKE ? OR customer_email LIKE ?)'); values.push(`%${search}%`, `%${search}%`, `%${search}%`); }
+  if (search) { clauses.push('(order_number LIKE ? OR customer_name LIKE ? OR child_name LIKE ? OR customer_email LIKE ?)'); values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`); }
   if (payment) { clauses.push('payment_status = ?'); values.push(payment); }
   if (fulfilment) { clauses.push('fulfilment_status = ?'); values.push(fulfilment); }
   if (['pickup', 'delivery'].includes(fulfilmentType)) { clauses.push('fulfilment_type = ?'); values.push(fulfilmentType); }
@@ -713,7 +713,7 @@ async function listOrders(db, url) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(to)) { clauses.push('date(created_at) <= date(?)'); values.push(to); }
   values.push(limit);
   const result = await db.prepare(`
-    SELECT id, order_number, stripe_checkout_session_id, stripe_payment_intent_id, customer_name, customer_email,
+    SELECT id, order_number, stripe_checkout_session_id, stripe_payment_intent_id, customer_name, child_name, customer_email,
       subtotal_cents, personalisation_cents, shipping_cents, payment_surcharge_cents, total_cents, currency,
       fulfilment_type, shipping_method,
       payment_status, fulfilment_status, refund_status, refunded_cents, invoice_number, email_status,
@@ -773,7 +773,7 @@ function resultChanges(result) {
 }
 
 async function collectionOrder(db, orderId) {
-  return db.prepare(`SELECT id, order_number, customer_name, customer_email, payment_status,
+  return db.prepare(`SELECT id, order_number, customer_name, child_name, customer_email, payment_status,
     fulfilment_status, fulfilment_type, refund_status, refunded_cents, total_cents,
     pickup_location, pickup_instructions, ready_for_collection_at,
     ready_for_collection_email_sent_at, ready_for_collection_email_status,
@@ -933,7 +933,7 @@ async function markCollected(env, orderId, body, identity) {
 }
 
 async function deliveryOrder(db, orderId) {
-  return db.prepare(`SELECT id, order_number, customer_name, customer_email, payment_status,
+  return db.prepare(`SELECT id, order_number, customer_name, child_name, customer_email, payment_status,
     fulfilment_status, fulfilment_type, refund_status, refunded_cents, total_cents,
     shipping_address_json, shipping_address_line_1, shipping_city, shipping_country,
     out_for_delivery_at, out_for_delivery_email_sent_at, out_for_delivery_email_status,
@@ -1137,7 +1137,7 @@ async function reportSales(db, filters, { exportRequest = false } = {}) {
   const where = reportWhere(filters);
   const offset = exportRequest ? 0 : (filters.page - 1) * filters.limit;
   const result = await db.prepare(`SELECT o.id, o.created_at, o.order_number, o.invoice_number,
-    o.customer_name, o.customer_email, o.customer_phone, o.fulfilment_type, o.shipping_city, o.shipping_region,
+    o.customer_name, o.child_name, o.customer_email, o.customer_phone, o.fulfilment_type, o.shipping_city, o.shipping_region,
     o.subtotal_cents, o.shipping_cents, o.payment_surcharge_cents, o.total_cents, o.currency,
     o.payment_status, o.fulfilment_status, o.refund_status, o.refunded_cents,
     o.ready_for_collection_at, o.ready_for_collection_email_status,
@@ -1154,7 +1154,7 @@ async function reportSales(db, filters, { exportRequest = false } = {}) {
 async function reportInvoices(db, filters, { exportRequest = false } = {}) {
   const where = reportWhere(filters, { invoicesOnly: true });
   const offset = exportRequest ? 0 : (filters.page - 1) * filters.limit;
-  const result = await db.prepare(`SELECT i.order_id, i.invoice_number, i.issue_date, i.customer_name, i.customer_email,
+  const result = await db.prepare(`SELECT i.order_id, i.invoice_number, i.issue_date, i.customer_name, i.child_name, i.customer_email,
     i.subtotal_cents, i.shipping_cents, i.processing_surcharge_cents, i.total_cents, i.currency, i.status,
     o.order_number FROM invoices i JOIN orders o ON o.id = i.order_id ${where.sql}
     ORDER BY i.issue_date DESC, i.id DESC LIMIT ? OFFSET ?`).bind(...where.values, filters.limit, offset).all();
@@ -1164,16 +1164,16 @@ async function reportInvoices(db, filters, { exportRequest = false } = {}) {
 
 async function exportSalesReport(db, filters, identity) {
   const report = await reportSales(db, filters, { exportRequest: true });
-  const rows = report.rows.map(row => [row.created_at, row.order_number, row.invoice_number, row.customer_name, row.customer_email, row.customer_phone, row.fulfilment_type, row.shipping_city, row.shipping_region, row.product_names, row.skus, row.quantity, row.subtotal_cents / 100, row.shipping_cents / 100, row.payment_surcharge_cents / 100, row.total_cents / 100, row.currency, row.payment_status, row.fulfilment_status, row.ready_for_collection_email_status, row.ready_for_collection_at, row.ready_for_collection_email_sent_at, row.collected_at, row.refunded_cents / 100]);
+  const rows = report.rows.map(row => [row.created_at, row.order_number, row.invoice_number, row.customer_name, row.child_name, row.customer_email, row.customer_phone, row.fulfilment_type, row.shipping_city, row.shipping_region, row.product_names, row.skus, row.quantity, row.subtotal_cents / 100, row.shipping_cents / 100, row.payment_surcharge_cents / 100, row.total_cents / 100, row.currency, row.payment_status, row.fulfilment_status, row.ready_for_collection_email_status, row.ready_for_collection_at, row.ready_for_collection_email_sent_at, row.collected_at, row.refunded_cents / 100]);
   await audit(db, identity, 'export_csv', 'sales_report', exportDate(), `Exported ${rows.length} sales`);
-  return csvResponse(reportFilename('ptg-sales', filters), ['Order date','Order number','Invoice number','Customer name','Customer email','Phone','Fulfilment method','Shipping city','Shipping region','Product names','SKUs','Quantities','Subtotal','Shipping','Processing surcharge','Total','Currency','Payment status','Fulfilment status','Ready email status','Ready at','Ready email sent at','Collected at','Refund amount'], rows);
+  return csvResponse(reportFilename('ptg-sales', filters), ['Order date','Order number','Invoice number','Customer name',"Child's Name",'Customer email','Phone','Fulfilment method','Shipping city','Shipping region','Product names','SKUs','Quantities','Subtotal','Shipping','Processing surcharge','Total','Currency','Payment status','Fulfilment status','Ready email status','Ready at','Ready email sent at','Collected at','Refund amount'], rows);
 }
 
 async function exportInvoiceReport(db, filters, identity) {
   const report = await reportInvoices(db, filters, { exportRequest: true });
-  const rows = report.rows.map(row => [row.invoice_number, row.order_number, row.issue_date, row.customer_name, row.subtotal_cents / 100, row.shipping_cents / 100, row.processing_surcharge_cents / 100, row.total_cents / 100, row.currency, row.status]);
+  const rows = report.rows.map(row => [row.invoice_number, row.order_number, row.issue_date, row.customer_name, row.child_name, row.subtotal_cents / 100, row.shipping_cents / 100, row.processing_surcharge_cents / 100, row.total_cents / 100, row.currency, row.status]);
   await audit(db, identity, 'export_csv', 'invoice_report', exportDate(), `Exported ${rows.length} invoices`);
-  return csvResponse(reportFilename('ptg-invoices', filters), ['Invoice number','Order number','Issue date','Customer','Subtotal','Shipping','Processing surcharge','Total','Currency','Status'], rows);
+  return csvResponse(reportFilename('ptg-invoices', filters), ['Invoice number','Order number','Issue date','Customer',"Child's Name",'Subtotal','Shipping','Processing surcharge','Total','Currency','Status'], rows);
 }
 
 async function listMovements(db, url) {
@@ -1212,11 +1212,11 @@ async function exportOrders(db, url, identity) {
       const optionChargeNzd = selectedOptions && Number(item.customisation_total_cents || 0) > 0
         ? Number(item.customisation_total_cents) / Math.max(1, Number(item.quantity || 1)) / selectedOptions / 100
         : '';
-      rows.push([order.order_number, order.created_at, order.customer_name, order.customer_email, order.customer_phone, order.fulfilment_type, order.shipping_method, order.shipping_name, order.shipping_phone, order.shipping_address_line_1, order.shipping_address_line_2, order.shipping_suburb, order.shipping_city, order.shipping_region, order.shipping_postcode, order.shipping_country, order.shipping_rural ? 'Yes' : 'No', order.pickup_location, order.pickup_instructions, item.product_name, item.sku, item.quantity, item.size, [item.colour, item.style].filter(Boolean).join(' / '), item.player_name, trainingKit && item.player_name ? optionChargeNzd : '', item.player_number, trainingKitNumber ? optionChargeNzd : '', restrictedNumber ? 'Yes' : 'No', restrictedNumber ? (eligibilityVerified ? 'Server verified' : 'Not recorded') : '', trainingKitNumber ? 'Subject to final confirmation' : '', item.unit_price_cents / 100, item.customisation_total_cents / 100, order.subtotal_cents / 100, order.personalisation_cents / 100, order.shipping_cents / 100, order.payment_surcharge_cents / 100, order.total_cents / 100, order.refunded_cents / 100, order.payment_status, order.fulfilment_status, order.ready_for_collection_email_status, order.ready_for_collection_at, order.ready_for_collection_email_sent_at, order.collected_at, order.refund_status]);
+      rows.push([order.order_number, order.created_at, order.customer_name, order.child_name, order.customer_email, order.customer_phone, order.fulfilment_type, order.shipping_method, order.shipping_name, order.shipping_phone, order.shipping_address_line_1, order.shipping_address_line_2, order.shipping_suburb, order.shipping_city, order.shipping_region, order.shipping_postcode, order.shipping_country, order.shipping_rural ? 'Yes' : 'No', order.pickup_location, order.pickup_instructions, item.product_name, item.sku, item.quantity, item.size, [item.colour, item.style].filter(Boolean).join(' / '), item.player_name, trainingKit && item.player_name ? optionChargeNzd : '', item.player_number, trainingKitNumber ? optionChargeNzd : '', restrictedNumber ? 'Yes' : 'No', restrictedNumber ? (eligibilityVerified ? 'Server verified' : 'Not recorded') : '', trainingKitNumber ? 'Subject to final confirmation' : '', item.unit_price_cents / 100, item.customisation_total_cents / 100, order.subtotal_cents / 100, order.personalisation_cents / 100, order.shipping_cents / 100, order.payment_surcharge_cents / 100, order.total_cents / 100, order.refunded_cents / 100, order.payment_status, order.fulfilment_status, order.ready_for_collection_email_status, order.ready_for_collection_at, order.ready_for_collection_email_sent_at, order.collected_at, order.refund_status]);
     }
   }
   await audit(db, identity, 'export_csv', 'orders', exportDate(), `Exported ${rows.length} order lines`);
-  return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name','Customer email','Customer phone','Fulfilment type','Shipping method','Shipping name','Shipping phone','Address line 1','Address line 2','Suburb','City','Region','Postcode','Country','Rural','Pickup location','Pickup instructions','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Name Charge NZD','Requested Shirt Number','Shirt Number Charge NZD','Restricted Number','Eligibility Validation','Number Availability','Unit price NZD','Item personalisation NZD','Merchandise subtotal NZD','Order personalisation NZD','Shipping NZD','Processing surcharge NZD','Total NZD','Refunded NZD','Payment status','Fulfilment status','Ready email status','Ready at','Ready email sent at','Collected at','Refund status'], rows);
+  return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name',"Child's Name",'Customer email','Customer phone','Fulfilment type','Shipping method','Shipping name','Shipping phone','Address line 1','Address line 2','Suburb','City','Region','Postcode','Country','Rural','Pickup location','Pickup instructions','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Name Charge NZD','Requested Shirt Number','Shirt Number Charge NZD','Restricted Number','Eligibility Validation','Number Availability','Unit price NZD','Item personalisation NZD','Merchandise subtotal NZD','Order personalisation NZD','Shipping NZD','Processing surcharge NZD','Total NZD','Refunded NZD','Payment status','Fulfilment status','Ready email status','Ready at','Ready email sent at','Collected at','Refund status'], rows);
 }
 
 async function exportInventory(db, url, identity) {

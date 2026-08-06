@@ -63,7 +63,7 @@ test('Stripe parameters differ safely for pickup and NZ delivery', async () => {
   try {
     for (const fulfilmentType of ['pickup', 'delivery']) {
       const response = await worker.fetch(new Request('https://ptgactivewear.co.nz/api/create-checkout-session', {
-        method: 'POST', headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' }, body: JSON.stringify({ fulfilmentType, items: [item], checkoutRequestId: `request-${fulfilmentType}` })
+        method: 'POST', headers: { Origin: 'https://ptgactivewear.co.nz', 'Content-Type': 'application/json' }, body: JSON.stringify({ fulfilmentType, customerDetails: { customerName: 'Test Customer', childName: 'Test Child' }, items: [item], checkoutRequestId: `request-${fulfilmentType}` })
       }), { ...env, STRIPE_SECRET_KEY: 'sk_test_not_real', CHECKOUT_ENABLED: 'true' });
       assert.equal(response.status, 200);
     }

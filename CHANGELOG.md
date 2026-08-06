@@ -2,6 +2,18 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-08-06
+
+### Added
+
+* Added required Customer Name and Child's Name fields to the cart before checkout, with accessible inline validation and session-only refresh/cancel persistence.
+* Added Child's Name to Stripe checkout metadata, paid D1 orders, invoices, fulfilment emails, order emails, admin search and displays, and CSV exports.
+
+### Security
+
+* Child's Name is validated server-side before Stripe Checkout, included in the inventory-reservation fingerprint, HTML-escaped in rendered output, and written to D1 only by the verified payment webhook.
+* Added nullable order and invoice columns so historical orders and already-open legacy Stripe sessions remain compatible.
+
 ## 2026-08-01
 
 ### Added

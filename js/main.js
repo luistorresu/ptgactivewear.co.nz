@@ -10,11 +10,22 @@ const PERSONALISATION_ADDON_PRICE = 20;
 const TRAINING_KIT_ID = 'patagonia-fc-training-kit';
 const RESTRICTED_SHIRT_NUMBERS = new Set(['1', '7', '9', '10']);
 const CHECKOUT_ATTEMPT_KEY = 'ptg-checkout-attempt';
+const CHECKOUT_CUSTOMER_KEY = 'ptg-checkout-customer';
+const CUSTOMER_NAME_MAX_LENGTH = 100;
+const CHILD_NAME_MAX_LENGTH = 60;
 let checkoutSummaryTimer = 0;
 let checkoutSummaryRequest = 0;
 let fulfilmentType = ['pickup', 'delivery'].includes(localStorage.getItem('ptg-fulfilment'))
   ? localStorage.getItem('ptg-fulfilment')
   : '';
+let checkoutCustomerDetails = { customerName: '', childName: '' };
+try {
+  const savedCustomer = JSON.parse(sessionStorage.getItem(CHECKOUT_CUSTOMER_KEY) || '{}');
+  if (savedCustomer && typeof savedCustomer === 'object' && !Array.isArray(savedCustomer)) {
+    checkoutCustomerDetails.customerName = typeof savedCustomer.customerName === 'string' ? savedCustomer.customerName.slice(0, CUSTOMER_NAME_MAX_LENGTH) : '';
+    checkoutCustomerDetails.childName = typeof savedCustomer.childName === 'string' ? savedCustomer.childName.slice(0, CHILD_NAME_MAX_LENGTH) : '';
+  }
+} catch {}
 
 function saveCart({ invalidateCheckout = true } = {}) {
   localStorage.setItem('ptg-cart', JSON.stringify(cart, (key, value) =>
@@ -27,7 +38,7 @@ function clearCheckoutAttempt() {
 }
 
 function checkoutRequestId(payload) {
-  const signature = JSON.stringify({ fulfilmentType: payload.fulfilmentType, items: payload.items });
+  const signature = JSON.stringify({ fulfilmentType: payload.fulfilmentType, customerDetails: payload.customerDetails, items: payload.items });
   try {
     const stored = JSON.parse(sessionStorage.getItem(CHECKOUT_ATTEMPT_KEY) || 'null');
     if (stored?.signature === signature && /^[A-Za-z0-9_-]{8,64}$/.test(stored.requestId || '')) return stored.requestId;
@@ -37,6 +48,49 @@ function checkoutRequestId(payload) {
   } catch {
     return crypto.randomUUID();
   }
+}
+
+function normaliseCheckoutName(value) {
+  return String(value || '').normalize('NFC').replace(/\s+/gu, ' ').trim();
+}
+
+function checkoutNameError(value, label, maxLength) {
+  const normalised = normaliseCheckoutName(value);
+  if (!normalised) return `${label} is required.`;
+  if ([...normalised].length > maxLength) return `${label} must be ${maxLength} characters or fewer.`;
+  if (!/^[\p{L}\p{M}]+(?:[ '\u2019-][\p{L}\p{M}]+)*$/u.test(normalised)) {
+    return `${label} may contain letters, spaces, hyphens, and apostrophes only.`;
+  }
+  return '';
+}
+
+function saveCheckoutCustomerDetails() {
+  try { sessionStorage.setItem(CHECKOUT_CUSTOMER_KEY, JSON.stringify(checkoutCustomerDetails)); } catch {}
+}
+
+function validateCheckoutCustomerForm({ focus = false } = {}) {
+  const section = document.querySelector('[data-checkout-customer-details]');
+  const fields = [
+    { key: 'customerName', selector: '[data-checkout-customer-name]', label: 'Customer Name', maxLength: CUSTOMER_NAME_MAX_LENGTH },
+    { key: 'childName', selector: '[data-checkout-child-name]', label: "Child's Name", maxLength: CHILD_NAME_MAX_LENGTH }
+  ];
+  let firstInvalid = null;
+  for (const field of fields) {
+    const input = section?.querySelector(field.selector);
+    const value = input ? input.value : checkoutCustomerDetails[field.key];
+    const error = checkoutNameError(value, field.label, field.maxLength);
+    const errorElement = section?.querySelector(`[data-checkout-customer-error="${field.key}"]`);
+    if (input) input.toggleAttribute('aria-invalid', Boolean(error));
+    if (errorElement) errorElement.textContent = error;
+    if (error && !firstInvalid) firstInvalid = input;
+    if (!error) checkoutCustomerDetails[field.key] = normaliseCheckoutName(value);
+  }
+  saveCheckoutCustomerDetails();
+  if (focus && firstInvalid) {
+    firstInvalid.focus();
+    firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  return firstInvalid ? null : { ...checkoutCustomerDetails };
 }
 
 function escapeHtml(value) {
@@ -366,6 +420,7 @@ function toggleCart(forceOpen) {
 function buildCheckoutPayload() {
   return {
     fulfilmentType,
+    customerDetails: { ...checkoutCustomerDetails },
     items: cart.map(item => {
       const product = findProductForCartItem(item);
       return {
@@ -396,6 +451,48 @@ function getCartSummaryElements() {
     checkoutButton.nextElementSibling.textContent = 'Secure payment options are shown on the next step, powered by Stripe.';
   }
   const totalRow = totalEl.parentElement;
+  let customerDetails = document.querySelector('[data-checkout-customer-details]');
+  if (!customerDetails) {
+    customerDetails = document.createElement('section');
+    customerDetails.dataset.checkoutCustomerDetails = '';
+    customerDetails.className = 'checkout-customer-details';
+    customerDetails.setAttribute('aria-labelledby', 'checkout-customer-details-title');
+    customerDetails.innerHTML = `
+      <fieldset>
+        <legend id="checkout-customer-details-title">Order details</legend>
+        <label class="checkout-customer-field">
+          <span>Customer Name</span>
+          <input type="text" data-checkout-customer-name name="customer-name" autocomplete="name" maxlength="${CUSTOMER_NAME_MAX_LENGTH}" required aria-describedby="checkout-customer-name-error">
+          <small id="checkout-customer-name-error" data-checkout-customer-error="customerName" role="alert"></small>
+        </label>
+        <label class="checkout-customer-field">
+          <span>Child&rsquo;s Name</span>
+          <input type="text" data-checkout-child-name name="child-name" autocomplete="off" maxlength="${CHILD_NAME_MAX_LENGTH}" placeholder="Enter the child&rsquo;s name" required aria-describedby="checkout-child-name-help checkout-child-name-error">
+          <small id="checkout-child-name-help">Enter the name of the child who will receive this order.</small>
+          <small id="checkout-child-name-error" data-checkout-customer-error="childName" role="alert"></small>
+        </label>
+      </fieldset>`;
+    totalRow.before(customerDetails);
+    const customerNameInput = customerDetails.querySelector('[data-checkout-customer-name]');
+    const childNameInput = customerDetails.querySelector('[data-checkout-child-name]');
+    customerNameInput.value = checkoutCustomerDetails.customerName;
+    childNameInput.value = checkoutCustomerDetails.childName;
+    [customerNameInput, childNameInput].forEach(input => {
+      input.addEventListener('input', () => {
+        checkoutCustomerDetails = {
+          customerName: customerNameInput.value.slice(0, CUSTOMER_NAME_MAX_LENGTH),
+          childName: childNameInput.value.slice(0, CHILD_NAME_MAX_LENGTH)
+        };
+        saveCheckoutCustomerDetails();
+        clearCheckoutAttempt();
+        const key = input === customerNameInput ? 'customerName' : 'childName';
+        const errorElement = customerDetails.querySelector(`[data-checkout-customer-error="${key}"]`);
+        input.removeAttribute('aria-invalid');
+        if (errorElement) errorElement.textContent = '';
+      });
+      input.addEventListener('blur', () => validateCheckoutCustomerForm());
+    });
+  }
   let fulfilment = document.querySelector('[data-fulfilment-selector]');
   if (!fulfilment) {
     fulfilment = document.createElement('section');
@@ -443,7 +540,7 @@ function getCartSummaryElements() {
       <p data-summary-surcharge-note hidden></p>`;
     totalRow.before(breakdown);
   }
-  return { totalEl, totalRow, breakdown, fulfilment };
+  return { totalEl, totalRow, breakdown, fulfilment, customerDetails };
 }
 
 function renderCheckoutSummary(summary) {
@@ -539,6 +636,12 @@ function setupCheckout() {
         return;
       }
 
+      const validatedCustomerDetails = validateCheckoutCustomerForm({ focus: true });
+      if (!validatedCustomerDetails) {
+        setInlineStatus(statusEl, 'error', "Please check the Customer Name and Child's Name fields.");
+        return;
+      }
+
       if (!fulfilmentType) {
         setInlineStatus(statusEl, 'error', 'Please choose free pickup or New Zealand delivery.');
         document.querySelector('[data-fulfilment-selector]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -546,6 +649,7 @@ function setupCheckout() {
       }
 
       const payload = buildCheckoutPayload();
+      payload.customerDetails = validatedCustomerDetails;
       if (payload.items.some(item => !item.productId)) {
         setInlineStatus(statusEl, 'error', 'One of the products in your cart is no longer available. Please remove it and try again.');
         return;

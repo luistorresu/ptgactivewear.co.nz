@@ -91,6 +91,8 @@ Stripe endpoints:
 * Success redirect: `/order-success?session_id={CHECKOUT_SESSION_ID}`
 * Cancel redirect: `/cart?checkout=cancelled`
 
+The cart requires Customer Name followed by Child's Name before a new Stripe Checkout Session can be created. Both values are validated in the browser for immediate feedback and again by the Worker. Child's Name is stored in versioned Stripe metadata, then copied into the D1 order and invoice snapshots by the verified paid webhook. It appears in protected admin order search, fulfilment workflows, order emails, invoices, and exports. Historical orders may have a blank Child's Name because migration `0020_order_child_name.sql` is intentionally nullable.
+
 Product prices are controlled server-side in `_worker.js` in the `SERVER_PRODUCTS` catalogue. Frontend display data is controlled in `js/products.js`. Keep both aligned when changing products.
 
 Fulfilment is selected in the cart and recalculated server-side. Pickup is free and does not request a Stripe shipping address. Delivery is NZ$5.00 and Stripe Checkout restricts shipping-address collection to New Zealand. No paid address-autocomplete provider is connected; Stripe-hosted/manual address entry remains available. The exact training-centre street address must be added to the pickup environment values when confirmed.

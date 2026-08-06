@@ -90,6 +90,7 @@ test('Stripe Checkout receives one surcharge line and stable idempotency key', a
     const payload = {
       fulfilmentType: 'pickup',
       checkoutRequestId: 'test-request-1234',
+      customerDetails: { customerName: 'Test Customer', childName: 'Test Child' },
       items: [{ productId: 'patagonia-fc-beanie', quantity: 1, size: 'One Size', suppliedPrice: 1 }],
       subtotalCents: 1,
       paymentSurchargeCents: 999999,
@@ -111,6 +112,9 @@ test('Stripe Checkout receives one surcharge line and stable idempotency key', a
     assert.equal(params.get('metadata[payment_surcharge_cents]'), '123');
     assert.equal(params.get('metadata[payment_surcharge_enabled]'), '1');
     assert.equal(params.get('metadata[total_cents]'), '3623');
+    assert.equal(params.get('metadata[checkout_details_version]'), '1');
+    assert.equal(params.get('metadata[checkout_customer_name]'), 'Test Customer');
+    assert.equal(params.get('metadata[child_name]'), 'Test Child');
     assert.equal(params.get('payment_method_types[0]'), 'card');
     assert.equal(params.get('payment_intent_data[description]'), 'PTG Activewear order');
   } finally {
@@ -126,6 +130,7 @@ test('customer and business emails use the same surcharge snapshot and hide tech
     metadata: {
       subtotal_cents: '9500', personalisation_cents: '4000', shipping_cents: '0', payment_surcharge_cents: '282',
       payment_surcharge_enabled: '1', payment_surcharge_percent: '2.65', payment_surcharge_fixed_cents: '30', payment_surcharge_label: 'Card processing surcharge',
+      checkout_details_version: '1', checkout_customer_name: 'Test Customer', child_name: 'Test Child',
       fulfilment_type: 'pickup', shipping_method: 'Pick up from Training Centre', pickup_location: 'Training Centre', pickup_instructions: 'We will contact you when your order is ready.'
     }
   };

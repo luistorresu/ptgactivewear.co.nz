@@ -16,6 +16,7 @@ import {
 import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
 import { buildTrustedOrderSummary } from './worker/surcharge.js';
 import { publicFulfilment, selectFulfilment } from './worker/fulfilment.js';
+import { validateCheckoutCustomerDetails } from './worker/customer-details.js';
 import {
   checkKvRateLimit,
   isJsonRequest,
@@ -606,7 +607,9 @@ function publicCheckoutSummary(summary, fulfilment) {
   };
 }
 
-async function validateAndSummariseCheckout(payload, env) {
+async function validateAndSummariseCheckout(payload, env, { requireCustomerDetails = false } = {}) {
+  const customerDetails = validateCheckoutCustomerDetails(payload?.customerDetails, { required: requireCustomerDetails });
+  if (customerDetails.error) return customerDetails;
   const useD1Inventory = Boolean(env.DB) && String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() === 'd1';
   const validation = useD1Inventory
     ? await validateD1CheckoutPayload(payload, env)
@@ -615,7 +618,7 @@ async function validateAndSummariseCheckout(payload, env) {
   try {
     const fulfilment = selectFulfilment(payload, env);
     if (fulfilment.error) return fulfilment;
-    return { ...validation, fulfilment, summary: buildTrustedOrderSummary(validation.items, fulfilment.shippingCents, env) };
+    return { ...validation, customerDetails, fulfilment, summary: buildTrustedOrderSummary(validation.items, fulfilment.shippingCents, env) };
   } catch (error) {
     console.error('Checkout total configuration failed', { message: error.message });
     return { error: 'Checkout totals are temporarily unavailable.', configurationError: true };
@@ -672,7 +675,7 @@ async function handleCreateCheckoutSession(request, env) {
   if (parsed.response) return parsed.response;
   const payload = parsed.body;
   await releaseExpiredInventoryBeforeCheckout(env);
-  const validation = await validateAndSummariseCheckout(payload, env);
+  const validation = await validateAndSummariseCheckout(payload, env, { requireCustomerDetails: true });
 
   if (validation.error) {
     return jsonResponse({ ok: false, error: validation.error }, validation.configurationError ? 503 : 400);
@@ -705,7 +708,7 @@ async function handleCreateCheckoutSession(request, env) {
       // idempotent retry byte-for-byte stable, including concurrent retries.
       const requestedExpiresAtUnix = Math.floor(Date.now() / 1000) + 31 * 60;
       const expiresAtSql = new Date(requestedExpiresAtUnix * 1000).toISOString().slice(0, 19).replace('T', ' ');
-      reservationFingerprint = await checkoutReservationFingerprint(validation.items, validation.summary, validation.fulfilment);
+      reservationFingerprint = await checkoutReservationFingerprint(validation.items, validation.summary, validation.fulfilment, validation.customerDetails);
       reservation = await reserveCheckoutInventory(env, {
         reservationId: requestId,
         fingerprint: reservationFingerprint,
@@ -747,6 +750,9 @@ async function handleCreateCheckoutSession(request, env) {
     params.append('custom_text[submit][message]', `${validation.fulfilment.label} - Free. ${validation.fulfilment.instructions}`);
   }
   params.append('metadata[source]', 'ptgactivewear.co.nz');
+  params.append('metadata[checkout_details_version]', '1');
+  params.append('metadata[checkout_customer_name]', validation.customerDetails.customerName);
+  params.append('metadata[child_name]', validation.customerDetails.childName);
   params.append('metadata[fulfilment_type]', validation.fulfilment.type);
   params.append('metadata[shipping_method]', validation.fulfilment.label);
   params.append('metadata[pickup_location]', validation.fulfilment.locationName);
@@ -954,6 +960,13 @@ export function buildOrderEmailData(session, lineItems) {
   const describedItems = lineItems.map(describeStripeLineItem);
   const items = describedItems.filter(item => !['payment_surcharge', 'fulfilment_pickup'].includes(item.itemKind));
   const metadata = session.metadata || {};
+  const checkoutDetails = metadata.checkout_details_version === '1'
+    ? validateCheckoutCustomerDetails({
+        customerName: metadata.checkout_customer_name,
+        childName: metadata.child_name
+      })
+    : { customerName: customer.name || shipping.name || 'Not provided', childName: '' };
+  if (checkoutDetails.error) throw new Error('Checkout customer details are invalid.');
   const metadataCents = key => /^\d+$/.test(String(metadata[key] || '')) ? Number(metadata[key]) : 0;
   const fulfilmentType = metadata.fulfilment_type === 'pickup' ? 'pickup' : 'delivery';
   const formattedShippingAddress = fulfilmentType === 'delivery' ? formatStripeAddress(shippingAddress) : '';
@@ -962,7 +975,8 @@ export function buildOrderEmailData(session, lineItems) {
     sessionId: session.id,
     paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || '',
     paymentStatus: session.payment_status,
-    customerName: customer.name || shipping.name || 'Not provided',
+    customerName: checkoutDetails.customerName || customer.name || shipping.name || 'Not provided',
+    childName: checkoutDetails.childName || '',
     customerEmail: customer.email || session.customer_email || '',
     phone: shipping.phone || customer.phone || '',
     fulfilmentType,
@@ -1014,6 +1028,7 @@ export function buildBusinessOrderEmail(order) {
     `Order number: ${order.orderNumber}`,
     `Payment status: ${order.paymentStatus}`,
     `Customer name: ${order.customerName}`,
+    `Child's Name: ${order.childName || 'Not provided'}`,
     `Customer email: ${order.customerEmail}`,
     `Phone: ${order.phone || 'Not provided'}`,
     `Fulfilment method: ${order.shippingMethod}`,
@@ -1047,6 +1062,7 @@ export function buildBusinessOrderEmail(order) {
     <p style="font-size:20px"><strong>Order number:</strong> ${escapeHtml(order.orderNumber)}</p>
     <p><strong>Payment status:</strong> ${escapeHtml(order.paymentStatus)}</p>
     <p><strong>Customer name:</strong> ${escapeHtml(order.customerName)}</p>
+    <p><strong>Child's Name:</strong> ${escapeHtml(order.childName || 'Not provided')}</p>
     <p><strong>Customer email:</strong> ${escapeHtml(order.customerEmail)}</p>
     <p><strong>Phone:</strong> ${escapeHtml(order.phone || 'Not provided')}</p>
     <p style="font-size:18px"><strong>Fulfilment method:</strong> ${escapeHtml(order.shippingMethod)}</p>
@@ -1097,6 +1113,7 @@ export function buildCustomerOrderEmail(order) {
     'Please keep this order number in case you need to contact us.',
     `Order date: ${order.orderDate}`,
     `Payment status: Paid`,
+    `Child's Name: ${order.childName || 'Not provided'}`,
     '',
     'Items:',
     itemLines,
@@ -1120,7 +1137,7 @@ export function buildCustomerOrderEmail(order) {
     <p>We have received your payment.</p>
     <p><strong>Your order number is:</strong><br><span style="font-size:20px">${escapeHtml(order.orderNumber)}</span></p>
     <p>Please keep this order number in case you need to contact us.</p>
-    <p><strong>Order date:</strong> ${escapeHtml(order.orderDate)}<br><strong>Payment status:</strong> Paid</p>
+    <p><strong>Order date:</strong> ${escapeHtml(order.orderDate)}<br><strong>Payment status:</strong> Paid<br><strong>Child's Name:</strong> ${escapeHtml(order.childName || 'Not provided')}</p>
     <h3>Items</h3><ul>${order.items.map(item => `<li><strong>${escapeHtml(String(item.quantity))} x ${escapeHtml(item.name)}</strong>${item.details.length ? `<ul>${item.details.map(detail => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ul>
     <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}<br><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}<br><strong>${escapeHtml(shippingLabel)}:</strong> ${escapeHtml(shippingValue)}${order.paymentSurchargeEnabled ? `<br><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}` : ''}</p>
     <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))} NZD</p>
@@ -1147,11 +1164,12 @@ async function sendOrderEmails(env, session, providedLineItems = null, event = n
 
   const lineItems = providedLineItems || await fetchStripeLineItems(env, session.id);
   const order = buildOrderEmailData(session, lineItems);
-  const storedOrder = env.DB ? await env.DB.prepare('SELECT order_number, created_at, stripe_event_id, stripe_payment_intent_id FROM orders WHERE stripe_checkout_session_id = ?').bind(session.id).first() : null;
+  const storedOrder = env.DB ? await env.DB.prepare('SELECT order_number, child_name, created_at, stripe_event_id, stripe_payment_intent_id FROM orders WHERE stripe_checkout_session_id = ?').bind(session.id).first() : null;
   order.orderNumber = storedOrder?.order_number || 'PTG order pending';
   order.orderDate = new Date(storedOrder?.created_at || Date.now()).toLocaleDateString('en-NZ', { dateStyle: 'long', timeZone: 'Pacific/Auckland' });
   order.eventId = storedOrder?.stripe_event_id || event?.id || '';
   order.paymentIntentId = storedOrder?.stripe_payment_intent_id || order.paymentIntentId;
+  order.childName = storedOrder?.child_name || order.childName;
   const businessEmail = buildBusinessOrderEmail(order);
   const emailIdempotencyKey = String(session.id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 180);
   if (!emailIdempotencyKey) throw new Error('Checkout session identifier is invalid.');

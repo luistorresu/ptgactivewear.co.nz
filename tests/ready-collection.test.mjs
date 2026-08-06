@@ -12,6 +12,7 @@ const eligibleOrder = {
   id: 42,
   order_number: 'PTG-ORD-2026-000042',
   customer_name: 'Nico Torres',
+  child_name: 'Sofia Torres',
   customer_email: 'nico@example.com',
   payment_status: 'paid',
   fulfilment_status: 'processing',
@@ -60,6 +61,7 @@ test('Ready to Collect email is branded, responsive and contains no private or t
     assert.match(content, /PTG-ORD-2026-000042/);
     assert.match(content, /Training Centre/);
     assert.match(content, /Collect after training/);
+    assert.match(content, /Sofia Torres/);
     assert.doesNotMatch(content, /stripe|payment.intent|checkout.session|database ID|birth.?day|birthday/i);
   }
   assert.doesNotMatch(email.text, /Pickup address:/);

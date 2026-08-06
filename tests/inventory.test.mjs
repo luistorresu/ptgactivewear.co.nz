@@ -139,7 +139,7 @@ test('paid delivery order persists a complete NZ fulfilment snapshot with valid 
           if (/SELECT id, email_status FROM orders/i.test(sql)) return inserted ? { id: 7, email_status: 'pending' } : null;
           if (/SELECT \* FROM orders WHERE id/i.test(sql)) return {
             id: 7, order_number: 'PTG-ORD-2026-000007', invoice_number: invoiceNumber, invoice_created_at: invoiceNumber ? '2026-07-20 00:00:00' : null,
-            payment_status: 'paid', payment_date: '2026-07-20 00:00:00', created_at: '2026-07-20 00:00:00', customer_name: 'Test Customer', customer_email: 'customer@example.com',
+            payment_status: 'paid', payment_date: '2026-07-20 00:00:00', created_at: '2026-07-20 00:00:00', customer_name: 'Test Customer', child_name: 'Test Child', customer_email: 'customer@example.com',
             shipping_address_json: '{}', billing_address_json: '{}', subtotal_cents: 3500, personalisation_cents: 0, shipping_cents: 500,
             payment_surcharge_cents: 0, discount_cents: 0, tax_cents: 0, total_cents: 4000, refunded_cents: 0, currency: 'NZD'
           };
@@ -172,7 +172,8 @@ test('paid delivery order persists a complete NZ fulfilment snapshot with valid 
     subtotal_cents: '3500', personalisation_cents: '0', shipping_cents: '500',
     payment_surcharge_cents: '0', payment_surcharge_enabled: '0', payment_surcharge_percent: '2.65',
     payment_surcharge_fixed_cents: '30', payment_surcharge_label: 'Card processing surcharge', payment_surcharge_description: 'Processing cost',
-    total_cents: '4000', fulfilment_type: 'delivery', shipping_method: 'New Zealand Delivery'
+    total_cents: '4000', fulfilment_type: 'delivery', shipping_method: 'New Zealand Delivery',
+    checkout_details_version: '1', checkout_customer_name: 'Test Customer', child_name: 'Test Child'
   };
   const lineItems = [{
     quantity: 1, amount_total: 3500,

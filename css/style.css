@@ -916,6 +916,12 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
 #cart-sidebar.open {
   transform: translateX(0);
 }
+#cart-sidebar > div:last-child {
+  min-height: 0;
+  max-height: calc(100dvh - 4.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 /* ── Toast ── */
 #toast {
@@ -1046,6 +1052,67 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
   border-bottom: 1px solid #e5e7eb;
   color: #4b5563;
   font-size: 0.78rem;
+}
+
+.checkout-customer-details {
+  margin-bottom: 1rem;
+}
+
+.checkout-customer-details fieldset {
+  display: grid;
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.checkout-customer-details legend {
+  margin-bottom: 0.55rem;
+  color: #111827;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.checkout-customer-field {
+  display: grid;
+  gap: 0.35rem;
+  color: #111827;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.checkout-customer-field input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  font: inherit;
+  font-weight: 500;
+}
+
+.checkout-customer-field input:focus-visible {
+  border-color: #0e91b8 !important;
+  outline: 3px solid rgba(14, 145, 184, 0.18);
+  outline-offset: 1px;
+}
+
+.checkout-customer-field input[aria-invalid="true"] {
+  border-color: #b42318 !important;
+}
+
+.checkout-customer-field small {
+  color: #667085;
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.checkout-customer-field [role="alert"]:not(:empty) {
+  color: #b42318;
 }
 
 .cart-breakdown > div {
@@ -1261,6 +1328,7 @@ td { border-color: var(--border-color); }
 
 .product-option label,
 .personalisation-field,
+.checkout-customer-field small,
 .cart-breakdown,
 .cart-review-note,
 .fulfilment-note,
@@ -1290,6 +1358,8 @@ td { border-color: var(--border-color); }
 .product-lightbox-title,
 .cart-breakdown strong,
 .fulfilment-selector legend,
+.checkout-customer-details legend,
+.checkout-customer-field,
 .cart-review-note strong {
   color: var(--text-primary);
 }

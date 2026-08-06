@@ -186,7 +186,7 @@ function renderReportSales(rows, total, page, limit) {
   document.querySelector('[data-sales-next]').disabled = page * limit >= total;
   reportSales.innerHTML = rows.length ? rows.map(order => `<tr>
     <td>${escapeHtml(formatReportDate(order.created_at))}</td><td><strong>${escapeHtml(order.order_number || `Order ${order.id}`)}</strong></td>
-    <td>${escapeHtml(order.customer_name || 'Not provided')}<small>${escapeHtml(order.customer_email || '')}</small></td>
+    <td>${escapeHtml(order.customer_name || 'Not provided')}${order.child_name ? `<small>Child: ${escapeHtml(order.child_name)}</small>` : ''}<small>${escapeHtml(order.customer_email || '')}</small></td>
     <td>${escapeHtml(order.fulfilment_type || 'Not recorded')}</td><td><span class="status-pill status-${escapeHtml(order.payment_status)}">${escapeHtml(order.payment_status)}</span></td>
     <td>${escapeHtml(order.fulfilment_status)}${order.fulfilment_type === 'pickup' ? `<small>Ready email: ${escapeHtml(order.ready_for_collection_email_status || 'not sent')}</small>` : order.fulfilment_type === 'delivery' ? `<small>Delivery email: ${escapeHtml(order.out_for_delivery_email_status || 'not sent')}</small>` : ''}</td><td>${escapeHtml(order.invoice_number || 'Not issued')}</td><td class="amount"><strong>${formatMoney(order.total_cents)}</strong>${Number(order.refunded_cents) ? `<small>Refunded ${formatMoney(order.refunded_cents)}</small>` : ''}</td>
     <td><button class="button button-secondary button-compact" type="button" data-report-order-id="${Number(order.id)}">View</button></td></tr>`).join('') : '<tr><td colspan="9" class="empty-cell">No sales match these filters.</td></tr>';
@@ -196,7 +196,7 @@ function renderReportInvoices(rows, total) {
   document.querySelector('[data-invoice-count]').textContent = `${total} generated invoice${total === 1 ? '' : 's'}`;
   reportInvoices.innerHTML = rows.length ? rows.map(invoice => `<tr>
     <td>${escapeHtml(formatReportDate(invoice.issue_date))}</td><td><strong>${escapeHtml(invoice.invoice_number)}</strong></td><td>${escapeHtml(invoice.order_number)}</td>
-    <td>${escapeHtml(invoice.customer_name || invoice.customer_email)}</td><td>${escapeHtml(invoice.status)}</td><td class="amount"><strong>${formatMoney(invoice.total_cents)}</strong></td>
+    <td>${escapeHtml(invoice.customer_name || invoice.customer_email)}${invoice.child_name ? `<small>Child: ${escapeHtml(invoice.child_name)}</small>` : ''}</td><td>${escapeHtml(invoice.status)}</td><td class="amount"><strong>${formatMoney(invoice.total_cents)}</strong></td>
     <td><a class="button button-secondary button-compact" href="/admin/invoice.html?order=${Number(invoice.order_id)}" target="_blank" rel="noopener">View / PDF</a></td></tr>`).join('') : '<tr><td colspan="7" class="empty-cell">No generated invoices match these filters.</td></tr>';
 }
 
@@ -230,7 +230,7 @@ function renderOrders() {
     return;
   }
   orderList.innerHTML = state.orders.map(order => `<button class="order-row${state.currentOrder?.id === order.id ? ' is-active' : ''}" type="button" data-order-id="${Number(order.id)}">
-    <span><strong>${escapeHtml(order.order_number || `Order ${order.id}`)}</strong><small>${escapeHtml(order.customer_name || order.customer_email || 'Customer')}</small></span>
+    <span><strong>${escapeHtml(order.order_number || `Order ${order.id}`)}</strong><small>${escapeHtml(order.customer_name || order.customer_email || 'Customer')}</small>${order.child_name ? `<small>Child: ${escapeHtml(order.child_name)}</small>` : ''}</span>
     <span><strong>${formatMoney(order.total_cents)}</strong><small>${escapeHtml(order.payment_status)} · ${escapeHtml(order.refund_status || 'not_refunded')}</small></span>
   </button>`).join('');
 }
@@ -270,6 +270,7 @@ function collectionWorkflow(order, fulfilmentType) {
   return `<section class="collection-workflow" aria-labelledby="collection-workflow-title">
     <div><p class="eyebrow">Pickup workflow</p><h3 id="collection-workflow-title">${collected ? 'Collected' : ready ? 'Ready for collection' : 'Preparing order'}</h3></div>
     <dl class="collection-facts">
+      ${order.child_name ? `<div><dt>Child's Name</dt><dd>${escapeHtml(order.child_name)}</dd></div>` : ''}
       <div><dt>Marked ready</dt><dd>${orderDateTime(order.ready_for_collection_at)}</dd></div>
       <div><dt>Email status</dt><dd>${escapeHtml(emailStatus.replace(/_/g, ' '))}</dd></div>
       <div><dt>Email sent</dt><dd>${orderDateTime(order.ready_for_collection_email_sent_at)}</dd></div>
@@ -332,7 +333,7 @@ async function openOrder(orderId) {
   const shippingLabel = fulfilmentType === 'pickup' ? 'Pickup' : (order.shipping_method || 'Shipping');
   orderDetail.innerHTML = `
     <div class="section-heading"><div><p class="eyebrow">Order details</p><h2>${escapeHtml(order.order_number || `Order ${order.id}`)}</h2></div>${order.invoice_number ? `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">Open Invoice</a>` : `<a class="button button-secondary" href="/admin/invoice.html?order=${Number(order.id)}" target="_blank" rel="noopener">Create Invoice</a>`}</div>
-    <dl class="order-facts"><div><dt>Customer</dt><dd>${escapeHtml(order.customer_name || 'Not provided')}<br>${escapeHtml(order.customer_email || '')}<br>${escapeHtml(order.customer_phone || 'Phone not provided')}</dd></div><div><dt>Delivery method</dt><dd>${fulfilmentDetails}</dd></div><div><dt>Payment</dt><dd>${escapeHtml(order.payment_status)}<br>${escapeHtml(order.payment_method_label || 'Method not recorded')}</dd></div><div><dt>Order status</dt><dd>${escapeHtml(order.fulfilment_status)}</dd></div></dl>
+    <dl class="order-facts"><div><dt>Customer</dt><dd>${escapeHtml(order.customer_name || 'Not provided')}<br>${escapeHtml(order.customer_email || '')}<br>${escapeHtml(order.customer_phone || 'Phone not provided')}</dd></div><div><dt>Child's Name</dt><dd><strong>${escapeHtml(order.child_name || 'Not recorded')}</strong></dd></div><div><dt>Delivery method</dt><dd>${fulfilmentDetails}</dd></div><div><dt>Payment</dt><dd>${escapeHtml(order.payment_status)}<br>${escapeHtml(order.payment_method_label || 'Method not recorded')}</dd></div><div><dt>Order status</dt><dd>${escapeHtml(order.fulfilment_status)}</dd></div></dl>
     <div class="order-items"><h3>Items</h3>${order.items.map(item => `<div><span><strong>${Number(item.quantity)} × ${escapeHtml(item.product_name)}</strong><small>${renderOrderItemDetails(item, order)}</small></span><strong>${formatMoney(item.item_total_cents)}</strong></div>`).join('')}</div>
     <dl class="order-totals">
       <div><dt>${hasSnapshot ? 'Merchandise subtotal' : 'Subtotal'}</dt><dd>${formatMoney(order.subtotal_cents)}</dd></div>
@@ -353,7 +354,7 @@ async function handleOrderAction(button) {
   const settings = {
     ready: {
       path: 'ready-for-collection',
-      confirmation: `Mark ${order.order_number || 'this order'} ready and email the customer now?`,
+      confirmation: `Mark ${order.order_number || 'this order'}${order.child_name ? ` for ${order.child_name}` : ''} ready and email the customer now?`,
       success: 'The order is ready for collection and the customer email was sent.'
     },
     'resend-ready': {
@@ -363,7 +364,7 @@ async function handleOrderAction(button) {
     },
     collected: {
       path: 'mark-collected',
-      confirmation: `Confirm that ${order.order_number || 'this order'} has been collected?`,
+      confirmation: `Confirm that ${order.order_number || 'this order'}${order.child_name ? ` for ${order.child_name}` : ''} has been collected?`,
       success: 'The order was marked as collected.'
     },
     'out-for-delivery': {

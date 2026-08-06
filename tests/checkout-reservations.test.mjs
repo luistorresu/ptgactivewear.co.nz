@@ -27,11 +27,13 @@ test('checkout reservation fingerprint is stable and changes with trusted checko
   const retry = await checkoutReservationFingerprint([checkoutItem()], { ...summary }, { ...pickup });
   const changedQuantity = await checkoutReservationFingerprint([checkoutItem({ quantity: 2 })], summary, pickup);
   const changedFulfilment = await checkoutReservationFingerprint([checkoutItem()], { ...summary, shippingCents: 500, totalCents: 10000 }, { type: 'delivery' });
+  const changedChild = await checkoutReservationFingerprint([checkoutItem()], summary, pickup, { customerName: 'Nico', childName: 'Sofia' });
 
   assert.match(first, /^[a-f0-9]{64}$/);
   assert.equal(retry, first);
   assert.notEqual(changedQuantity, first);
   assert.notEqual(changedFulfilment, first);
+  assert.notEqual(changedChild, first);
 });
 
 test('inventory reservation migration is additive and constrains its lifecycle', async () => {

@@ -71,6 +71,10 @@ export function buildReadyToCollectEmail(order, env) {
   const supportEmail = cleanText(env.CONTACT_TO_EMAIL, 254) || SUPPORT_EMAIL;
   const orderNumber = cleanText(order.order_number, 80) || 'PTG Activewear order';
   const greetingName = firstName(order.customer_name);
+  const childName = cleanText(order.child_name, 60);
+  const readyMessage = childName
+    ? `Great news - your PTG Activewear order for ${childName} is ready to collect from the training centre.`
+    : 'Great news - your PTG Activewear order is ready to collect from the training centre.';
   const addressText = address ? [`Pickup address:`, address, ''] : [];
   const addressHtml = address
     ? `<div style="margin:0 0 18px"><strong style="display:block;color:#586574;font-size:12px;text-transform:uppercase">Pickup address</strong><span>${escapeHtml(address)}</span></div>`
@@ -79,11 +83,12 @@ export function buildReadyToCollectEmail(order, env) {
   const text = [
     `Hi ${greetingName},`,
     '',
-    'Great news - your PTG Activewear order is ready to collect from the training centre.',
+    readyMessage,
     '',
     'Order number:',
     orderNumber,
     '',
+    ...(childName ? ["Child's Name:", childName, ''] : []),
     'Pickup location:',
     location,
     '',
@@ -108,7 +113,8 @@ export function buildReadyToCollectEmail(order, env) {
           <tr><td style="padding:30px 28px">
             <p style="margin:0 0 18px">Hi ${escapeHtml(greetingName)},</p>
             <h1 style="margin:0 0 14px;font-size:26px;line-height:1.2">Your order is ready to collect</h1>
-            <p style="margin:0 0 24px;line-height:1.6">Great news - your PTG Activewear order is ready to collect from the training centre.</p>
+            <p style="margin:0 0 24px;line-height:1.6">${escapeHtml(readyMessage)}</p>
+            ${childName ? `<div style="margin:0 0 18px"><strong style="display:block;color:#586574;font-size:12px;text-transform:uppercase">Child's Name</strong><span>${escapeHtml(childName)}</span></div>` : ''}
             <div style="margin:0 0 18px"><strong style="display:block;color:#586574;font-size:12px;text-transform:uppercase">Order number</strong><span style="font-size:20px;font-weight:700">${escapeHtml(orderNumber)}</span></div>
             <div style="margin:0 0 18px"><strong style="display:block;color:#586574;font-size:12px;text-transform:uppercase">Pickup location</strong><span>${escapeHtml(location)}</span></div>
             ${addressHtml}
