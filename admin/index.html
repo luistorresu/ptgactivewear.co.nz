@@ -84,6 +84,8 @@
           <span>Collection status</span>
           <select data-order-collection-state>
             <option value="">All collection states</option>
+            <option value="prepared">Prepared</option>
+            <option value="prepared_not_sent">Internal notification not sent</option>
             <option value="ready">Ready for collection</option>
             <option value="not_sent">Ready email not sent</option>
             <option value="sent">Ready email sent</option>
@@ -118,9 +120,9 @@
         <label><span>From</span><input name="from" type="date"></label>
         <label><span>To</span><input name="to" type="date"></label>
         <label><span>Payment</span><select name="payment"><option value="">Paid sales</option><option value="paid">Paid</option><option value="unpaid">Unpaid</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option><option value="expired">Expired</option></select></label>
-        <label><span>Fulfilment status</span><select name="fulfilment"><option value="">All statuses</option><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="ready_for_collection">Ready for collection</option><option value="collected">Collected</option><option value="shipped">Shipped</option><option value="out_for_delivery">Out for delivery</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="refunded">Refunded</option></select></label>
+        <label><span>Fulfilment status</span><select name="fulfilment"><option value="">All statuses</option><option value="unfulfilled">Unfulfilled</option><option value="processing">Processing</option><option value="prepared">Prepared</option><option value="ready_for_collection">Ready for collection</option><option value="collected">Collected</option><option value="shipped">Shipped</option><option value="out_for_delivery">Out for delivery</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="refunded">Refunded</option></select></label>
         <label><span>Method</span><select name="fulfilmentType"><option value="">Pickup and delivery</option><option value="pickup">Pickup</option><option value="delivery">Delivery</option></select></label>
-        <label><span>Collection email</span><select name="collectionState"><option value="">All collection states</option><option value="ready">Ready for collection</option><option value="not_sent">Ready email not sent</option><option value="sent">Ready email sent</option><option value="collected">Collected</option></select></label>
+        <label><span>Collection status</span><select name="collectionState"><option value="">All collection states</option><option value="prepared">Prepared</option><option value="prepared_not_sent">Internal notification not sent</option><option value="ready">Ready for collection</option><option value="not_sent">Ready email not sent</option><option value="sent">Ready email sent</option><option value="collected">Collected</option></select></label>
         <label><span>Invoice status</span><select name="invoiceStatus"><option value="">All invoice states</option><option value="issued">Issued</option><option value="partially_refunded">Partially refunded</option><option value="refunded">Refunded</option><option value="not_issued">Not issued</option></select></label>
         <label><span>Product or SKU</span><input name="product" maxlength="120" placeholder="Product name or SKU"></label>
         <div class="report-filter-actions"><button class="button button-primary" type="submit">Apply Filters</button><button class="button button-secondary" type="reset" data-clear-reports>Clear</button></div>

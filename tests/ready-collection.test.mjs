@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  buildPreparedEmail,
   buildReadyToCollectEmail,
+  sendPreparedEmail,
   sendReadyToCollectEmail,
-  validateCollectionAction
+  validateCollectionAction,
+  validatePreparedAction
 } from '../worker/collection.js';
 
 const root = new URL('../', import.meta.url);
@@ -21,7 +24,11 @@ const eligibleOrder = {
   refunded_cents: 0,
   total_cents: 9500,
   pickup_location: 'Training Centre',
-  pickup_instructions: 'Collect after training.'
+  pickup_instructions: 'Collect after training.',
+  prepared_at: '2026-08-10 01:00:00',
+  prepared_email_status: 'sent',
+  prepared_email_sent_at: '2026-08-10 01:01:00',
+  items: [{ quantity: 1, product_name: 'Patagonia FC Training Kit', size: '10', player_name: 'Sofia', player_number: '17' }]
 };
 const emailEnv = {
   EMAIL_API_KEY: 're_test_not_real',
@@ -41,6 +48,7 @@ test('Ready to Collect eligibility rejects unsafe orders and permits paid pickup
   assert.equal(validateCollectionAction({ ...eligibleOrder, fulfilment_status: 'cancelled' }, 'initial').code, 'ORDER_CLOSED');
   assert.equal(validateCollectionAction({ ...eligibleOrder, refund_status: 'fully_refunded' }, 'initial').code, 'ORDER_CLOSED');
   assert.equal(validateCollectionAction({ ...eligibleOrder, customer_email: '' }, 'initial').code, 'MISSING_EMAIL');
+  assert.equal(validateCollectionAction({ ...eligibleOrder, prepared_at: null }, 'initial').code, 'NOT_PREPARED');
   assert.equal(validateCollectionAction({ ...eligibleOrder, ready_for_collection_email_sent_at: '2026-07-27 01:00:00' }, 'initial').code, 'ALREADY_SENT');
   assert.equal(validateCollectionAction(eligibleOrder, 'resend').code, 'NOT_SENT');
   assert.deepEqual(validateCollectionAction({
@@ -50,6 +58,49 @@ test('Ready to Collect eligibility rejects unsafe orders and permits paid pickup
   }, 'resend'), { ok: true });
   assert.deepEqual(validateCollectionAction({ ...eligibleOrder, fulfilment_status: 'ready_for_collection' }, 'collected'), { ok: true });
   assert.equal(validateCollectionAction(eligibleOrder, 'collected').code, 'NOT_READY');
+});
+
+test('Prepared action is internal-only and validates the pickup lifecycle', () => {
+  const unprepared = { ...eligibleOrder, fulfilment_status: 'processing', prepared_at: null, prepared_email_status: 'not_sent' };
+  assert.deepEqual(validatePreparedAction(unprepared, 'initial'), { ok: true });
+  assert.equal(validatePreparedAction({ ...unprepared, fulfilment_type: 'delivery' }, 'initial').code, 'NOT_PICKUP');
+  assert.equal(validatePreparedAction({ ...unprepared, payment_status: 'unpaid' }, 'initial').code, 'NOT_PAID');
+  assert.equal(validatePreparedAction({ ...unprepared, fulfilment_status: 'cancelled' }, 'initial').code, 'ORDER_CLOSED');
+  assert.equal(validatePreparedAction(eligibleOrder, 'initial').code, 'ALREADY_PREPARED');
+  assert.deepEqual(validatePreparedAction(eligibleOrder, 'resend'), { ok: true });
+  assert.equal(validatePreparedAction(unprepared, 'resend').code, 'NOT_PREPARED');
+
+  const email = buildPreparedEmail(eligibleOrder, { email: 'nicosupremetech@gmail.com' }, {
+    ...emailEnv,
+    CONTACT_TO_EMAIL: 'attacker@example.com'
+  });
+  assert.equal(email.to, 'info@ptgactivewear.co.nz');
+  assert.equal(email.subject, 'Order PTG-ORD-2026-000042 has been prepared');
+  for (const content of [email.text, email.html]) {
+    assert.match(content, /customer has NOT been notified/i);
+    assert.match(content, /Patagonia FC Training Kit/);
+    assert.match(content, /nicosupremetech@gmail.com/);
+    assert.doesNotMatch(content, /nico@example.com|stripe|checkout.session|birth.?day|birthday/i);
+  }
+});
+
+test('Prepared notification uses Resend idempotency and only the internal recipient', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ id: 'email_prepared_123' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const email = buildPreparedEmail(eligibleOrder, { email: 'info@ptgactivewear.co.nz' }, emailEnv);
+    const result = await sendPreparedEmail(emailEnv, email, 'ptg-prepared-42-initial');
+    assert.equal(result.id, 'email_prepared_123');
+    const body = JSON.parse(calls[0].options.body);
+    assert.deepEqual(body.to, ['info@ptgactivewear.co.nz']);
+    assert.equal(calls[0].options.headers['Idempotency-Key'], 'ptg-prepared-42-initial');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('Ready to Collect email is branded, responsive and contains no private or technical references', () => {
@@ -118,7 +169,7 @@ test('Resend failures expose only a safe provider status code', async () => {
 
 test('collection migration and admin workflow are additive, protected and retry-safe', async () => {
   const [migration, api, html, admin, invoice, worker] = await Promise.all([
-    'migrations/0016_ready_for_collection.sql',
+    'migrations/0021_prepared_pickup_orders.sql',
     'worker/admin-api.js',
     'admin/index.html',
     'admin/admin.js',
@@ -126,12 +177,12 @@ test('collection migration and admin workflow are additive, protected and retry-
     '_worker.js'
   ].map(path => readFile(new URL(path, root), 'utf8')));
   assert.doesNotMatch(migration, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
-  assert.match(migration, /ready_for_collection_email_status/);
-  assert.match(migration, /ready_collection_email_attempts/);
-  assert.match(migration, /restricted_number_verified/);
-  assert.match(migration, /collection_request_id/);
+  assert.match(migration, /prepared_email_status/);
+  assert.match(migration, /prepared_email_attempts/);
   assert.doesNotMatch(migration, /birth.?day|birthday/i);
   assert.match(api, /ready-for-collection/);
+  assert.match(api, /mark-prepared/);
+  assert.match(api, /resend-prepared-email/);
   assert.match(api, /resend-ready-for-collection/);
   assert.match(api, /mark-collected/);
   assert.match(api, /ready_for_collection_email_status != 'sending'/);
@@ -142,7 +193,9 @@ test('collection migration and admin workflow are additive, protected and retry-
   assert.match(api, /order_marked_collected/);
   assert.match(html, /data-order-collection-state/);
   assert.match(html, /Ready email not sent/);
-  assert.match(admin, /Mark Ready to Collect & Send Email/);
+  assert.match(admin, /Mark Order as Prepared/);
+  assert.match(admin, /Mark Ready to Collect & Email Customer/);
+  assert.match(admin, /Resend Internal Prepared Notification/);
   assert.match(admin, /Resend Ready to Collect Email/);
   assert.match(admin, /Mark as Collected/);
   assert.match(invoice, /restricted_number_verified/);

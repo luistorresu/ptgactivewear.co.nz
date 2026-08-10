@@ -188,7 +188,7 @@ function renderReportSales(rows, total, page, limit) {
     <td>${escapeHtml(formatReportDate(order.created_at))}</td><td><strong>${escapeHtml(order.order_number || `Order ${order.id}`)}</strong></td>
     <td>${escapeHtml(order.customer_name || 'Not provided')}${order.child_name ? `<small>Child: ${escapeHtml(order.child_name)}</small>` : ''}<small>${escapeHtml(order.customer_email || '')}</small></td>
     <td>${escapeHtml(order.fulfilment_type || 'Not recorded')}</td><td><span class="status-pill status-${escapeHtml(order.payment_status)}">${escapeHtml(order.payment_status)}</span></td>
-    <td>${escapeHtml(order.fulfilment_status)}${order.fulfilment_type === 'pickup' ? `<small>Ready email: ${escapeHtml(order.ready_for_collection_email_status || 'not sent')}</small>` : order.fulfilment_type === 'delivery' ? `<small>Delivery email: ${escapeHtml(order.out_for_delivery_email_status || 'not sent')}</small>` : ''}</td><td>${escapeHtml(order.invoice_number || 'Not issued')}</td><td class="amount"><strong>${formatMoney(order.total_cents)}</strong>${Number(order.refunded_cents) ? `<small>Refunded ${formatMoney(order.refunded_cents)}</small>` : ''}</td>
+    <td>${escapeHtml(order.fulfilment_status)}${order.fulfilment_type === 'pickup' ? `<small>Prepared notice: ${escapeHtml(order.prepared_email_status || 'not sent')}</small><small>Ready email: ${escapeHtml(order.ready_for_collection_email_status || 'not sent')}</small>` : order.fulfilment_type === 'delivery' ? `<small>Delivery email: ${escapeHtml(order.out_for_delivery_email_status || 'not sent')}</small>` : ''}</td><td>${escapeHtml(order.invoice_number || 'Not issued')}</td><td class="amount"><strong>${formatMoney(order.total_cents)}</strong>${Number(order.refunded_cents) ? `<small>Refunded ${formatMoney(order.refunded_cents)}</small>` : ''}</td>
     <td><button class="button button-secondary button-compact" type="button" data-report-order-id="${Number(order.id)}">View</button></td></tr>`).join('') : '<tr><td colspan="9" class="empty-cell">No sales match these filters.</td></tr>';
 }
 
@@ -247,38 +247,57 @@ function orderDateTime(value) {
 
 function collectionWorkflow(order, fulfilmentType) {
   if (fulfilmentType !== 'pickup') return '';
+  const preparedEmailStatus = order.prepared_email_status || 'not_sent';
   const emailStatus = order.ready_for_collection_email_status || 'not_sent';
   const closed = ['cancelled', 'refunded', 'collected'].includes(order.fulfilment_status)
     || ['fully_refunded', 'refunded'].includes(order.refund_status)
     || Number(order.refunded_cents || 0) >= Number(order.total_cents || 0);
   const eligible = order.payment_status === 'paid' && Boolean(order.customer_email) && !closed;
+  const canPrepare = order.payment_status === 'paid' && !closed;
+  const prepared = Boolean(order.prepared_at);
+  const preparedEmailSent = Boolean(order.prepared_email_sent_at) && preparedEmailStatus === 'sent';
   const sent = Boolean(order.ready_for_collection_email_sent_at) && emailStatus === 'sent';
   const ready = order.fulfilment_status === 'ready_for_collection';
   const collected = order.fulfilment_status === 'collected';
+  const preparedAction = collected || ready
+    ? ''
+    : !prepared && canPrepare
+      ? '<button class="button button-secondary" type="button" data-order-action="prepared">Mark Order as Prepared</button>'
+      : prepared
+        ? `<button class="button button-secondary" type="button" disabled>Order Prepared</button>
+           <button class="button button-secondary button-compact" type="button" data-order-action="resend-prepared">${preparedEmailSent ? 'Resend Internal Prepared Notification' : 'Retry Internal Prepared Notification'}</button>`
+        : '';
   const emailAction = collected
     ? ''
     : sent
     ? `<button class="button button-secondary" type="button" disabled>Ready to Collect Email Sent</button>
        <button class="button button-secondary button-compact" type="button" data-order-action="resend-ready">Resend Ready to Collect Email</button>`
-    : eligible
-      ? `<button class="button button-primary" type="button" data-order-action="ready">${emailStatus === 'failed' ? 'Retry Ready to Collect Email' : 'Mark Ready to Collect & Send Email'}</button>`
+    : eligible && prepared
+      ? `<button class="button button-primary" type="button" data-order-action="ready">${emailStatus === 'failed' ? 'Retry Ready to Collect Email' : 'Mark Ready to Collect & Email Customer'}</button>`
       : '';
   const collectedAction = ready && sent
     ? '<button class="button button-secondary" type="button" data-order-action="collected">Mark as Collected</button>'
     : '';
 
   return `<section class="collection-workflow" aria-labelledby="collection-workflow-title">
-    <div><p class="eyebrow">Pickup workflow</p><h3 id="collection-workflow-title">${collected ? 'Collected' : ready ? 'Ready for collection' : 'Preparing order'}</h3></div>
+    <div><p class="eyebrow">Pickup fulfilment</p><h3 id="collection-workflow-title">${collected ? 'Collected' : ready ? 'Ready for collection' : prepared ? 'Prepared' : 'Preparing order'}</h3></div>
     <dl class="collection-facts">
       ${order.child_name ? `<div><dt>Child's Name</dt><dd>${escapeHtml(order.child_name)}</dd></div>` : ''}
+      <div><dt>Prepared</dt><dd>${prepared ? 'Yes' : 'No'}</dd></div>
+      <div><dt>Prepared at</dt><dd>${orderDateTime(order.prepared_at)}</dd></div>
+      <div><dt>Prepared by</dt><dd class="preserve-case">${escapeHtml(order.prepared_by_admin || 'Not recorded')}</dd></div>
+      <div><dt>Internal notification</dt><dd>${escapeHtml(preparedEmailStatus.replace(/_/g, ' '))}</dd></div>
+      <div><dt>Internal email sent</dt><dd>${orderDateTime(order.prepared_email_sent_at)}</dd></div>
       <div><dt>Marked ready</dt><dd>${orderDateTime(order.ready_for_collection_at)}</dd></div>
-      <div><dt>Email status</dt><dd>${escapeHtml(emailStatus.replace(/_/g, ' '))}</dd></div>
-      <div><dt>Email sent</dt><dd>${orderDateTime(order.ready_for_collection_email_sent_at)}</dd></div>
+      <div><dt>Customer email status</dt><dd>${escapeHtml(emailStatus.replace(/_/g, ' '))}</dd></div>
+      <div><dt>Customer email sent</dt><dd>${orderDateTime(order.ready_for_collection_email_sent_at)}</dd></div>
       <div><dt>Collected</dt><dd>${orderDateTime(order.collected_at)}</dd></div>
+      ${order.prepared_email_id ? `<div><dt>Internal Resend reference</dt><dd class="preserve-case">${escapeHtml(order.prepared_email_id)}</dd></div>` : ''}
+      ${order.prepared_email_error ? `<div><dt>Last internal email error</dt><dd class="preserve-case">${escapeHtml(order.prepared_email_error)}</dd></div>` : ''}
       ${order.ready_for_collection_email_id ? `<div><dt>Resend reference</dt><dd>${escapeHtml(order.ready_for_collection_email_id)}</dd></div>` : ''}
       ${order.ready_for_collection_email_error ? `<div><dt>Last email error</dt><dd>${escapeHtml(order.ready_for_collection_email_error)}</dd></div>` : ''}
     </dl>
-    ${emailAction || collectedAction ? `<div class="collection-actions">${emailAction}${collectedAction}</div>` : ''}
+    ${preparedAction || emailAction || collectedAction ? `<div class="collection-actions">${preparedAction}${emailAction}${collectedAction}</div>` : ''}
   </section>`;
 }
 
@@ -352,6 +371,16 @@ async function handleOrderAction(button) {
   if (!order || button.disabled) return;
   const action = button.dataset.orderAction;
   const settings = {
+    prepared: {
+      path: 'mark-prepared',
+      confirmation: `Mark ${order.order_number || 'this order'} as prepared? This updates the internal status and emails info@ptgactivewear.co.nz. The customer will NOT be emailed.`,
+      success: 'The order was marked prepared and the internal notification was sent.'
+    },
+    'resend-prepared': {
+      path: 'resend-prepared-email',
+      confirmation: 'Send another internal Prepared notification to info@ptgactivewear.co.nz? The customer will NOT be emailed.',
+      success: 'The internal Prepared notification was sent.'
+    },
     ready: {
       path: 'ready-for-collection',
       confirmation: `Mark ${order.order_number || 'this order'}${order.child_name ? ` for ${order.child_name}` : ''} ready and email the customer now?`,
@@ -386,7 +415,7 @@ async function handleOrderAction(button) {
   if (!settings || !confirm(settings.confirmation)) return;
   const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = ['collected', 'completed'].includes(action) ? 'Updating...' : 'Sending...';
+  button.textContent = ['collected', 'completed'].includes(action) ? 'Updating...' : action === 'prepared' ? 'Preparing...' : 'Sending...';
   try {
     await api(`/api/admin/orders/${Number(order.id)}/${settings.path}`, {
       method: 'POST',

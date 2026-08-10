@@ -1,9 +1,12 @@
 import { ensureInvoiceSnapshot } from './invoices.js';
 import {
+  buildPreparedEmail,
   buildReadyToCollectEmail,
   readyCollectionEmailConfigured,
+  sendPreparedEmail,
   sendReadyToCollectEmail,
-  validateCollectionAction
+  validateCollectionAction,
+  validatePreparedAction
 } from './collection.js';
 import {
   buildOutForDeliveryEmail,
@@ -20,10 +23,10 @@ const PRODUCT_FIELDS = new Set([
 ]);
 const CREATE_PRODUCT_FIELDS = new Set([...PRODUCT_FIELDS, 'variants']);
 const VARIANT_FIELDS = new Set(['sku', 'size', 'colour', 'style', 'active', 'allowPlayerName', 'allowPlayerNumber', 'version']);
-const FULFILMENT_STATUSES = new Set(['unfulfilled', 'paid', 'processing', 'ready_for_collection', 'collected', 'shipped', 'out_for_delivery', 'completed', 'cancelled', 'refunded']);
+const FULFILMENT_STATUSES = new Set(['unfulfilled', 'paid', 'processing', 'prepared', 'ready_for_collection', 'collected', 'shipped', 'out_for_delivery', 'completed', 'cancelled', 'refunded']);
 const PAYMENT_STATUSES = new Set(['paid', 'unpaid', 'failed', 'cancelled', 'expired']);
 const INVOICE_STATUSES = new Set(['issued', 'partially_refunded', 'refunded', 'not_issued']);
-const COLLECTION_STATES = new Set(['ready', 'not_sent', 'sent', 'collected']);
+const COLLECTION_STATES = new Set(['prepared', 'prepared_not_sent', 'ready', 'not_sent', 'sent', 'collected']);
 const REPORT_EXPORT_LIMIT = 5000;
 
 function json(body, status = 200) {
@@ -315,6 +318,8 @@ function reportWhere(filters, { invoicesOnly = false, defaultPaid = true } = {})
   else if (defaultPaid) clauses.push("o.payment_status = 'paid'");
   if (filters.fulfilment) { clauses.push('o.fulfilment_status = ?'); values.push(filters.fulfilment); }
   if (filters.fulfilmentType) { clauses.push('o.fulfilment_type = ?'); values.push(filters.fulfilmentType); }
+  if (filters.collectionState === 'prepared') clauses.push("o.fulfilment_status = 'prepared'");
+  if (filters.collectionState === 'prepared_not_sent') clauses.push("o.fulfilment_type = 'pickup' AND o.prepared_at IS NOT NULL AND COALESCE(o.prepared_email_status, 'not_sent') != 'sent'");
   if (filters.collectionState === 'ready') clauses.push("o.fulfilment_status = 'ready_for_collection'");
   if (filters.collectionState === 'not_sent') clauses.push("o.fulfilment_type = 'pickup' AND COALESCE(o.ready_for_collection_email_status, 'not_sent') != 'sent'");
   if (filters.collectionState === 'sent') clauses.push("o.ready_for_collection_email_status = 'sent'");
@@ -705,6 +710,8 @@ async function listOrders(db, url) {
   if (payment) { clauses.push('payment_status = ?'); values.push(payment); }
   if (fulfilment) { clauses.push('fulfilment_status = ?'); values.push(fulfilment); }
   if (['pickup', 'delivery'].includes(fulfilmentType)) { clauses.push('fulfilment_type = ?'); values.push(fulfilmentType); }
+  if (collectionState === 'prepared') clauses.push("fulfilment_status = 'prepared'");
+  if (collectionState === 'prepared_not_sent') clauses.push("fulfilment_type = 'pickup' AND prepared_at IS NOT NULL AND COALESCE(prepared_email_status, 'not_sent') != 'sent'");
   if (collectionState === 'ready') clauses.push("fulfilment_status = 'ready_for_collection'");
   if (collectionState === 'not_sent') clauses.push("fulfilment_type = 'pickup' AND COALESCE(ready_for_collection_email_status, 'not_sent') != 'sent'");
   if (collectionState === 'sent') clauses.push("ready_for_collection_email_status = 'sent'");
@@ -717,6 +724,7 @@ async function listOrders(db, url) {
       subtotal_cents, personalisation_cents, shipping_cents, payment_surcharge_cents, total_cents, currency,
       fulfilment_type, shipping_method,
       payment_status, fulfilment_status, refund_status, refunded_cents, invoice_number, email_status,
+      prepared_at, prepared_email_sent_at, prepared_email_status,
       ready_for_collection_at, ready_for_collection_email_sent_at, ready_for_collection_email_status,
       collected_at, out_for_delivery_at, out_for_delivery_email_sent_at,
       out_for_delivery_email_status, completed_at, created_at
@@ -744,7 +752,7 @@ async function updateOrder(db, orderId, body, identity) {
   if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
   const status = cleanText(body.fulfilmentStatus, 30).toLowerCase();
   if (!FULFILMENT_STATUSES.has(status)) return json({ ok: false, error: 'Invalid fulfilment status.' }, 400);
-  if (['ready_for_collection', 'collected', 'out_for_delivery', 'completed'].includes(status)) {
+  if (['prepared', 'ready_for_collection', 'collected', 'out_for_delivery', 'completed'].includes(status)) {
     return json({ ok: false, error: 'Use the dedicated fulfilment action for this status.' }, 400);
   }
   const current = await db.prepare('SELECT fulfilment_status, internal_notes FROM orders WHERE id = ?').bind(orderId).first();
@@ -775,10 +783,99 @@ function resultChanges(result) {
 async function collectionOrder(db, orderId) {
   return db.prepare(`SELECT id, order_number, customer_name, child_name, customer_email, payment_status,
     fulfilment_status, fulfilment_type, refund_status, refunded_cents, total_cents,
-    pickup_location, pickup_instructions, ready_for_collection_at,
+    pickup_location, pickup_instructions, prepared_at, prepared_by_admin,
+    prepared_email_sent_at, prepared_email_status, prepared_email_lock_at,
+    ready_for_collection_at,
     ready_for_collection_email_sent_at, ready_for_collection_email_status,
     ready_for_collection_email_lock_at, collected_at
     FROM orders WHERE id = ?`).bind(orderId).first();
+}
+
+async function markPrepared(env, orderId, body, identity, resend = false) {
+  const unknown = rejectUnknownFields(body, new Set(['requestId']));
+  if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
+  const requestId = requestIdentifier(body);
+  if (!requestId) return json({ ok: false, error: 'A valid request ID is required.' }, 400);
+
+  const action = resend ? 'resend' : 'initial';
+  const existingAttempt = await env.DB.prepare('SELECT status FROM prepared_email_attempts WHERE request_id = ?').bind(requestId).first();
+  if (existingAttempt?.status === 'sent') {
+    return json({ ok: true, duplicate: true, order: await getOrder(env.DB, orderId) });
+  }
+  if (existingAttempt) {
+    return json({ ok: false, error: 'This Prepared notification request has already been processed. Refresh the order before trying again.', code: 'REQUEST_REUSED' }, 409);
+  }
+
+  const order = await collectionOrder(env.DB, orderId);
+  const eligibility = validatePreparedAction(order, action);
+  if (eligibility.error) return json({ ok: false, error: eligibility.error, code: eligibility.code }, eligibility.status);
+
+  const lockToken = crypto.randomUUID();
+  const statusUpdate = resend
+    ? env.DB.prepare(`UPDATE orders SET prepared_email_status = 'sending', prepared_email_error = '',
+        prepared_email_lock_token = ?, prepared_email_lock_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND prepared_at IS NOT NULL
+          AND (prepared_email_status != 'sending' OR prepared_email_lock_at IS NULL OR prepared_email_lock_at < datetime('now', '-5 minutes'))`)
+      .bind(lockToken, orderId)
+    : env.DB.prepare(`UPDATE orders SET fulfilment_status = 'prepared', prepared_at = CURRENT_TIMESTAMP,
+        prepared_by_admin = ?, prepared_email_status = 'sending', prepared_email_error = '',
+        prepared_email_lock_token = ?, prepared_email_lock_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND prepared_at IS NULL
+          AND fulfilment_status NOT IN ('ready_for_collection', 'collected', 'cancelled', 'refunded')
+          AND (prepared_email_status != 'sending' OR prepared_email_lock_at IS NULL OR prepared_email_lock_at < datetime('now', '-5 minutes'))`)
+      .bind(identity.email, lockToken, orderId);
+  const started = await env.DB.batch([
+    env.DB.prepare(`INSERT INTO prepared_email_attempts
+      (order_id, request_id, action, status, admin_email) VALUES (?, ?, ?, 'pending', ?)`).bind(orderId, requestId, action, identity.email),
+    statusUpdate
+  ]);
+  if (!resultChanges(started[1])) {
+    await env.DB.prepare(`UPDATE prepared_email_attempts SET status = 'blocked', safe_error_code = 'SEND_IN_PROGRESS', completed_at = CURRENT_TIMESTAMP WHERE request_id = ?`).bind(requestId).run();
+    return json({ ok: false, error: 'The order changed or its Prepared notification is already being sent. Refresh and try again.', code: 'SEND_IN_PROGRESS' }, 409);
+  }
+
+  if (!resend) {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO fulfilment_history (order_id, previous_status, new_status, reason, changed_by)
+        VALUES (?, ?, 'prepared', 'Order preparation completed internally', ?)`).bind(orderId, order.fulfilment_status, identity.email),
+      env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+        VALUES (?, 'order_marked_prepared', 'order', ?, ?)`).bind(identity.email, String(orderId), `Marked ${order.order_number || `order ${orderId}`} prepared`)
+    ]);
+  }
+
+  try {
+    const preparedOrder = await getOrder(env.DB, orderId);
+    const email = buildPreparedEmail(preparedOrder, identity, env);
+    const idempotencyKey = resend && order.prepared_email_sent_at
+      ? `ptg-prepared-${orderId}-resend-${requestId}`
+      : `ptg-prepared-${orderId}-initial`;
+    const delivery = await sendPreparedEmail(env, email, idempotencyKey);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE orders SET prepared_email_status = 'sent', prepared_email_sent_at = CURRENT_TIMESTAMP,
+        prepared_email_id = ?, prepared_email_error = '', prepared_email_lock_token = '', prepared_email_lock_at = NULL,
+        updated_at = CURRENT_TIMESTAMP WHERE id = ? AND prepared_email_lock_token = ?`).bind(delivery.id, orderId, lockToken),
+      env.DB.prepare(`UPDATE prepared_email_attempts SET status = 'sent', provider_email_id = ?, completed_at = CURRENT_TIMESTAMP WHERE request_id = ?`).bind(delivery.id, requestId),
+      env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+        VALUES (?, ?, 'order', ?, ?)`).bind(identity.email, resend ? 'prepared_email_resent' : 'prepared_email_sent', String(orderId), `${resend ? 'Resent' : 'Sent'} internal Prepared notification for ${order.order_number || `order ${orderId}`}`)
+    ]);
+    return json({ ok: true, order: await getOrder(env.DB, orderId) });
+  } catch (error) {
+    const safeCode = cleanText(error.code || 'EMAIL_SEND_FAILED', 80);
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE orders SET prepared_email_status = 'failed', prepared_email_error = ?,
+        prepared_email_lock_token = '', prepared_email_lock_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND prepared_email_lock_token = ?`).bind(safeCode, orderId, lockToken),
+      env.DB.prepare(`UPDATE prepared_email_attempts SET status = 'failed', safe_error_code = ?, completed_at = CURRENT_TIMESTAMP WHERE request_id = ?`).bind(safeCode, requestId),
+      env.DB.prepare(`INSERT INTO admin_audit_log (admin_email, action, entity_type, entity_id, summary)
+        VALUES (?, 'prepared_email_failed', 'order', ?, ?)`).bind(identity.email, String(orderId), `Internal Prepared notification failed with ${safeCode}`)
+    ]);
+    return json({
+      ok: false,
+      error: 'Order marked as prepared, but the internal email could not be sent. Please retry the internal notification.',
+      code: safeCode,
+      order: await getOrder(env.DB, orderId)
+    }, 502);
+  }
 }
 
 async function readyToCollect(env, orderId, body, identity, resend = false) {
@@ -1140,6 +1237,7 @@ async function reportSales(db, filters, { exportRequest = false } = {}) {
     o.customer_name, o.child_name, o.customer_email, o.customer_phone, o.fulfilment_type, o.shipping_city, o.shipping_region,
     o.subtotal_cents, o.shipping_cents, o.payment_surcharge_cents, o.total_cents, o.currency,
     o.payment_status, o.fulfilment_status, o.refund_status, o.refunded_cents,
+    o.prepared_at, o.prepared_email_status, o.prepared_email_sent_at,
     o.ready_for_collection_at, o.ready_for_collection_email_status,
     o.ready_for_collection_email_sent_at, o.collected_at,
     (SELECT GROUP_CONCAT(DISTINCT osi.product_name) FROM order_items osi WHERE osi.order_id = o.id) AS product_names,
@@ -1164,9 +1262,9 @@ async function reportInvoices(db, filters, { exportRequest = false } = {}) {
 
 async function exportSalesReport(db, filters, identity) {
   const report = await reportSales(db, filters, { exportRequest: true });
-  const rows = report.rows.map(row => [row.created_at, row.order_number, row.invoice_number, row.customer_name, row.child_name, row.customer_email, row.customer_phone, row.fulfilment_type, row.shipping_city, row.shipping_region, row.product_names, row.skus, row.quantity, row.subtotal_cents / 100, row.shipping_cents / 100, row.payment_surcharge_cents / 100, row.total_cents / 100, row.currency, row.payment_status, row.fulfilment_status, row.ready_for_collection_email_status, row.ready_for_collection_at, row.ready_for_collection_email_sent_at, row.collected_at, row.refunded_cents / 100]);
+  const rows = report.rows.map(row => [row.created_at, row.order_number, row.invoice_number, row.customer_name, row.child_name, row.customer_email, row.customer_phone, row.fulfilment_type, row.shipping_city, row.shipping_region, row.product_names, row.skus, row.quantity, row.subtotal_cents / 100, row.shipping_cents / 100, row.payment_surcharge_cents / 100, row.total_cents / 100, row.currency, row.payment_status, row.fulfilment_status, row.prepared_email_status, row.prepared_at, row.prepared_email_sent_at, row.ready_for_collection_email_status, row.ready_for_collection_at, row.ready_for_collection_email_sent_at, row.collected_at, row.refunded_cents / 100]);
   await audit(db, identity, 'export_csv', 'sales_report', exportDate(), `Exported ${rows.length} sales`);
-  return csvResponse(reportFilename('ptg-sales', filters), ['Order date','Order number','Invoice number','Customer name',"Child's Name",'Customer email','Phone','Fulfilment method','Shipping city','Shipping region','Product names','SKUs','Quantities','Subtotal','Shipping','Processing surcharge','Total','Currency','Payment status','Fulfilment status','Ready email status','Ready at','Ready email sent at','Collected at','Refund amount'], rows);
+  return csvResponse(reportFilename('ptg-sales', filters), ['Order date','Order number','Invoice number','Customer name',"Child's Name",'Customer email','Phone','Fulfilment method','Shipping city','Shipping region','Product names','SKUs','Quantities','Subtotal','Shipping','Processing surcharge','Total','Currency','Payment status','Fulfilment status','Prepared email status','Prepared at','Prepared email sent at','Ready email status','Ready at','Ready email sent at','Collected at','Refund amount'], rows);
 }
 
 async function exportInvoiceReport(db, filters, identity) {
@@ -1212,11 +1310,11 @@ async function exportOrders(db, url, identity) {
       const optionChargeNzd = selectedOptions && Number(item.customisation_total_cents || 0) > 0
         ? Number(item.customisation_total_cents) / Math.max(1, Number(item.quantity || 1)) / selectedOptions / 100
         : '';
-      rows.push([order.order_number, order.created_at, order.customer_name, order.child_name, order.customer_email, order.customer_phone, order.fulfilment_type, order.shipping_method, order.shipping_name, order.shipping_phone, order.shipping_address_line_1, order.shipping_address_line_2, order.shipping_suburb, order.shipping_city, order.shipping_region, order.shipping_postcode, order.shipping_country, order.shipping_rural ? 'Yes' : 'No', order.pickup_location, order.pickup_instructions, item.product_name, item.sku, item.quantity, item.size, [item.colour, item.style].filter(Boolean).join(' / '), item.player_name, trainingKit && item.player_name ? optionChargeNzd : '', item.player_number, trainingKitNumber ? optionChargeNzd : '', restrictedNumber ? 'Yes' : 'No', restrictedNumber ? (eligibilityVerified ? 'Server verified' : 'Not recorded') : '', trainingKitNumber ? 'Subject to final confirmation' : '', item.unit_price_cents / 100, item.customisation_total_cents / 100, order.subtotal_cents / 100, order.personalisation_cents / 100, order.shipping_cents / 100, order.payment_surcharge_cents / 100, order.total_cents / 100, order.refunded_cents / 100, order.payment_status, order.fulfilment_status, order.ready_for_collection_email_status, order.ready_for_collection_at, order.ready_for_collection_email_sent_at, order.collected_at, order.refund_status]);
+      rows.push([order.order_number, order.created_at, order.customer_name, order.child_name, order.customer_email, order.customer_phone, order.fulfilment_type, order.shipping_method, order.shipping_name, order.shipping_phone, order.shipping_address_line_1, order.shipping_address_line_2, order.shipping_suburb, order.shipping_city, order.shipping_region, order.shipping_postcode, order.shipping_country, order.shipping_rural ? 'Yes' : 'No', order.pickup_location, order.pickup_instructions, item.product_name, item.sku, item.quantity, item.size, [item.colour, item.style].filter(Boolean).join(' / '), item.player_name, trainingKit && item.player_name ? optionChargeNzd : '', item.player_number, trainingKitNumber ? optionChargeNzd : '', restrictedNumber ? 'Yes' : 'No', restrictedNumber ? (eligibilityVerified ? 'Server verified' : 'Not recorded') : '', trainingKitNumber ? 'Subject to final confirmation' : '', item.unit_price_cents / 100, item.customisation_total_cents / 100, order.subtotal_cents / 100, order.personalisation_cents / 100, order.shipping_cents / 100, order.payment_surcharge_cents / 100, order.total_cents / 100, order.refunded_cents / 100, order.payment_status, order.fulfilment_status, order.prepared_email_status, order.prepared_at, order.prepared_email_sent_at, order.ready_for_collection_email_status, order.ready_for_collection_at, order.ready_for_collection_email_sent_at, order.collected_at, order.refund_status]);
     }
   }
   await audit(db, identity, 'export_csv', 'orders', exportDate(), `Exported ${rows.length} order lines`);
-  return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name',"Child's Name",'Customer email','Customer phone','Fulfilment type','Shipping method','Shipping name','Shipping phone','Address line 1','Address line 2','Suburb','City','Region','Postcode','Country','Rural','Pickup location','Pickup instructions','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Name Charge NZD','Requested Shirt Number','Shirt Number Charge NZD','Restricted Number','Eligibility Validation','Number Availability','Unit price NZD','Item personalisation NZD','Merchandise subtotal NZD','Order personalisation NZD','Shipping NZD','Processing surcharge NZD','Total NZD','Refunded NZD','Payment status','Fulfilment status','Ready email status','Ready at','Ready email sent at','Collected at','Refund status'], rows);
+  return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name',"Child's Name",'Customer email','Customer phone','Fulfilment type','Shipping method','Shipping name','Shipping phone','Address line 1','Address line 2','Suburb','City','Region','Postcode','Country','Rural','Pickup location','Pickup instructions','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Name Charge NZD','Requested Shirt Number','Shirt Number Charge NZD','Restricted Number','Eligibility Validation','Number Availability','Unit price NZD','Item personalisation NZD','Merchandise subtotal NZD','Order personalisation NZD','Shipping NZD','Processing surcharge NZD','Total NZD','Refunded NZD','Payment status','Fulfilment status','Prepared email status','Prepared at','Prepared email sent at','Ready email status','Ready at','Ready email sent at','Collected at','Refund status'], rows);
 }
 
 async function exportInventory(db, url, identity) {
@@ -1300,6 +1398,16 @@ async function routeAdminApi(request, env, identity) {
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'invoice' && segments.length === 3) {
       const order = await ensureInvoice(env.DB, Number(segments[1]), identity);
       return order ? json({ ok: true, order }) : json({ ok: false, error: 'Order not found.' }, 404);
+    }
+    if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'mark-prepared' && segments.length === 3) {
+      const parsed = await readBody(request);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
+        : markPrepared(env, Number(segments[1]), parsed.body, identity);
+    }
+    if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'resend-prepared-email' && segments.length === 3) {
+      const parsed = await readBody(request);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
+        : markPrepared(env, Number(segments[1]), parsed.body, identity, true);
     }
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'ready-for-collection' && segments.length === 3) {
       const parsed = await readBody(request);
