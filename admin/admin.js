@@ -278,6 +278,9 @@ function collectionWorkflow(order, fulfilmentType) {
   const collectedAction = ready && sent
     ? '<button class="button button-secondary" type="button" data-order-action="collected">Mark as Collected</button>'
     : '';
+  const completedAction = prepared && !ready && !collected && canPrepare
+    ? '<button class="button button-secondary" type="button" data-order-action="complete-pickup">Mark Completed</button>'
+    : '';
 
   return `<section class="collection-workflow" aria-labelledby="collection-workflow-title">
     <div><p class="eyebrow">Pickup fulfilment</p><h3 id="collection-workflow-title">${collected ? 'Collected' : ready ? 'Ready for collection' : prepared ? 'Prepared' : 'Preparing order'}</h3></div>
@@ -297,7 +300,7 @@ function collectionWorkflow(order, fulfilmentType) {
       ${order.ready_for_collection_email_id ? `<div><dt>Resend reference</dt><dd>${escapeHtml(order.ready_for_collection_email_id)}</dd></div>` : ''}
       ${order.ready_for_collection_email_error ? `<div><dt>Last email error</dt><dd>${escapeHtml(order.ready_for_collection_email_error)}</dd></div>` : ''}
     </dl>
-    ${preparedAction || emailAction || collectedAction ? `<div class="collection-actions">${preparedAction}${emailAction}${collectedAction}</div>` : ''}
+    ${preparedAction || emailAction || collectedAction || completedAction ? `<div class="collection-actions">${preparedAction}${emailAction}${completedAction}${collectedAction}</div>` : ''}
   </section>`;
 }
 
@@ -373,13 +376,18 @@ async function handleOrderAction(button) {
   const settings = {
     prepared: {
       path: 'mark-prepared',
-      confirmation: `Mark ${order.order_number || 'this order'} as prepared? This updates the internal status and emails info@ptgactivewear.co.nz. The customer will NOT be emailed.`,
+      confirmation: `Mark ${order.order_number || 'this order'} as prepared? This sends an internal notification only to PTG Activewear. No email will be sent to the customer.`,
       success: 'The order was marked prepared and the internal notification was sent.'
     },
     'resend-prepared': {
       path: 'resend-prepared-email',
       confirmation: 'Send another internal Prepared notification to info@ptgactivewear.co.nz? The customer will NOT be emailed.',
       success: 'The internal Prepared notification was sent.'
+    },
+    'complete-pickup': {
+      path: 'mark-pickup-completed',
+      confirmation: `Mark ${order.order_number || 'this order'} as completed? This bypasses the Ready to Collect step and will NOT email the customer.`,
+      success: 'The pickup order was marked completed without emailing the customer.'
     },
     ready: {
       path: 'ready-for-collection',
@@ -415,7 +423,7 @@ async function handleOrderAction(button) {
   if (!settings || !confirm(settings.confirmation)) return;
   const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = ['collected', 'completed'].includes(action) ? 'Updating...' : action === 'prepared' ? 'Preparing...' : 'Sending...';
+  button.textContent = ['collected', 'completed', 'complete-pickup'].includes(action) ? 'Updating...' : action === 'prepared' ? 'Preparing...' : 'Sending...';
   try {
     await api(`/api/admin/orders/${Number(order.id)}/${settings.path}`, {
       method: 'POST',

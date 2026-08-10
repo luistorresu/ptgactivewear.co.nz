@@ -9,11 +9,13 @@ All notable changes to this website should be documented here.
 * Split pickup fulfilment into an internal Prepared milestone and a separate customer-facing Ready to Collect action.
 * Added a Resend-backed internal Prepared notification sent only to `info@ptgactivewear.co.nz`, with plain-text fallback, durable send state, safe retries, idempotency, and audit events.
 * Added Prepared status details and filters to admin orders, reports, and CSV exports.
+* Added a protected Mark Completed action for prepared pickup orders that records completion without sending a customer email.
 
 ### Changed
 
 * Require pickup orders to be marked Prepared before a customer can receive the Ready to Collect email.
 * Preserve historical ready and collected orders with an additive Prepared-state migration.
+* Clarified that the Prepared confirmation sends only an internal PTG Activewear notification.
 
 ## 2026-08-06
 

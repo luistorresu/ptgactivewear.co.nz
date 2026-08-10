@@ -54,6 +54,25 @@ export function validatePreparedAction(order, action) {
   return { ok: true };
 }
 
+export function validatePickupCompletionAction(order) {
+  if (!order) return { error: 'Order not found.', status: 404, code: 'ORDER_NOT_FOUND' };
+  if (order.fulfilment_type !== 'pickup') {
+    return { error: 'Pickup completion is available only for pickup orders.', status: 409, code: 'NOT_PICKUP' };
+  }
+  if (order.payment_status !== 'paid') {
+    return { error: 'The order must be paid before it can be completed.', status: 409, code: 'NOT_PAID' };
+  }
+  if (['cancelled', 'refunded'].includes(order.fulfilment_status)
+    || ['fully_refunded', 'refunded'].includes(order.refund_status)
+    || Number(order.refunded_cents || 0) >= Number(order.total_cents || 0)) {
+    return { error: 'Cancelled or fully refunded orders cannot be completed.', status: 409, code: 'ORDER_CLOSED' };
+  }
+  if (!order.prepared_at || order.fulfilment_status !== 'prepared') {
+    return { error: 'Mark the pickup order as prepared before completing it without a customer email.', status: 409, code: 'NOT_PREPARED' };
+  }
+  return { ok: true };
+}
+
 export function validateCollectionAction(order, action) {
   if (!order) return { error: 'Order not found.', status: 404, code: 'ORDER_NOT_FOUND' };
   if (order.fulfilment_type !== 'pickup') {

@@ -7,7 +7,8 @@ import {
   sendPreparedEmail,
   sendReadyToCollectEmail,
   validateCollectionAction,
-  validatePreparedAction
+  validatePreparedAction,
+  validatePickupCompletionAction
 } from '../worker/collection.js';
 
 const root = new URL('../', import.meta.url);
@@ -82,6 +83,17 @@ test('Prepared action is internal-only and validates the pickup lifecycle', () =
     assert.match(content, /nicosupremetech@gmail.com/);
     assert.doesNotMatch(content, /nico@example.com|stripe|checkout.session|birth.?day|birthday/i);
   }
+});
+
+test('pickup completion bypass requires a paid prepared pickup order and no customer email', () => {
+  const prepared = { ...eligibleOrder, fulfilment_status: 'prepared' };
+  assert.deepEqual(validatePickupCompletionAction(prepared), { ok: true });
+  assert.deepEqual(validatePickupCompletionAction({ ...prepared, customer_email: '' }), { ok: true });
+  assert.equal(validatePickupCompletionAction({ ...prepared, fulfilment_type: 'delivery' }).code, 'NOT_PICKUP');
+  assert.equal(validatePickupCompletionAction({ ...prepared, payment_status: 'unpaid' }).code, 'NOT_PAID');
+  assert.equal(validatePickupCompletionAction({ ...prepared, prepared_at: null }).code, 'NOT_PREPARED');
+  assert.equal(validatePickupCompletionAction({ ...eligibleOrder, fulfilment_status: 'ready_for_collection' }).code, 'NOT_PREPARED');
+  assert.equal(validatePickupCompletionAction({ ...prepared, refund_status: 'fully_refunded' }).code, 'ORDER_CLOSED');
 });
 
 test('Prepared notification uses Resend idempotency and only the internal recipient', async () => {
@@ -185,6 +197,8 @@ test('collection migration and admin workflow are additive, protected and retry-
   assert.match(api, /resend-prepared-email/);
   assert.match(api, /resend-ready-for-collection/);
   assert.match(api, /mark-collected/);
+  assert.match(api, /mark-pickup-completed/);
+  assert.match(api, /order_completed_without_customer_email/);
   assert.match(api, /ready_for_collection_email_status != 'sending'/);
   assert.match(api, /ready_for_collection_email_lock_at < datetime\('now', '-5 minutes'\)/);
   assert.match(api, /order_marked_ready_for_collection/);
@@ -198,6 +212,8 @@ test('collection migration and admin workflow are additive, protected and retry-
   assert.match(admin, /Resend Internal Prepared Notification/);
   assert.match(admin, /Resend Ready to Collect Email/);
   assert.match(admin, /Mark as Collected/);
+  assert.match(admin, /Mark Completed/);
+  assert.match(admin, /will NOT email the customer/);
   assert.match(invoice, /restricted_number_verified/);
   assert.match(worker, /isAdminMutationAllowed/);
 });
@@ -211,4 +227,17 @@ test('Ready to Collect email is manual and not part of the paid-order email func
   const paidEmailEnd = worker.indexOf('async function handleSuccessfulCheckoutEvent', paidEmailStart);
   assert.doesNotMatch(worker.slice(paidEmailStart, paidEmailEnd), /Ready to Collect|sendReadyToCollectEmail/);
   assert.match(api, /method === 'POST'.*ready-for-collection/s);
+});
+
+test('pickup completion bypasses every customer email field and sender', async () => {
+  const api = await readFile(new URL('worker/admin-api.js', root), 'utf8');
+  const completionStart = api.indexOf('async function completePickupWithoutEmail');
+  const completionEnd = api.indexOf('async function deliveryOrder', completionStart);
+  const completionBlock = api.slice(completionStart, completionEnd);
+
+  assert.notEqual(completionStart, -1);
+  assert.notEqual(completionEnd, -1);
+  assert.match(completionBlock, /order_completed_without_customer_email/);
+  assert.doesNotMatch(completionBlock, /send[A-Za-z]*Email/);
+  assert.doesNotMatch(completionBlock, /ready_for_collection_email_(?:status|sent_at|id|error)/);
 });

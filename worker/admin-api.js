@@ -6,7 +6,8 @@ import {
   sendPreparedEmail,
   sendReadyToCollectEmail,
   validateCollectionAction,
-  validatePreparedAction
+  validatePreparedAction,
+  validatePickupCompletionAction
 } from './collection.js';
 import {
   buildOutForDeliveryEmail,
@@ -1029,6 +1030,40 @@ async function markCollected(env, orderId, body, identity) {
   return json({ ok: true, order: await getOrder(env.DB, orderId) });
 }
 
+async function completePickupWithoutEmail(env, orderId, body, identity) {
+  const unknown = rejectUnknownFields(body, new Set(['requestId']));
+  if (unknown) return json({ ok: false, error: `Unknown field: ${unknown}.` }, 400);
+  const requestId = requestIdentifier(body);
+  if (!requestId) return json({ ok: false, error: 'A valid request ID is required.' }, 400);
+  const order = await collectionOrder(env.DB, orderId);
+  if (order?.fulfilment_status === 'collected') {
+    return json({ ok: true, duplicate: true, order: await getOrder(env.DB, orderId) });
+  }
+  const eligibility = validatePickupCompletionAction(order);
+  if (eligibility.error) return json({ ok: false, error: eligibility.error, code: eligibility.code }, eligibility.status);
+
+  const results = await env.DB.batch([
+    env.DB.prepare(`UPDATE orders SET fulfilment_status = 'collected',
+      collected_at = CURRENT_TIMESTAMP, collected_by_admin = ?, collection_request_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND fulfilment_status = 'prepared' AND prepared_at IS NOT NULL`)
+      .bind(identity.email, requestId, orderId),
+    env.DB.prepare(`INSERT INTO fulfilment_history
+      (order_id, previous_status, new_status, reason, changed_by)
+      SELECT ?, 'prepared', 'collected', 'Order completed without customer notification', ?
+      WHERE EXISTS (SELECT 1 FROM orders WHERE id = ? AND fulfilment_status = 'collected' AND collection_request_id = ?)`)
+      .bind(orderId, identity.email, orderId, requestId),
+    env.DB.prepare(`INSERT INTO admin_audit_log
+      (admin_email, action, entity_type, entity_id, summary)
+      SELECT ?, 'order_completed_without_customer_email', 'order', ?, ?
+      WHERE EXISTS (SELECT 1 FROM orders WHERE id = ? AND fulfilment_status = 'collected' AND collection_request_id = ?)`)
+      .bind(identity.email, String(orderId), `Completed ${order.order_number || `order ${orderId}`} without customer email`, orderId, requestId)
+  ]);
+  if (!resultChanges(results[0])) {
+    return json({ ok: false, error: 'The order status changed in another session. Refresh and try again.', code: 'STATUS_CHANGED' }, 409);
+  }
+  return json({ ok: true, order: await getOrder(env.DB, orderId) });
+}
+
 async function deliveryOrder(db, orderId) {
   return db.prepare(`SELECT id, order_number, customer_name, child_name, customer_email, payment_status,
     fulfilment_status, fulfilment_type, refund_status, refunded_cents, total_cents,
@@ -1423,6 +1458,11 @@ async function routeAdminApi(request, env, identity) {
       const parsed = await readBody(request);
       return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
         : markCollected(env, Number(segments[1]), parsed.body, identity);
+    }
+    if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'mark-pickup-completed' && segments.length === 3) {
+      const parsed = await readBody(request);
+      return parsed.error ? json({ ok: false, error: parsed.error }, parsed.status || 400)
+        : completePickupWithoutEmail(env, Number(segments[1]), parsed.body, identity);
     }
     if (method === 'POST' && segments[0] === 'orders' && segments[2] === 'out-for-delivery' && segments.length === 3) {
       const parsed = await readBody(request);
