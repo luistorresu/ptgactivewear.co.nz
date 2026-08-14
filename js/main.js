@@ -191,20 +191,23 @@ function updateCartUI() {
       itemsEl.innerHTML = cart.map((item, i) => {
         const itemPrice = Number(item.price || item.basePrice || 0);
         return `
-        <div class="flex items-center gap-4 py-5 border-b last:border-0">
-          <div class="flex-1 min-w-0">
+        <div class="cart-line-item">
+          <div class="min-w-0">
             <p class="font-medium text-gray-900 text-sm truncate">${escapeHtml(item.name)}</p>
             <p class="text-gray-500 text-xs mt-0.5">${formatMoney(itemPrice)} each</p>
             ${renderPersonalisationDetails(item)}
           </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <button type="button" onclick="changeQty(${i},-1)" aria-label="Decrease quantity for ${escapeHtml(item.name)}" class="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-600 hover:border-brand hover:text-brand text-base leading-none transition-colors">−</button>
-            <span class="text-sm font-semibold w-5 text-center">${item.qty}</span>
-            <button type="button" onclick="changeQty(${i},1)" aria-label="Increase quantity for ${escapeHtml(item.name)}" class="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-600 hover:border-brand hover:text-brand text-base leading-none transition-colors">+</button>
-            <button type="button" onclick="removeItem(${i})" aria-label="Remove ${escapeHtml(item.name)} from cart" class="ml-1 w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          <div class="cart-line-item-actions">
+            <div class="cart-quantity-control" role="group" aria-label="Quantity for ${escapeHtml(item.name)}">
+              <button type="button" onclick="changeQty(${i},-1)" aria-label="Decrease quantity for ${escapeHtml(item.name)}" class="cart-quantity-button">−</button>
+              <span class="cart-quantity-value" aria-label="Quantity ${item.qty}">${item.qty}</span>
+              <button type="button" onclick="changeQty(${i},1)" aria-label="Increase quantity for ${escapeHtml(item.name)}" class="cart-quantity-button">+</button>
+            </div>
+            <button type="button" onclick="removeItem(${i})" data-remove-cart-item="${i}" aria-label="Remove ${escapeHtml(item.name)} from cart" class="cart-remove-button">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/>
               </svg>
+              <span>Remove</span>
             </button>
           </div>
         </div>
@@ -383,9 +386,19 @@ function changeQty(index, delta) {
 }
 
 function removeItem(index) {
+  const removedItem = cart[index];
+  if (!removedItem) return;
   cart.splice(index, 1);
   saveCart();
   updateCartUI();
+  showToast(`${removedItem.name} removed from cart`);
+  requestAnimationFrame(() => {
+    const nextIndex = Math.min(index, cart.length - 1);
+    const nextRemoveButton = nextIndex >= 0
+      ? document.querySelector(`[data-remove-cart-item="${nextIndex}"]`)
+      : null;
+    (nextRemoveButton || document.querySelector('#cart-sidebar button[aria-label="Close cart"]'))?.focus();
+  });
 }
 
 // ── Cart sidebar ─────────────────────────────────────────────────────────────

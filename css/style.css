@@ -912,15 +912,107 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
 #cart-sidebar {
   transform: translateX(100%);
   transition: transform 0.3s ease;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 #cart-sidebar.open {
   transform: translateX(0);
 }
+#cart-sidebar > div:first-child {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  background: var(--surface-background);
+}
+#cart-items {
+  flex: 0 0 auto !important;
+  overflow: visible !important;
+}
 #cart-sidebar > div:last-child {
   min-height: 0;
-  max-height: calc(100dvh - 4.5rem);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  max-height: none;
+  overflow: visible;
+}
+
+.cart-line-item {
+  padding: 1.25rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.cart-line-item:last-child { border-bottom: 0; }
+
+.cart-line-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.cart-quantity-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.cart-quantity-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 50%;
+  color: #4b5563;
+  background: transparent;
+  font-size: 1rem;
+  line-height: 1;
+  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.cart-quantity-button:hover,
+.cart-quantity-button:focus-visible {
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  background: var(--brand-secondary);
+}
+
+.cart-quantity-value {
+  width: 1.75rem;
+  text-align: center;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.cart-remove-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #efb8b4;
+  border-radius: 0.5rem;
+  color: #b42318;
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.cart-remove-button svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+}
+
+.cart-remove-button:hover,
+.cart-remove-button:focus-visible {
+  color: #8f1d14;
+  border-color: #dc6f66;
+  background: #fff1f0;
 }
 
 /* ── Toast ── */
@@ -1439,6 +1531,12 @@ html[data-theme="dark"] .product-lightbox-stage,
 html[data-theme="dark"] .product-lightbox-thumb {
   background: #eef3f6;
 }
+
+html[data-theme="dark"] .cart-line-item { border-color: var(--border-color); }
+html[data-theme="dark"] .cart-quantity-button { color: var(--text-secondary); border-color: var(--border-color); }
+html[data-theme="dark"] .cart-remove-button { color: #ffb4b4; border-color: #7e3a36; }
+html[data-theme="dark"] .cart-remove-button:hover,
+html[data-theme="dark"] .cart-remove-button:focus-visible { color: #ffd0d0; background: #421b1b; border-color: #b95b53; }
 
 html[data-theme="dark"] .stock-in_stock { color: #9de7b6; background: #123523; }
 html[data-theme="dark"] .stock-low_stock { color: #f8d98b; background: #3b2b0d; }

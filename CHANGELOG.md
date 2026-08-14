@@ -2,6 +2,12 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-08-14
+
+### Changed
+
+* Replaced the cart's faint icon-only removal control with a clearly labelled, responsive Remove button and confirmation feedback.
+
 ## 2026-08-10
 
 ### Added
