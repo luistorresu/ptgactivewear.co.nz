@@ -10,17 +10,17 @@ PTG Activewear is an activewear / sportswear website. The website should look cl
 
 ## Local Folder
 
-C:\Users\Nico\Documents\ptgactivewear.co.nz
+C:\Users\Nico\Documents\ptgactivewear-security-phase2
 
 ## Assets
 
 Main image/photo folder:
 
-C:\Users\Nico\Documents\ptgactivewear.co.nz\photos
+C:\Users\Nico\Documents\ptgactivewear-security-phase2\photos
 
 Current clothing/product images folder:
 
-C:\Users\Nico\Documents\ptgactivewear.co.nz\photos\clouth
+C:\Users\Nico\Documents\ptgactivewear-security-phase2\photos\clouth
 
 Logo files and product images should be checked in these folders first before adding new assets.
 
@@ -210,3 +210,11 @@ The Patagonia FC Personalised Mug remains one product with Style 1 and Style 2 v
 The Patagonia FC Training Kit keeps optional Player Name and Shirt Number fields at no additional charge. D1 is authoritative for both zero-cent option prices, and checkout must not replace those values with a hardcoded personalisation fee.
 
 Public stock labels are `In Stock`, `Only a few left`, and `Out of Stock`. Exact quantities remain admin-only. D1 validates and atomically reserves tracked stock before Stripe Checkout; the verified paid webhook commits that reservation to the order without deducting it twice. Failed and expired checkout attempts release the reservation idempotently.
+
+## Promotions
+
+Promotions are stored in D1 using the `promotions` and `promotion_products` tables. Checkout normalises customer codes and loads both the promotion and its explicit product eligibility server-side before calculating totals. Browser-supplied prices, discount values, eligibility flags, subtotals and totals are ignored.
+
+The initial `SPRING` promotion is active with no start date, end date, global usage limit or per-customer limit. It applies a fixed NZD 20.00 discount only to `patagonia-fc-performance-tracksuit`. It excludes personalisation, fulfilment charges, processing surcharges and all other products, including `patagonia-fc-training-kit`.
+
+Paid orders and invoices preserve the code, type, configured value, eligible merchandise subtotal and actual discount in immutable snapshots. To change or disable a promotion, use a reviewed D1 migration or authenticated operational change that updates `promotions`, records an `admin_audit_log` entry and preserves historical order fields. Date and limit fields exist for future controlled promotions; no expiry or usage limit has been inferred for `SPRING`.

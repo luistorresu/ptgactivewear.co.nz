@@ -143,6 +143,7 @@
           if (response.ok && result.status === 'confirmed') {
           localStorage.removeItem('ptg-cart');
           sessionStorage.removeItem('ptg-checkout-customer');
+          sessionStorage.removeItem('ptg-checkout-promotion');
             sessionStorage.removeItem('ptg-checkout-attempt');
             eyebrow.textContent = 'Payment Confirmed';
             title.textContent = 'Thank you for your order.';

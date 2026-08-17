@@ -13,6 +13,7 @@ This repository is for the website ptgactivewear.co.nz.
 * Before editing, inspect the current project structure and understand how the site is built.
 * Preserve the existing coding style, folder structure, naming conventions, and design direction.
 * Do not commit, push, deploy, or change Cloudflare/GitHub settings unless I explicitly ask.
+* Before any production migration or deployment, verify the local project directory, Git remote, Cloudflare project/account, D1 database ID, R2 bucket, and production hostname. Stop on any mismatch.
 * After every task, summarize:
 
   * What files were changed
@@ -25,8 +26,8 @@ This repository is for the website ptgactivewear.co.nz.
 * Domain: ptgactivewear.co.nz
 * Hosting/deployment: Cloudflare Pages / Workers
 * Source control: GitHub
-* Local folder: C:\Users\Nico\Documents\ptgactivewear.co.nz
-* Image folder: C:\Users\Nico\Documents\ptgactivewear.co.nz\photos
+* Local folder: C:\Users\Nico\Documents\ptgactivewear-security-phase2
+* Image folder: C:\Users\Nico\Documents\ptgactivewear-security-phase2\photos
 
 ## Design Preferences
 

@@ -11,6 +11,7 @@ const TRAINING_KIT_ID = 'patagonia-fc-training-kit';
 const RESTRICTED_SHIRT_NUMBERS = new Set(['1', '7', '9', '10']);
 const CHECKOUT_ATTEMPT_KEY = 'ptg-checkout-attempt';
 const CHECKOUT_CUSTOMER_KEY = 'ptg-checkout-customer';
+const CHECKOUT_PROMOTION_KEY = 'ptg-checkout-promotion';
 const CUSTOMER_NAME_MAX_LENGTH = 100;
 const CHILD_NAME_MAX_LENGTH = 60;
 let checkoutSummaryTimer = 0;
@@ -19,6 +20,7 @@ let fulfilmentType = ['pickup', 'delivery'].includes(localStorage.getItem('ptg-f
   ? localStorage.getItem('ptg-fulfilment')
   : '';
 let checkoutCustomerDetails = { customerName: '', childName: '' };
+let appliedPromotionCode = '';
 try {
   const savedCustomer = JSON.parse(sessionStorage.getItem(CHECKOUT_CUSTOMER_KEY) || '{}');
   if (savedCustomer && typeof savedCustomer === 'object' && !Array.isArray(savedCustomer)) {
@@ -26,6 +28,7 @@ try {
     checkoutCustomerDetails.childName = typeof savedCustomer.childName === 'string' ? savedCustomer.childName.slice(0, CHILD_NAME_MAX_LENGTH) : '';
   }
 } catch {}
+try { appliedPromotionCode = String(sessionStorage.getItem(CHECKOUT_PROMOTION_KEY) || '').slice(0, 64); } catch {}
 
 function saveCart({ invalidateCheckout = true } = {}) {
   localStorage.setItem('ptg-cart', JSON.stringify(cart, (key, value) =>
@@ -38,7 +41,7 @@ function clearCheckoutAttempt() {
 }
 
 function checkoutRequestId(payload) {
-  const signature = JSON.stringify({ fulfilmentType: payload.fulfilmentType, customerDetails: payload.customerDetails, items: payload.items });
+  const signature = JSON.stringify({ fulfilmentType: payload.fulfilmentType, customerDetails: payload.customerDetails, promotionCode: payload.promotionCode, items: payload.items });
   try {
     const stored = JSON.parse(sessionStorage.getItem(CHECKOUT_ATTEMPT_KEY) || 'null');
     if (stored?.signature === signature && /^[A-Za-z0-9_-]{8,64}$/.test(stored.requestId || '')) return stored.requestId;
@@ -434,6 +437,7 @@ function buildCheckoutPayload() {
   return {
     fulfilmentType,
     customerDetails: { ...checkoutCustomerDetails },
+    promotionCode: appliedPromotionCode,
     items: cart.map(item => {
       const product = findProductForCartItem(item);
       return {
@@ -541,6 +545,61 @@ function getCartSummaryElements() {
       option.classList.toggle('is-selected', option.querySelector('input').checked);
     });
   }
+  let promotion = document.querySelector('[data-checkout-promotion]');
+  if (!promotion) {
+    promotion = document.createElement('div');
+    promotion.dataset.checkoutPromotion = '';
+    promotion.className = 'checkout-promotion';
+    promotion.innerHTML = `
+      <label for="discount-code">Discount code</label>
+      <div class="checkout-promotion-controls">
+        <input id="discount-code" type="text" inputmode="text" autocomplete="off" maxlength="64" placeholder="Enter discount code" aria-describedby="discount-code-status">
+        <button type="button" class="button-promotion-apply" data-promotion-apply>Apply</button>
+        <button type="button" class="button-promotion-remove" data-promotion-remove hidden>Remove code</button>
+      </div>
+      <p id="discount-code-status" data-promotion-status role="status" aria-live="polite"></p>`;
+    totalRow.before(promotion);
+    const input = promotion.querySelector('input');
+    input.value = appliedPromotionCode;
+    promotion.querySelector('[data-promotion-apply]').addEventListener('click', async () => {
+      const code = input.value.trim();
+      const status = promotion.querySelector('[data-promotion-status]');
+      if (!code) {
+        status.className = 'promotion-status is-error';
+        status.textContent = 'Please enter a discount code.';
+        input.focus();
+        return;
+      }
+      const button = promotion.querySelector('[data-promotion-apply]');
+      button.disabled = true;
+      button.textContent = 'Applying...';
+      try {
+        const summary = await fetchCheckoutSummary({ ...buildCheckoutPayload(), promotionCode: code }, false);
+        appliedPromotionCode = summary.promotion?.code || '';
+        sessionStorage.setItem(CHECKOUT_PROMOTION_KEY, appliedPromotionCode);
+        clearCheckoutAttempt();
+        input.value = appliedPromotionCode;
+        renderCheckoutSummary(summary);
+      } catch (error) {
+        status.className = 'promotion-status is-error';
+        status.textContent = error.message || 'This discount code is not valid.';
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Apply';
+      }
+    });
+    promotion.querySelector('[data-promotion-remove]').addEventListener('click', () => {
+      appliedPromotionCode = '';
+      sessionStorage.removeItem(CHECKOUT_PROMOTION_KEY);
+      clearCheckoutAttempt();
+      input.value = '';
+      const status = promotion.querySelector('[data-promotion-status]');
+      status.className = 'promotion-status';
+      status.textContent = '';
+      scheduleCheckoutSummary();
+      input.focus();
+    });
+  }
   let breakdown = document.querySelector('[data-cart-breakdown]');
   if (!breakdown) {
     breakdown = document.createElement('div');
@@ -548,13 +607,14 @@ function getCartSummaryElements() {
     breakdown.className = 'cart-breakdown';
     breakdown.innerHTML = `
       <div><span>Merchandise subtotal</span><strong data-summary-merchandise>$0.00</strong></div>
+      <div data-summary-discount-row hidden><span data-summary-discount-label>Discount</span><strong data-summary-discount>-$0.00</strong></div>
       <div data-summary-personalisation-row><span>Personalisation</span><strong data-summary-personalisation>$0.00</strong></div>
       <div><span data-summary-shipping-label>Shipping</span><strong data-summary-shipping>$0.00</strong></div>
       <div data-summary-surcharge-row hidden><span data-summary-surcharge-label>Card processing surcharge</span><strong data-summary-surcharge>$0.00</strong></div>
       <p data-summary-surcharge-note hidden></p>`;
     totalRow.before(breakdown);
   }
-  return { totalEl, totalRow, breakdown, fulfilment, customerDetails };
+  return { totalEl, totalRow, breakdown, fulfilment, customerDetails, promotion };
 }
 
 function renderCheckoutSummary(summary) {
@@ -565,6 +625,25 @@ function renderCheckoutSummary(summary) {
   const surchargeNote = breakdown.querySelector('[data-summary-surcharge-note]');
   const fulfilmentNote = document.querySelector('[data-fulfilment-note]');
   breakdown.querySelector('[data-summary-merchandise]').textContent = formatCents(summary.merchandiseSubtotalCents);
+  const discountRow = breakdown.querySelector('[data-summary-discount-row]');
+  discountRow.hidden = !summary.discountCents;
+  if (summary.discountCents) {
+    breakdown.querySelector('[data-summary-discount-label]').textContent = `${summary.promotion.code} discount`;
+    breakdown.querySelector('[data-summary-discount]').textContent = `-${formatCents(summary.discountCents)}`;
+  }
+  const promotion = document.querySelector('[data-checkout-promotion]');
+  if (promotion) {
+    const status = promotion.querySelector('[data-promotion-status]');
+    const remove = promotion.querySelector('[data-promotion-remove]');
+    remove.hidden = !summary.promotion;
+    if (summary.promotion) {
+      status.className = 'promotion-status is-success';
+      status.textContent = `${summary.promotion.code} applied. You saved ${formatCents(summary.discountCents)}.`;
+    } else if (!status.classList.contains('is-error')) {
+      status.className = 'promotion-status';
+      status.textContent = '';
+    }
+  }
   breakdown.querySelector('[data-summary-personalisation]').textContent = formatCents(summary.personalisationCents);
   breakdown.querySelector('[data-summary-shipping]').textContent = summary.shippingCents ? formatCents(summary.shippingCents) : 'Free';
   breakdown.querySelector('[data-summary-shipping-label]').textContent = summary.fulfilment.label;
@@ -618,7 +697,23 @@ function scheduleCheckoutSummary() {
       const summary = await fetchCheckoutSummary(buildCheckoutPayload(), false);
       if (requestNumber !== checkoutSummaryRequest) return;
       renderCheckoutSummary(summary);
-    } catch {
+    } catch (error) {
+      if (appliedPromotionCode) {
+        const promotion = document.querySelector('[data-checkout-promotion]');
+        const status = promotion?.querySelector('[data-promotion-status]');
+        appliedPromotionCode = '';
+        sessionStorage.removeItem(CHECKOUT_PROMOTION_KEY);
+        clearCheckoutAttempt();
+        if (status) {
+          status.className = 'promotion-status is-error';
+          status.textContent = error.message || 'The discount code no longer applies to this cart.';
+        }
+        try {
+          const summary = await fetchCheckoutSummary(buildCheckoutPayload(), false);
+          if (requestNumber === checkoutSummaryRequest) renderCheckoutSummary(summary);
+          return;
+        } catch {}
+      }
       if (breakdown) breakdown.hidden = true;
       if (totalRow) totalRow.querySelector('span').textContent = 'Subtotal';
     }

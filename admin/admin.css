@@ -479,6 +479,15 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
 .report-pagination { margin-top: 15px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .report-pagination span { color: var(--muted); font-size: 0.84rem; font-weight: 700; }
 
+.promotion-list { display: grid; gap: 16px; }
+.promotion-card { padding: 22px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 5px 18px rgba(16, 24, 32, 0.05); }
+.promotion-heading { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
+.promotion-heading h2 { margin: 5px 0 0; font-size: 1.5rem; }
+.promotion-facts { margin: 20px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.promotion-facts > div { padding: 14px; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
+.promotion-facts dt { color: var(--muted); font-size: 0.74rem; font-weight: 750; text-transform: uppercase; }
+.promotion-facts dd { margin: 6px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+
 @media (max-width: 1120px) {
   .admin-header { grid-template-columns: auto 1fr auto; gap: 14px; }
   .admin-nav { justify-self: center; }
@@ -512,7 +521,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
   .admin-main { padding: 28px 14px 54px; }
   .page-heading { align-items: start; flex-direction: column; }
   .page-heading > .button { width: 100%; }
-  .toolbar, .two-columns, .option-grid, .picture-layout, .order-layout, .report-filters { grid-template-columns: 1fr; }
+  .toolbar, .two-columns, .option-grid, .picture-layout, .order-layout, .report-filters, .promotion-facts { grid-template-columns: 1fr; }
   .order-detail { position: static; }
   .product-row {
     padding: 12px;

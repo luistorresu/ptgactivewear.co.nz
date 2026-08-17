@@ -2,6 +2,7 @@ const state = {
   csrfToken: '',
   products: [],
   orders: [],
+  promotions: [],
   currentOrder: null,
   reportPage: 1,
   reportTotal: 0,
@@ -24,6 +25,7 @@ const orderDetail = document.querySelector('[data-order-detail]');
 const reportFilters = document.querySelector('[data-report-filters]');
 const reportSales = document.querySelector('[data-report-sales]');
 const reportInvoices = document.querySelector('[data-report-invoices]');
+const promotionList = document.querySelector('[data-promotion-list]');
 const productForm = document.querySelector('[data-product-form]');
 const createVariants = document.querySelector('[data-create-variants]');
 const createVariantTemplate = document.querySelector('[data-create-variant-template]');
@@ -149,6 +151,7 @@ function routeFor(viewName) {
   if (viewName === 'pictures') return `/admin/pictures${state.pictureProductId ? `?product=${encodeURIComponent(state.pictureProductId)}` : ''}`;
   if (viewName === 'orders') return '/admin/orders';
   if (viewName === 'reports') return '/admin/reports';
+  if (viewName === 'promotions') return '/admin/promotions';
   if (viewName === 'editor') return state.currentProduct ? `/admin?edit=${encodeURIComponent(state.currentProduct.id)}` : '/admin?new=1';
   return '/admin';
 }
@@ -222,6 +225,35 @@ async function loadOrders() {
   const data = await api(`/api/admin/orders?limit=100${search ? `&search=${encodeURIComponent(search)}` : ''}${fulfilmentType ? `&fulfilmentType=${encodeURIComponent(fulfilmentType)}` : ''}${collectionState ? `&collectionState=${encodeURIComponent(collectionState)}` : ''}`);
   state.orders = data.orders || [];
   renderOrders();
+}
+
+function formatPromotionDate(value) {
+  return value ? formatReportDate(value) : 'Not configured';
+}
+
+function renderPromotions() {
+  if (!state.promotions.length) {
+    promotionList.innerHTML = '<div class="empty-state"><p>No promotions are configured.</p></div>';
+    return;
+  }
+  promotionList.innerHTML = state.promotions.map(promotion => `<article class="promotion-card">
+    <div class="promotion-heading"><div><span class="eyebrow">Discount code</span><h2>${escapeHtml(promotion.code)}</h2></div><span class="status-pill status-${promotion.active ? 'active' : 'draft'}">${promotion.active ? 'Active' : 'Inactive'}</span></div>
+    <dl class="promotion-facts">
+      <div><dt>Discount</dt><dd>${promotion.type === 'fixed' ? `${formatMoney(promotion.valueCents)} fixed` : escapeHtml(promotion.type)}</dd></div>
+      <div><dt>Eligible products</dt><dd>${promotion.products.length ? promotion.products.map(product => escapeHtml(product.name)).join(', ') : 'None configured'}</dd></div>
+      <div><dt>Starts</dt><dd>${escapeHtml(formatPromotionDate(promotion.startsAt))}</dd></div>
+      <div><dt>Ends</dt><dd>${escapeHtml(formatPromotionDate(promotion.endsAt))}</dd></div>
+      <div><dt>Global usage limit</dt><dd>${promotion.usageLimit ?? 'Unlimited'}</dd></div>
+      <div><dt>Per-customer limit</dt><dd>${promotion.perCustomerLimit ?? 'Unlimited'}</dd></div>
+    </dl>
+  </article>`).join('');
+}
+
+async function loadPromotions() {
+  promotionList.innerHTML = '<div class="empty-state"><p>Loading promotions...</p></div>';
+  const data = await api('/api/admin/promotions');
+  state.promotions = data.promotions || [];
+  renderPromotions();
 }
 
 function renderOrders() {
@@ -359,6 +391,7 @@ async function openOrder(orderId) {
     <div class="order-items"><h3>Items</h3>${order.items.map(item => `<div><span><strong>${Number(item.quantity)} × ${escapeHtml(item.product_name)}</strong><small>${renderOrderItemDetails(item, order)}</small></span><strong>${formatMoney(item.item_total_cents)}</strong></div>`).join('')}</div>
     <dl class="order-totals">
       <div><dt>${hasSnapshot ? 'Merchandise subtotal' : 'Subtotal'}</dt><dd>${formatMoney(order.subtotal_cents)}</dd></div>
+      ${Number(order.discount_cents) ? `<div><dt>Promotion</dt><dd><strong>${escapeHtml(order.promotion_code)}</strong></dd></div><div><dt>Eligible tracksuit subtotal</dt><dd>${formatMoney(order.promotion_eligible_subtotal_cents)}</dd></div><div><dt>Discount</dt><dd>-${formatMoney(order.discount_cents)}</dd></div>` : ''}
       ${hasSnapshot ? `<div><dt>Personalisation</dt><dd>${formatMoney(order.personalisation_cents)}</dd></div>` : ''}
       <div><dt>${escapeHtml(shippingLabel)}</dt><dd>${order.shipping_cents ? formatMoney(order.shipping_cents) : 'Free'}</dd></div>
       ${surchargeApplied ? `<div><dt>${escapeHtml(order.payment_surcharge_label)}</dt><dd>${formatMoney(order.payment_surcharge_cents)}</dd></div><div class="order-config"><dt>Configuration used</dt><dd>${escapeHtml(order.payment_surcharge_percent)}% + ${formatMoney(order.payment_surcharge_fixed_cents)}</dd></div>` : hasSnapshot ? '<div class="order-config"><dt>Card surcharge</dt><dd>Disabled for this order</dd></div>' : ''}
@@ -1196,6 +1229,7 @@ document.querySelector('[data-order-fulfilment-type]').addEventListener('change'
 document.querySelector('[data-order-collection-state]').addEventListener('change', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-refresh-orders]').addEventListener('click', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-refresh-reports]').addEventListener('click', () => loadReports().catch(error => showNotice(errorMessage(error), 'error')));
+document.querySelector('[data-refresh-promotions]').addEventListener('click', () => loadPromotions().catch(error => showNotice(errorMessage(error), 'error')));
 reportFilters.addEventListener('submit', event => {
   event.preventDefault();
   state.reportPage = 1;
@@ -1227,6 +1261,7 @@ document.querySelectorAll('[data-view-target]').forEach(button => button.addEven
   else if (target === 'pictures') openPictures();
   else if (target === 'orders') loadOrders().then(() => switchView('orders')).catch(error => showNotice(errorMessage(error), 'error'));
   else if (target === 'reports') loadReports().then(() => switchView('reports')).catch(error => showNotice(errorMessage(error), 'error'));
+  else if (target === 'promotions') loadPromotions().then(() => switchView('promotions')).catch(error => showNotice(errorMessage(error), 'error'));
   else switchView(target);
 }));
 
@@ -1330,6 +1365,9 @@ async function initialiseRoute(updateHistory = false) {
   } else if (url.pathname === '/admin/reports') {
     await loadReports();
     switchView('reports', updateHistory);
+  } else if (url.pathname === '/admin/promotions') {
+    await loadPromotions();
+    switchView('promotions', updateHistory);
   } else if (url.searchParams.get('edit')) {
     await openEditor(url.searchParams.get('edit'), updateHistory);
   } else if (url.searchParams.has('new')) {

@@ -2,6 +2,23 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-08-17
+
+### Added
+
+* Added a reusable D1 promotion model with explicit product eligibility, optional scheduling and usage-limit fields, and immutable paid-order and invoice snapshots.
+* Added the `SPRING` promotion for a fixed NZD 20.00 off the Patagonia FC Performance Tracksuit only.
+* Added an accessible cart discount-code control with Apply and Remove actions, inline feedback, responsive styling, and Light, Dark and Sky Blue theme support.
+
+### Changed
+
+* Recalculate merchandise discounts, shipping, processing surcharge and final totals authoritatively in integer cents before Stripe Checkout.
+* Show applied promotion details in customer and business emails, admin order details, invoices, sales reports and protected CSV exports.
+
+### Security
+
+* Validate promotion codes and explicit eligible product IDs from D1, include promotion state in checkout idempotency fingerprints, and reject Stripe snapshot differences down to one cent.
+
 ## 2026-08-14
 
 ### Changed

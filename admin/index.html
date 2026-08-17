@@ -17,6 +17,7 @@
       <button class="nav-button is-active" type="button" data-view-target="products">Products</button>
       <button class="nav-button" type="button" data-view-target="orders">Orders</button>
       <button class="nav-button" type="button" data-view-target="reports">Reports</button>
+      <button class="nav-button" type="button" data-view-target="promotions">Promotions</button>
       <button class="nav-button" type="button" data-view-target="editor">Add Product</button>
       <button class="nav-button" type="button" data-view-target="pictures">Pictures</button>
     </nav>
@@ -138,6 +139,20 @@
         <div class="section-heading report-heading"><div><h2>Invoices</h2><p data-invoice-count>Loading invoices...</p></div><a class="button button-secondary" data-invoices-csv href="/api/admin/reports/invoices.csv">Download Invoice CSV</a></div>
         <div class="report-table-wrap"><table class="report-table"><thead><tr><th>Issue date</th><th>Invoice</th><th>Order</th><th>Customer</th><th>Status</th><th class="amount">Total</th><th>Actions</th></tr></thead><tbody data-report-invoices></tbody></table></div>
       </section>
+    </section>
+
+    <section class="admin-view" data-view="promotions" hidden>
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">Checkout</p>
+          <h1>Promotions</h1>
+          <p>Review the server-controlled discount codes currently configured for the shop.</p>
+        </div>
+        <button class="button button-secondary" type="button" data-refresh-promotions>Refresh</button>
+      </div>
+      <div class="promotion-list" data-promotion-list aria-live="polite">
+        <div class="empty-state"><p>Loading promotions...</p></div>
+      </div>
     </section>
 
     <section class="admin-view" data-view="editor" hidden>

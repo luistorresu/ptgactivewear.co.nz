@@ -82,6 +82,27 @@ async function readBody(request) {
   return { body: result.body };
 }
 
+async function listPromotions(db) {
+  const result = await db.prepare(`SELECT pr.id, pr.code, pr.type, pr.value_cents, pr.active,
+      pr.starts_at, pr.ends_at, pr.usage_limit, pr.per_customer_limit,
+      pp.product_id, p.name AS product_name
+    FROM promotions pr
+    LEFT JOIN promotion_products pp ON pp.promotion_id = pr.id
+    LEFT JOIN products p ON p.id = pp.product_id
+    ORDER BY pr.code, p.name`).all();
+  const promotions = new Map();
+  for (const row of result.results || []) {
+    if (!promotions.has(row.id)) promotions.set(row.id, {
+      id: Number(row.id), code: row.code, type: row.type, valueCents: Number(row.value_cents),
+      active: Boolean(row.active), startsAt: row.starts_at || '', endsAt: row.ends_at || '',
+      usageLimit: row.usage_limit === null ? null : Number(row.usage_limit),
+      perCustomerLimit: row.per_customer_limit === null ? null : Number(row.per_customer_limit), products: []
+    });
+    if (row.product_id) promotions.get(row.id).products.push({ id: row.product_id, name: row.product_name || row.product_id });
+  }
+  return [...promotions.values()];
+}
+
 function mapProduct(row) {
   return {
     id: row.id,
@@ -1253,6 +1274,7 @@ async function reportSummary(db, filters) {
     COUNT(o.id) AS paid_orders,
     CASE WHEN COUNT(o.id) = 0 THEN 0 ELSE CAST(ROUND(AVG(o.total_cents)) AS INTEGER) END AS average_order_cents,
     COALESCE(SUM(o.shipping_cents), 0) AS shipping_cents,
+    COALESCE(SUM(o.discount_cents), 0) AS discount_cents,
     COALESCE(SUM(o.payment_surcharge_cents), 0) AS surcharge_cents,
     COALESCE(SUM(o.refunded_cents), 0) AS refunded_cents,
     COALESCE(SUM(o.total_cents - o.refunded_cents), 0) AS net_collected_cents
@@ -1260,6 +1282,7 @@ async function reportSummary(db, filters) {
   return {
     totalPaidCents: Number(row?.total_paid_cents || 0), paidOrders: Number(row?.paid_orders || 0),
     averageOrderCents: Number(row?.average_order_cents || 0), shippingCents: Number(row?.shipping_cents || 0),
+    discountCents: Number(row?.discount_cents || 0),
     surchargeCents: Number(row?.surcharge_cents || 0), refundedCents: Number(row?.refunded_cents || 0),
     netCollectedCents: Number(row?.net_collected_cents || 0)
   };
@@ -1270,7 +1293,7 @@ async function reportSales(db, filters, { exportRequest = false } = {}) {
   const offset = exportRequest ? 0 : (filters.page - 1) * filters.limit;
   const result = await db.prepare(`SELECT o.id, o.created_at, o.order_number, o.invoice_number,
     o.customer_name, o.child_name, o.customer_email, o.customer_phone, o.fulfilment_type, o.shipping_city, o.shipping_region,
-    o.subtotal_cents, o.shipping_cents, o.payment_surcharge_cents, o.total_cents, o.currency,
+    o.subtotal_cents, o.promotion_code, o.discount_cents, o.shipping_cents, o.payment_surcharge_cents, o.total_cents, o.currency,
     o.payment_status, o.fulfilment_status, o.refund_status, o.refunded_cents,
     o.prepared_at, o.prepared_email_status, o.prepared_email_sent_at,
     o.ready_for_collection_at, o.ready_for_collection_email_status,
@@ -1288,7 +1311,7 @@ async function reportInvoices(db, filters, { exportRequest = false } = {}) {
   const where = reportWhere(filters, { invoicesOnly: true });
   const offset = exportRequest ? 0 : (filters.page - 1) * filters.limit;
   const result = await db.prepare(`SELECT i.order_id, i.invoice_number, i.issue_date, i.customer_name, i.child_name, i.customer_email,
-    i.subtotal_cents, i.shipping_cents, i.processing_surcharge_cents, i.total_cents, i.currency, i.status,
+    i.subtotal_cents, i.promotion_code, i.discount_cents, i.shipping_cents, i.processing_surcharge_cents, i.total_cents, i.currency, i.status,
     o.order_number FROM invoices i JOIN orders o ON o.id = i.order_id ${where.sql}
     ORDER BY i.issue_date DESC, i.id DESC LIMIT ? OFFSET ?`).bind(...where.values, filters.limit, offset).all();
   const count = await db.prepare(`SELECT COUNT(*) AS total FROM invoices i JOIN orders o ON o.id = i.order_id ${where.sql}`).bind(...where.values).first();
@@ -1297,16 +1320,16 @@ async function reportInvoices(db, filters, { exportRequest = false } = {}) {
 
 async function exportSalesReport(db, filters, identity) {
   const report = await reportSales(db, filters, { exportRequest: true });
-  const rows = report.rows.map(row => [row.created_at, row.order_number, row.invoice_number, row.customer_name, row.child_name, row.customer_email, row.customer_phone, row.fulfilment_type, row.shipping_city, row.shipping_region, row.product_names, row.skus, row.quantity, row.subtotal_cents / 100, row.shipping_cents / 100, row.payment_surcharge_cents / 100, row.total_cents / 100, row.currency, row.payment_status, row.fulfilment_status, row.prepared_email_status, row.prepared_at, row.prepared_email_sent_at, row.ready_for_collection_email_status, row.ready_for_collection_at, row.ready_for_collection_email_sent_at, row.collected_at, row.refunded_cents / 100]);
+  const rows = report.rows.map(row => [row.created_at, row.order_number, row.invoice_number, row.customer_name, row.child_name, row.customer_email, row.customer_phone, row.fulfilment_type, row.shipping_city, row.shipping_region, row.product_names, row.skus, row.quantity, row.subtotal_cents / 100, row.promotion_code, row.discount_cents / 100, row.shipping_cents / 100, row.payment_surcharge_cents / 100, row.total_cents / 100, row.currency, row.payment_status, row.fulfilment_status, row.prepared_email_status, row.prepared_at, row.prepared_email_sent_at, row.ready_for_collection_email_status, row.ready_for_collection_at, row.ready_for_collection_email_sent_at, row.collected_at, row.refunded_cents / 100]);
   await audit(db, identity, 'export_csv', 'sales_report', exportDate(), `Exported ${rows.length} sales`);
-  return csvResponse(reportFilename('ptg-sales', filters), ['Order date','Order number','Invoice number','Customer name',"Child's Name",'Customer email','Phone','Fulfilment method','Shipping city','Shipping region','Product names','SKUs','Quantities','Subtotal','Shipping','Processing surcharge','Total','Currency','Payment status','Fulfilment status','Prepared email status','Prepared at','Prepared email sent at','Ready email status','Ready at','Ready email sent at','Collected at','Refund amount'], rows);
+  return csvResponse(reportFilename('ptg-sales', filters), ['Order date','Order number','Invoice number','Customer name',"Child's Name",'Customer email','Phone','Fulfilment method','Shipping city','Shipping region','Product names','SKUs','Quantities','Subtotal','Promotion code','Discount','Shipping','Processing surcharge','Total','Currency','Payment status','Fulfilment status','Prepared email status','Prepared at','Prepared email sent at','Ready email status','Ready at','Ready email sent at','Collected at','Refund amount'], rows);
 }
 
 async function exportInvoiceReport(db, filters, identity) {
   const report = await reportInvoices(db, filters, { exportRequest: true });
-  const rows = report.rows.map(row => [row.invoice_number, row.order_number, row.issue_date, row.customer_name, row.child_name, row.subtotal_cents / 100, row.shipping_cents / 100, row.processing_surcharge_cents / 100, row.total_cents / 100, row.currency, row.status]);
+  const rows = report.rows.map(row => [row.invoice_number, row.order_number, row.issue_date, row.customer_name, row.child_name, row.subtotal_cents / 100, row.promotion_code, row.discount_cents / 100, row.shipping_cents / 100, row.processing_surcharge_cents / 100, row.total_cents / 100, row.currency, row.status]);
   await audit(db, identity, 'export_csv', 'invoice_report', exportDate(), `Exported ${rows.length} invoices`);
-  return csvResponse(reportFilename('ptg-invoices', filters), ['Invoice number','Order number','Issue date','Customer',"Child's Name",'Subtotal','Shipping','Processing surcharge','Total','Currency','Status'], rows);
+  return csvResponse(reportFilename('ptg-invoices', filters), ['Invoice number','Order number','Issue date','Customer',"Child's Name",'Subtotal','Promotion code','Discount','Shipping','Processing surcharge','Total','Currency','Status'], rows);
 }
 
 async function listMovements(db, url) {
@@ -1345,11 +1368,11 @@ async function exportOrders(db, url, identity) {
       const optionChargeNzd = selectedOptions && Number(item.customisation_total_cents || 0) > 0
         ? Number(item.customisation_total_cents) / Math.max(1, Number(item.quantity || 1)) / selectedOptions / 100
         : '';
-      rows.push([order.order_number, order.created_at, order.customer_name, order.child_name, order.customer_email, order.customer_phone, order.fulfilment_type, order.shipping_method, order.shipping_name, order.shipping_phone, order.shipping_address_line_1, order.shipping_address_line_2, order.shipping_suburb, order.shipping_city, order.shipping_region, order.shipping_postcode, order.shipping_country, order.shipping_rural ? 'Yes' : 'No', order.pickup_location, order.pickup_instructions, item.product_name, item.sku, item.quantity, item.size, [item.colour, item.style].filter(Boolean).join(' / '), item.player_name, trainingKit && item.player_name ? optionChargeNzd : '', item.player_number, trainingKitNumber ? optionChargeNzd : '', restrictedNumber ? 'Yes' : 'No', restrictedNumber ? (eligibilityVerified ? 'Server verified' : 'Not recorded') : '', trainingKitNumber ? 'Subject to final confirmation' : '', item.unit_price_cents / 100, item.customisation_total_cents / 100, order.subtotal_cents / 100, order.personalisation_cents / 100, order.shipping_cents / 100, order.payment_surcharge_cents / 100, order.total_cents / 100, order.refunded_cents / 100, order.payment_status, order.fulfilment_status, order.prepared_email_status, order.prepared_at, order.prepared_email_sent_at, order.ready_for_collection_email_status, order.ready_for_collection_at, order.ready_for_collection_email_sent_at, order.collected_at, order.refund_status]);
+      rows.push([order.order_number, order.created_at, order.customer_name, order.child_name, order.customer_email, order.customer_phone, order.fulfilment_type, order.shipping_method, order.shipping_name, order.shipping_phone, order.shipping_address_line_1, order.shipping_address_line_2, order.shipping_suburb, order.shipping_city, order.shipping_region, order.shipping_postcode, order.shipping_country, order.shipping_rural ? 'Yes' : 'No', order.pickup_location, order.pickup_instructions, item.product_name, item.sku, item.quantity, item.size, [item.colour, item.style].filter(Boolean).join(' / '), item.player_name, trainingKit && item.player_name ? optionChargeNzd : '', item.player_number, trainingKitNumber ? optionChargeNzd : '', restrictedNumber ? 'Yes' : 'No', restrictedNumber ? (eligibilityVerified ? 'Server verified' : 'Not recorded') : '', trainingKitNumber ? 'Subject to final confirmation' : '', item.unit_price_cents / 100, item.customisation_total_cents / 100, order.subtotal_cents / 100, order.promotion_code, order.discount_cents / 100, order.personalisation_cents / 100, order.shipping_cents / 100, order.payment_surcharge_cents / 100, order.total_cents / 100, order.refunded_cents / 100, order.payment_status, order.fulfilment_status, order.prepared_email_status, order.prepared_at, order.prepared_email_sent_at, order.ready_for_collection_email_status, order.ready_for_collection_at, order.ready_for_collection_email_sent_at, order.collected_at, order.refund_status]);
     }
   }
   await audit(db, identity, 'export_csv', 'orders', exportDate(), `Exported ${rows.length} order lines`);
-  return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name',"Child's Name",'Customer email','Customer phone','Fulfilment type','Shipping method','Shipping name','Shipping phone','Address line 1','Address line 2','Suburb','City','Region','Postcode','Country','Rural','Pickup location','Pickup instructions','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Name Charge NZD','Requested Shirt Number','Shirt Number Charge NZD','Restricted Number','Eligibility Validation','Number Availability','Unit price NZD','Item personalisation NZD','Merchandise subtotal NZD','Order personalisation NZD','Shipping NZD','Processing surcharge NZD','Total NZD','Refunded NZD','Payment status','Fulfilment status','Prepared email status','Prepared at','Prepared email sent at','Ready email status','Ready at','Ready email sent at','Collected at','Refund status'], rows);
+  return csvResponse(`ptg-orders-${exportDate()}.csv`, ['Order number','Date','Customer name',"Child's Name",'Customer email','Customer phone','Fulfilment type','Shipping method','Shipping name','Shipping phone','Address line 1','Address line 2','Suburb','City','Region','Postcode','Country','Rural','Pickup location','Pickup instructions','Product','SKU','Quantity','Size','Colour/style','Player Name','Player Name Charge NZD','Requested Shirt Number','Shirt Number Charge NZD','Restricted Number','Eligibility Validation','Number Availability','Unit price NZD','Item personalisation NZD','Merchandise subtotal NZD','Promotion code','Discount NZD','Order personalisation NZD','Shipping NZD','Processing surcharge NZD','Total NZD','Refunded NZD','Payment status','Fulfilment status','Prepared email status','Prepared at','Prepared email sent at','Ready email status','Ready at','Ready email sent at','Collected at','Refund status'], rows);
 }
 
 async function exportInventory(db, url, identity) {
@@ -1383,6 +1406,9 @@ async function routeAdminApi(request, env, identity) {
     }
     if (method === 'GET' && segments[0] === 'products' && segments.length === 1) {
       return json({ ok: true, products: await listProducts(env.DB) });
+    }
+    if (method === 'GET' && segments[0] === 'promotions' && segments.length === 1) {
+      return json({ ok: true, promotions: await listPromotions(env.DB) });
     }
     if (method === 'POST' && segments[0] === 'products' && segments.length === 1) {
       const parsed = await readBody(request);

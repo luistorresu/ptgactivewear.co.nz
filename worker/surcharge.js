@@ -67,7 +67,7 @@ export function calculatePaymentSurcharge(eligibleSubtotalCents, config) {
   return surchargeCents;
 }
 
-export function buildTrustedOrderSummary(items, shippingCents, env = {}) {
+export function buildTrustedOrderSummary(items, shippingCents, env = {}, promotion = null) {
   if (!Array.isArray(items) || !items.length) throw new Error('A valid cart is required.');
   if (!Number.isSafeInteger(shippingCents) || shippingCents < 0) throw new Error('Shipping must be a non-negative integer number of cents.');
 
@@ -85,21 +85,29 @@ export function buildTrustedOrderSummary(items, shippingCents, env = {}) {
     personalisationCents += personalisationPerUnit * quantity;
   }
 
+  const discountCents = Number(promotion?.discountCents || 0);
+  if (!Number.isSafeInteger(discountCents) || discountCents < 0 || discountCents > merchandiseSubtotalCents) {
+    throw new Error('Calculated promotion discount is invalid.');
+  }
+  const discountedMerchandiseSubtotalCents = merchandiseSubtotalCents - discountCents;
   const surcharge = getPaymentSurchargeConfig(env);
-  const paymentSurchargeCents = calculatePaymentSurcharge(merchandiseSubtotalCents, surcharge);
-  const totalCents = merchandiseSubtotalCents + personalisationCents + shippingCents + paymentSurchargeCents;
-  if (![merchandiseSubtotalCents, personalisationCents, totalCents].every(Number.isSafeInteger)) {
+  const paymentSurchargeCents = calculatePaymentSurcharge(discountedMerchandiseSubtotalCents, surcharge);
+  const totalCents = discountedMerchandiseSubtotalCents + personalisationCents + shippingCents + paymentSurchargeCents;
+  if (![merchandiseSubtotalCents, discountedMerchandiseSubtotalCents, personalisationCents, totalCents].every(Number.isSafeInteger)) {
     throw new Error('Calculated checkout total is outside the supported range.');
   }
 
   return {
     currency: 'NZD',
     merchandiseSubtotalCents,
+    discountedMerchandiseSubtotalCents,
     personalisationCents,
+    discountCents,
     shippingCents,
     paymentSurchargeCents,
     totalCents,
-    surcharge
+    surcharge,
+    promotion: promotion || { code: '', type: '', valueCents: 0, eligibleSubtotalCents: 0, discountCents: 0, eligibleProductIds: [] }
   };
 }
 

@@ -14,6 +14,7 @@ import {
   validateD1CheckoutPayload
 } from './worker/inventory.js';
 import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
+import { resolvePromotion } from './worker/promotions.js';
 import { buildTrustedOrderSummary } from './worker/surcharge.js';
 import { publicFulfilment, selectFulfilment } from './worker/fulfilment.js';
 import { validateCheckoutCustomerDetails } from './worker/customer-details.js';
@@ -492,8 +493,10 @@ function appendStripeLineItem(params, index, line) {
   });
 }
 
-function buildStripeLineItems(validatedItems, summary, fulfilment) {
+export function buildStripeLineItems(validatedItems, summary, fulfilment) {
   const lines = [];
+  const eligibleProductIds = new Set(summary.promotion.eligibleProductIds || []);
+  let remainingDiscountCents = summary.discountCents;
 
   validatedItems.forEach(item => {
     const optionDescription = buildOptionDescription(item);
@@ -507,16 +510,32 @@ function buildStripeLineItems(validatedItems, summary, fulfilment) {
       player_name: item.playerName,
       player_number: item.playerNumber,
       restricted_number_eligibility_verified: item.restrictedNumberEligibilityVerified ? '1' : '',
+      original_unit_amount_cents: item.product.unitAmountNzdCents,
       item_kind: 'base_product'
     };
 
-    lines.push({
-      name: item.product.name,
-      description: optionDescription,
-      unitAmount: item.product.unitAmountNzdCents,
-      quantity: item.quantity,
-      metadata: baseMetadata
-    });
+    let remainingQuantity = item.quantity;
+    while (remainingQuantity > 0) {
+      const unitDiscount = eligibleProductIds.has(item.product.id)
+        ? Math.min(item.product.unitAmountNzdCents, remainingDiscountCents)
+        : 0;
+      const lineQuantity = unitDiscount > 0 ? 1 : remainingQuantity;
+      lines.push({
+        name: item.product.name,
+        description: unitDiscount > 0
+          ? `${optionDescription} | ${summary.promotion.code} discount: -${formatMoneyFromCents(unitDiscount)}`
+          : optionDescription,
+        unitAmount: item.product.unitAmountNzdCents - unitDiscount,
+        quantity: lineQuantity,
+        metadata: {
+          ...baseMetadata,
+          promotion_code: unitDiscount > 0 ? summary.promotion.code : '',
+          promotion_discount_per_unit_cents: unitDiscount
+        }
+      });
+      remainingDiscountCents -= unitDiscount;
+      remainingQuantity -= lineQuantity;
+    }
 
     if (item.nameAddOn) {
       lines.push({
@@ -538,6 +557,8 @@ function buildStripeLineItems(validatedItems, summary, fulfilment) {
       });
     }
   });
+
+  if (remainingDiscountCents !== 0) throw new Error('Promotion discount could not be allocated to eligible items.');
 
   if (summary.paymentSurchargeCents > 0) {
     lines.push({
@@ -592,11 +613,20 @@ function publicCheckoutSummary(summary, fulfilment) {
   return {
     currency: summary.currency,
     merchandiseSubtotalCents: summary.merchandiseSubtotalCents,
+    discountedMerchandiseSubtotalCents: summary.discountedMerchandiseSubtotalCents,
     personalisationCents: summary.personalisationCents,
+    discountCents: summary.discountCents,
     shippingCents: summary.shippingCents,
     paymentSurchargeCents: summary.paymentSurchargeCents,
     totalCents: summary.totalCents,
     fulfilment: publicFulfilment(fulfilment),
+    promotion: summary.promotion.code ? {
+      code: summary.promotion.code,
+      type: summary.promotion.type,
+      valueCents: summary.promotion.valueCents,
+      eligibleSubtotalCents: summary.promotion.eligibleSubtotalCents,
+      discountCents: summary.promotion.discountCents
+    } : null,
     surcharge: {
       enabled: summary.surcharge.enabled,
       label: summary.surcharge.label,
@@ -618,7 +648,14 @@ async function validateAndSummariseCheckout(payload, env, { requireCustomerDetai
   try {
     const fulfilment = selectFulfilment(payload, env);
     if (fulfilment.error) return fulfilment;
-    return { ...validation, customerDetails, fulfilment, summary: buildTrustedOrderSummary(validation.items, fulfilment.shippingCents, env) };
+    const promotionResult = await resolvePromotion(env.DB, payload?.promotionCode, validation.items);
+    if (promotionResult.error) return promotionResult;
+    return {
+      ...validation,
+      customerDetails,
+      fulfilment,
+      summary: buildTrustedOrderSummary(validation.items, fulfilment.shippingCents, env, promotionResult.promotion)
+    };
   } catch (error) {
     console.error('Checkout total configuration failed', { message: error.message });
     return { error: 'Checkout totals are temporarily unavailable.', configurationError: true };
@@ -636,6 +673,7 @@ async function handleTrainingKitNumberEligibility(request, env) {
     limit: 30,
     windowSeconds: 10 * 60
   });
+
   if (limited) return limited;
   const result = await issueTrainingKitEligibilityProof(body?.shirtNumber, body?.birthDay, env);
   if (result.error) return jsonResponse({ ok: false, error: result.error }, result.configurationError ? 503 : 400);
@@ -759,6 +797,11 @@ async function handleCreateCheckoutSession(request, env) {
   params.append('metadata[pickup_address]', validation.fulfilment.pickupAddress);
   params.append('metadata[pickup_instructions]', validation.fulfilment.instructions);
   params.append('metadata[subtotal_cents]', String(validation.summary.merchandiseSubtotalCents));
+  params.append('metadata[discount_cents]', String(validation.summary.discountCents));
+  params.append('metadata[promotion_code]', validation.summary.promotion.code);
+  params.append('metadata[promotion_type]', validation.summary.promotion.type);
+  params.append('metadata[promotion_value_cents]', String(validation.summary.promotion.valueCents));
+  params.append('metadata[promotion_eligible_subtotal_cents]', String(validation.summary.promotion.eligibleSubtotalCents));
   params.append('metadata[personalisation_cents]', String(validation.summary.personalisationCents));
   params.append('metadata[shipping_cents]', String(validation.summary.shippingCents));
   params.append('metadata[payment_surcharge_cents]', String(validation.summary.paymentSurchargeCents));
@@ -947,10 +990,35 @@ function describeStripeLineItem(item) {
   return {
     name: item.description || product.name || 'PTG Activewear item',
     quantity: item.quantity || 1,
-    amountTotal: item.amount_total || 0,
+    amountTotal: metadata.item_kind === 'base_product' && /^\d+$/.test(String(metadata.original_unit_amount_cents || ''))
+      ? Number(metadata.original_unit_amount_cents) * Number(item.quantity || 1)
+      : item.amount_total || 0,
     details,
-    itemKind: metadata.item_kind || 'base_product'
+    itemKind: metadata.item_kind || 'base_product',
+    cartItemKey: metadata.cart_item_key || ''
   };
+}
+
+function consolidateEmailItems(items) {
+  const consolidated = [];
+  const grouped = new Map();
+  for (const item of items) {
+    if (item.itemKind !== 'base_product' || !item.cartItemKey) {
+      consolidated.push(item);
+      continue;
+    }
+    const existing = grouped.get(item.cartItemKey);
+    if (!existing) {
+      const copy = { ...item, details: [...item.details] };
+      grouped.set(item.cartItemKey, copy);
+      consolidated.push(copy);
+      continue;
+    }
+    existing.quantity += item.quantity;
+    existing.amountTotal += item.amountTotal;
+    existing.details = [...new Set([...existing.details, ...item.details])];
+  }
+  return consolidated;
 }
 
 export function buildOrderEmailData(session, lineItems) {
@@ -958,7 +1026,7 @@ export function buildOrderEmailData(session, lineItems) {
   const shipping = session.shipping_details || session.collected_information?.shipping_details || {};
   const shippingAddress = shipping.address || customer.address || {};
   const describedItems = lineItems.map(describeStripeLineItem);
-  const items = describedItems.filter(item => !['payment_surcharge', 'fulfilment_pickup'].includes(item.itemKind));
+  const items = consolidateEmailItems(describedItems.filter(item => !['payment_surcharge', 'fulfilment_pickup'].includes(item.itemKind)));
   const metadata = session.metadata || {};
   const checkoutDetails = metadata.checkout_details_version === '1'
     ? validateCheckoutCustomerDetails({
@@ -989,6 +1057,11 @@ export function buildOrderEmailData(session, lineItems) {
     items,
     merchandiseSubtotal: metadataCents('subtotal_cents') || describedItems.filter(item => item.itemKind === 'base_product').reduce((sum, item) => sum + Number(item.amountTotal || 0), 0),
     personalisationAmount: metadataCents('personalisation_cents') || describedItems.filter(item => item.itemKind === 'player_name_addon' || item.itemKind === 'player_number_addon').reduce((sum, item) => sum + Number(item.amountTotal || 0), 0),
+    promotionCode: cleanText(metadata.promotion_code, 64).toUpperCase(),
+    promotionType: cleanText(metadata.promotion_type, 20).toLowerCase(),
+    promotionValue: metadataCents('promotion_value_cents'),
+    promotionEligibleSubtotal: metadataCents('promotion_eligible_subtotal_cents'),
+    discountAmount: metadataCents('discount_cents') || Number(session.total_details?.amount_discount || 0),
     shippingAmount: metadataCents('shipping_cents') || session.total_details?.amount_shipping || 0,
     paymentSurchargeAmount: metadataCents('payment_surcharge_cents'),
     paymentSurchargeEnabled: metadata.payment_surcharge_enabled === '1',
@@ -1038,6 +1111,7 @@ export function buildBusinessOrderEmail(order) {
     itemLines,
     '',
     `Merchandise subtotal: ${formatMoneyFromCents(order.merchandiseSubtotal, order.currency)}`,
+    ...(order.discountAmount ? [`Discount (${order.promotionCode}): -${formatMoneyFromCents(order.discountAmount, order.currency)}`, `Eligible tracksuit subtotal: ${formatMoneyFromCents(order.promotionEligibleSubtotal, order.currency)}`] : []),
     `Personalisation: ${formatMoneyFromCents(order.personalisationAmount, order.currency)}`,
     `${shippingLabel}: ${shippingValue}`,
     ...(order.paymentSurchargeEnabled ? [`${order.paymentSurchargeLabel}: ${formatMoneyFromCents(order.paymentSurchargeAmount, order.currency)}`, `Surcharge configuration: ${order.paymentSurchargePercent}% + ${formatMoneyFromCents(order.paymentSurchargeFixedCents, order.currency)}`] : []),
@@ -1070,6 +1144,7 @@ export function buildBusinessOrderEmail(order) {
     <h3>Items</h3>
     <ul>${htmlItems}</ul>
     <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}</p>
+    ${order.discountAmount ? `<p><strong>Discount (${escapeHtml(order.promotionCode)}):</strong> -${escapeHtml(formatMoneyFromCents(order.discountAmount, order.currency))}<br><strong>Eligible tracksuit subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.promotionEligibleSubtotal, order.currency))}</p>` : ''}
     <p><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}</p>
     <p><strong>${escapeHtml(shippingLabel)}:</strong> ${escapeHtml(shippingValue)}</p>
     ${order.paymentSurchargeEnabled ? `<p><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}</p><p><strong>Surcharge configuration:</strong> ${escapeHtml(order.paymentSurchargePercent)}% + ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeFixedCents, order.currency))}</p>` : ''}
@@ -1119,6 +1194,7 @@ export function buildCustomerOrderEmail(order) {
     itemLines,
     '',
     `Merchandise subtotal: ${formatMoneyFromCents(order.merchandiseSubtotal, order.currency)}`,
+    ...(order.discountAmount ? [`Discount (${order.promotionCode}): -${formatMoneyFromCents(order.discountAmount, order.currency)}`] : []),
     `Personalisation: ${formatMoneyFromCents(order.personalisationAmount, order.currency)}`,
     `${shippingLabel}: ${shippingValue}`,
     ...(order.paymentSurchargeEnabled ? [`${order.paymentSurchargeLabel}: ${formatMoneyFromCents(order.paymentSurchargeAmount, order.currency)}`] : []),
@@ -1139,7 +1215,7 @@ export function buildCustomerOrderEmail(order) {
     <p>Please keep this order number in case you need to contact us.</p>
     <p><strong>Order date:</strong> ${escapeHtml(order.orderDate)}<br><strong>Payment status:</strong> Paid<br><strong>Child's Name:</strong> ${escapeHtml(order.childName || 'Not provided')}</p>
     <h3>Items</h3><ul>${order.items.map(item => `<li><strong>${escapeHtml(String(item.quantity))} x ${escapeHtml(item.name)}</strong>${item.details.length ? `<ul>${item.details.map(detail => `<li>${escapeHtml(detail)}</li>`).join('')}</ul>` : ''}</li>`).join('')}</ul>
-    <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}<br><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}<br><strong>${escapeHtml(shippingLabel)}:</strong> ${escapeHtml(shippingValue)}${order.paymentSurchargeEnabled ? `<br><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}` : ''}</p>
+    <p><strong>Merchandise subtotal:</strong> ${escapeHtml(formatMoneyFromCents(order.merchandiseSubtotal, order.currency))}${order.discountAmount ? `<br><strong>Discount (${escapeHtml(order.promotionCode)}):</strong> -${escapeHtml(formatMoneyFromCents(order.discountAmount, order.currency))}` : ''}<br><strong>Personalisation:</strong> ${escapeHtml(formatMoneyFromCents(order.personalisationAmount, order.currency))}<br><strong>${escapeHtml(shippingLabel)}:</strong> ${escapeHtml(shippingValue)}${order.paymentSurchargeEnabled ? `<br><strong>${escapeHtml(order.paymentSurchargeLabel)}:</strong> ${escapeHtml(formatMoneyFromCents(order.paymentSurchargeAmount, order.currency))}` : ''}</p>
     <p><strong>Total paid:</strong> ${escapeHtml(formatMoneyFromCents(order.totalPaid, order.currency))} NZD</p>
     ${order.paymentSurchargeEnabled ? '<p>The card processing surcharge helps cover the cost of processing your payment.</p>' : ''}
     <p><strong>Fulfilment method:</strong> ${escapeHtml(order.shippingMethod)}</p>
@@ -1403,7 +1479,8 @@ function unauthorisedAdminResponse(isApi) {
 
 async function serveAdminAsset(request, env) {
   const url = new URL(request.url);
-  if (url.pathname === '/admin' || url.pathname === '/admin/pictures' || url.pathname === '/admin/orders' || url.pathname === '/admin/reports') {
+  if (url.pathname === '/admin' || url.pathname === '/admin/pictures' || url.pathname === '/admin/orders'
+    || url.pathname === '/admin/reports' || url.pathname === '/admin/promotions') {
     url.pathname = '/admin/';
     request = new Request(url.toString(), request);
   }

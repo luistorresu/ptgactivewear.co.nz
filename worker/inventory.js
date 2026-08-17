@@ -293,6 +293,20 @@ function surchargeLineTotal(lineItems) {
     : total, 0);
 }
 
+function baseLineTotals(lineItems) {
+  return lineItems.reduce((totals, item) => {
+    const metadata = lineMetadata(item);
+    if (metadata.item_kind !== 'base_product') return totals;
+    const quantity = Number(item.quantity || 1);
+    const originalUnitAmount = metadataInteger(metadata, 'original_unit_amount_cents');
+    totals.stripeCents += Number(item.amount_total || 0);
+    totals.originalCents += originalUnitAmount === null
+      ? Number(item.amount_total || 0)
+      : originalUnitAmount * quantity;
+    return totals;
+  }, { stripeCents: 0, originalCents: 0 });
+}
+
 export function verifyStripeCheckoutSnapshot(session, lineItems, personalisationCents) {
   const metadata = session.metadata || {};
   const hasSnapshot = metadata.subtotal_cents !== undefined || metadata.payment_surcharge_cents !== undefined;
@@ -300,6 +314,11 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
     return {
       subtotalCents: Number(session.amount_subtotal || 0),
       personalisationCents,
+      discountCents: Number(session.total_details?.amount_discount || 0),
+      promotionCode: '',
+      promotionType: '',
+      promotionValueCents: 0,
+      promotionEligibleSubtotalCents: 0,
       shippingCents: Number(session.total_details?.amount_shipping || 0),
       paymentSurchargeCents: 0,
       paymentSurchargeEnabled: false,
@@ -317,6 +336,11 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
 
   const subtotalCents = metadataInteger(metadata, 'subtotal_cents');
   const storedPersonalisationCents = metadataInteger(metadata, 'personalisation_cents');
+  const discountCents = metadata.discount_cents === undefined
+    ? Number(session.total_details?.amount_discount || 0)
+    : metadataInteger(metadata, 'discount_cents');
+  const promotionValueCents = metadata.promotion_value_cents === undefined ? 0 : metadataInteger(metadata, 'promotion_value_cents');
+  const promotionEligibleSubtotalCents = metadata.promotion_eligible_subtotal_cents === undefined ? 0 : metadataInteger(metadata, 'promotion_eligible_subtotal_cents');
   const shippingCents = metadataInteger(metadata, 'shipping_cents');
   const paymentSurchargeCents = metadataInteger(metadata, 'payment_surcharge_cents');
   const paymentSurchargeEnabled = metadataInteger(metadata, 'payment_surcharge_enabled');
@@ -324,7 +348,7 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
   const totalCents = metadataInteger(metadata, 'total_cents');
   const fulfilmentType = cleanText(metadata.fulfilment_type, 20).toLowerCase();
   const shippingMethod = cleanText(metadata.shipping_method, 80);
-  if ([subtotalCents, storedPersonalisationCents, shippingCents, paymentSurchargeCents, paymentSurchargeEnabled, paymentSurchargeFixedCents, totalCents].some(value => value === null)
+  if ([subtotalCents, storedPersonalisationCents, discountCents, promotionValueCents, promotionEligibleSubtotalCents, shippingCents, paymentSurchargeCents, paymentSurchargeEnabled, paymentSurchargeFixedCents, totalCents].some(value => value === null)
     || ![0, 1].includes(paymentSurchargeEnabled)
     || !['pickup', 'delivery'].includes(fulfilmentType)
     || !shippingMethod) {
@@ -332,19 +356,37 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
   }
   if (storedPersonalisationCents !== personalisationCents) throw new Error('Checkout personalisation total does not match Stripe line items.');
   if (paymentSurchargeCents !== surchargeLineTotal(lineItems)) throw new Error('Checkout surcharge does not match Stripe line items.');
-  if (Number(session.amount_subtotal || 0) !== subtotalCents + personalisationCents + paymentSurchargeCents) {
+  const baseTotals = baseLineTotals(lineItems);
+  if (baseTotals.originalCents !== subtotalCents || baseTotals.originalCents - baseTotals.stripeCents !== discountCents) {
+    throw new Error('Checkout promotion discount does not match Stripe line items.');
+  }
+  if (discountCents > promotionEligibleSubtotalCents || discountCents > promotionValueCents) {
+    throw new Error('Checkout promotion snapshot is invalid.');
+  }
+  const promotionCode = cleanText(metadata.promotion_code, 64).toUpperCase();
+  const promotionType = cleanText(metadata.promotion_type, 20).toLowerCase();
+  if ((discountCents > 0 && (!promotionCode || promotionType !== 'fixed'))
+    || (discountCents === 0 && (promotionCode || promotionType || promotionValueCents || promotionEligibleSubtotalCents))) {
+    throw new Error('Checkout promotion metadata is invalid.');
+  }
+  if (Number(session.amount_subtotal || 0) !== subtotalCents - discountCents + personalisationCents + paymentSurchargeCents) {
     throw new Error('Checkout subtotal does not match Stripe line items.');
   }
   if (Number(session.total_details?.amount_shipping || 0) !== shippingCents) throw new Error('Checkout shipping total does not match Stripe.');
   if (fulfilmentType === 'pickup' && shippingCents !== 0) throw new Error('Pickup order includes an invalid shipping charge.');
   if (Number(session.amount_total || 0) !== totalCents
-    || totalCents !== subtotalCents + personalisationCents + shippingCents + paymentSurchargeCents) {
+    || totalCents !== subtotalCents - discountCents + personalisationCents + shippingCents + paymentSurchargeCents) {
     throw new Error('Checkout paid total does not match the server snapshot.');
   }
 
   return {
     subtotalCents,
     personalisationCents,
+    discountCents,
+    promotionCode,
+    promotionType,
+    promotionValueCents,
+    promotionEligibleSubtotalCents,
     shippingCents,
     paymentSurchargeCents,
     paymentSurchargeEnabled: paymentSurchargeEnabled === 1,
@@ -379,13 +421,17 @@ function groupStripeItems(lineItems) {
       playerNumber: metadata.player_number || '',
       restrictedNumberEligibilityVerified:
         metadata.restricted_number_eligibility_verified === '1',
-      quantity: Number(lineItem.quantity || 1),
+      quantity: 0,
       baseAmountTotal: 0,
       customisationAmountTotal: 0
     };
     if (metadata.item_kind === 'base_product') {
-      group.quantity = Number(lineItem.quantity || 1);
-      group.baseAmountTotal += Number(lineItem.amount_total || 0);
+      const lineQuantity = Number(lineItem.quantity || 1);
+      const originalUnitAmount = metadataInteger(metadata, 'original_unit_amount_cents');
+      group.quantity += lineQuantity;
+      group.baseAmountTotal += originalUnitAmount === null
+        ? Number(lineItem.amount_total || 0)
+        : originalUnitAmount * lineQuantity;
     } else {
       group.customisationAmountTotal += Number(lineItem.amount_total || 0);
     }
@@ -494,13 +540,15 @@ export async function commitPaidOrder(env, event, session, lineItems) {
         customer_name, child_name, customer_email, customer_phone, shipping_address_json,
         subtotal_cents, shipping_cents, total_cents, currency, payment_status,
         fulfilment_status, email_status, billing_address_json, payment_date,
-        personalisation_cents, discount_cents, tax_cents, refund_status, payment_method_label, internal_notes,
+        personalisation_cents, discount_cents, promotion_code, promotion_type,
+        promotion_value_cents, promotion_eligible_subtotal_cents, tax_cents,
+        refund_status, payment_method_label, internal_notes,
         payment_surcharge_cents, payment_surcharge_enabled, payment_surcharge_percent, payment_surcharge_fixed_cents,
         payment_surcharge_label, payment_surcharge_description,
         fulfilment_type, shipping_method, pickup_location, pickup_instructions,
         shipping_name, shipping_phone, shipping_address_line_1, shipping_address_line_2,
         shipping_suburb, shipping_city, shipping_region, shipping_postcode, shipping_country, shipping_rural
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'pending', ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, 'not_refunded', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       session.id,
       typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
@@ -517,7 +565,11 @@ export async function commitPaidOrder(env, event, session, lineItems) {
       cleanText(session.payment_status || 'paid', 30),
       JSON.stringify(customer.address || {}),
       snapshot.personalisationCents,
-      Number(session.total_details?.amount_discount || 0),
+      snapshot.discountCents,
+      snapshot.promotionCode,
+      snapshot.promotionType,
+      snapshot.promotionValueCents,
+      snapshot.promotionEligibleSubtotalCents,
       Number(session.total_details?.amount_tax || 0),
       cleanText(Array.isArray(session.payment_method_types) ? session.payment_method_types.join(', ') : '', 100),
       verificationNote,

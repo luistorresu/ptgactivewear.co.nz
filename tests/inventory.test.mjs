@@ -154,6 +154,7 @@ test('paid delivery order persists a complete NZ fulfilment snapshot with valid 
         },
         async all() { return { results: [] }; },
         async run() {
+          assert.equal((sql.match(/\?/g) || []).length, this.args.length, sql);
           if (/UPDATE orders SET invoice_number/i.test(sql)) invoiceNumber = 'PTG-INV-2026-000001';
           if (/INSERT OR IGNORE INTO invoices/i.test(sql)) invoiceCreated = true;
           return { meta: { changes: 1 } };
