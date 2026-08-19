@@ -623,7 +623,7 @@ function publicCheckoutSummary(summary, fulfilment) {
     promotion: summary.promotion.code ? {
       code: summary.promotion.code,
       type: summary.promotion.type,
-      valueCents: summary.promotion.valueCents,
+      value: summary.promotion.value,
       eligibleSubtotalCents: summary.promotion.eligibleSubtotalCents,
       discountCents: summary.promotion.discountCents
     } : null,
@@ -800,7 +800,7 @@ async function handleCreateCheckoutSession(request, env) {
   params.append('metadata[discount_cents]', String(validation.summary.discountCents));
   params.append('metadata[promotion_code]', validation.summary.promotion.code);
   params.append('metadata[promotion_type]', validation.summary.promotion.type);
-  params.append('metadata[promotion_value_cents]', String(validation.summary.promotion.valueCents));
+  params.append('metadata[promotion_value_cents]', String(validation.summary.promotion.value));
   params.append('metadata[promotion_eligible_subtotal_cents]', String(validation.summary.promotion.eligibleSubtotalCents));
   params.append('metadata[personalisation_cents]', String(validation.summary.personalisationCents));
   params.append('metadata[shipping_cents]', String(validation.summary.shippingCents));

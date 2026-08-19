@@ -239,7 +239,7 @@ function renderPromotions() {
   promotionList.innerHTML = state.promotions.map(promotion => `<article class="promotion-card">
     <div class="promotion-heading"><div><span class="eyebrow">Discount code</span><h2>${escapeHtml(promotion.code)}</h2></div><span class="status-pill status-${promotion.active ? 'active' : 'draft'}">${promotion.active ? 'Active' : 'Inactive'}</span></div>
     <dl class="promotion-facts">
-      <div><dt>Discount</dt><dd>${promotion.type === 'fixed' ? `${formatMoney(promotion.valueCents)} fixed` : escapeHtml(promotion.type)}</dd></div>
+      <div><dt>Discount</dt><dd>${promotion.type === 'fixed' ? `${formatMoney(promotion.value)} fixed` : promotion.type === 'percentage' ? `${Number(promotion.value)}%` : escapeHtml(promotion.type)}</dd></div>
       <div><dt>Eligible products</dt><dd>${promotion.products.length ? promotion.products.map(product => escapeHtml(product.name)).join(', ') : 'None configured'}</dd></div>
       <div><dt>Starts</dt><dd>${escapeHtml(formatPromotionDate(promotion.startsAt))}</dd></div>
       <div><dt>Ends</dt><dd>${escapeHtml(formatPromotionDate(promotion.endsAt))}</dd></div>

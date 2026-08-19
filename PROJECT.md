@@ -215,6 +215,6 @@ Public stock labels are `In Stock`, `Only a few left`, and `Out of Stock`. Exact
 
 Promotions are stored in D1 using the `promotions` and `promotion_products` tables. Checkout normalises customer codes and loads both the promotion and its explicit product eligibility server-side before calculating totals. Browser-supplied prices, discount values, eligibility flags, subtotals and totals are ignored.
 
-The initial `SPRING` promotion is active with no start date, end date, global usage limit or per-customer limit. It applies a fixed NZD 20.00 discount only to `patagonia-fc-performance-tracksuit`. It excludes personalisation, fulfilment charges, processing surcharges and all other products, including `patagonia-fc-training-kit`.
+The initial `SPRING` promotion is active with no start date, end date, global usage limit or per-customer limit. It applies a 20% discount only to `patagonia-fc-performance-tracksuit`. It excludes personalisation, fulfilment charges, processing surcharges and all other products, including `patagonia-fc-training-kit`.
 
 Paid orders and invoices preserve the code, type, configured value, eligible merchandise subtotal and actual discount in immutable snapshots. To change or disable a promotion, use a reviewed D1 migration or authenticated operational change that updates `promotions`, records an `admin_audit_log` entry and preserves historical order fields. Date and limit fields exist for future controlled promotions; no expiry or usage limit has been inferred for `SPRING`.

@@ -107,7 +107,7 @@ export function buildTrustedOrderSummary(items, shippingCents, env = {}, promoti
     paymentSurchargeCents,
     totalCents,
     surcharge,
-    promotion: promotion || { code: '', type: '', valueCents: 0, eligibleSubtotalCents: 0, discountCents: 0, eligibleProductIds: [] }
+    promotion: promotion || { code: '', type: '', value: 0, eligibleSubtotalCents: 0, discountCents: 0, eligibleProductIds: [] }
   };
 }
 

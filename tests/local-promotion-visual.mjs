@@ -31,9 +31,9 @@ try {
     await page.getByRole('button', { name: 'Return to Cart' }).click();
     await page.locator('#discount-code').fill('spring');
     await page.locator('[data-promotion-apply]').click();
-    await page.getByText('SPRING applied. You saved $20.00.').waitFor();
+    await page.getByText('SPRING applied. You saved $23.00.').waitFor();
     const total = await page.locator('#cart-total').textContent();
-    if (!String(total).includes('95.00')) throw new Error(`${viewport.name} total was ${total}`);
+    if (!String(total).includes('92.00')) throw new Error(`${viewport.name} total was ${total}`);
     await page.locator('[data-promotion-status]').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${output}-${viewport.name}.png` });
     const bodyWidth = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
@@ -52,7 +52,7 @@ try {
     await page.getByRole('button', { name: 'Return to Cart' }).click();
     await page.locator('#discount-code').fill('SPRING');
     await page.locator('[data-promotion-apply]').click();
-    await page.getByText('SPRING applied. You saved $20.00.').waitFor();
+    await page.getByText('SPRING applied. You saved $23.00.').waitFor();
     await page.locator('[data-promotion-status]').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${output}-${theme}.png` });
     await page.close();

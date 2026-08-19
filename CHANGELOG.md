@@ -2,6 +2,12 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-08-19
+
+### Changed
+
+* Changed the `SPRING` promotion from a fixed NZD 20.00 amount to 20% off the Patagonia FC Performance Tracksuit only.
+
 ## 2026-08-17
 
 ### Added

@@ -5,7 +5,7 @@ function cleanCode(value) {
   return value.replace(/\u0000/g, '').trim().toUpperCase().slice(0, MAX_CODE_LENGTH);
 }
 
-function integerCents(value) {
+function integerValue(value) {
   const number = Number(value);
   return Number.isSafeInteger(number) && number >= 0 ? number : null;
 }
@@ -16,14 +16,16 @@ export function normalisePromotionCode(value) {
 
 export function calculatePromotion(items, promotion, eligibleProductIds) {
   if (!promotion) return {
-    code: '', type: '', valueCents: 0, eligibleSubtotalCents: 0,
+    code: '', type: '', value: 0, eligibleSubtotalCents: 0,
     discountCents: 0, eligibleProductIds: []
   };
   if (!Array.isArray(items) || !(eligibleProductIds instanceof Set)) {
     throw new Error('Promotion inputs are invalid.');
   }
-  const valueCents = integerCents(promotion.value_cents);
-  if (promotion.type !== 'fixed' || valueCents === null) {
+  const type = String(promotion.type || '').toLowerCase();
+  const value = integerValue(promotion.value_cents);
+  if (!['fixed', 'percentage'].includes(type) || value === null
+    || (type === 'percentage' && (value < 1 || value > 100))) {
     throw new Error('Promotion configuration is invalid.');
   }
   let eligibleSubtotalCents = 0;
@@ -37,11 +39,13 @@ export function calculatePromotion(items, promotion, eligibleProductIds) {
     eligibleSubtotalCents += unitAmount * quantity;
   }
   if (!Number.isSafeInteger(eligibleSubtotalCents)) throw new Error('Promotion subtotal is outside the supported range.');
-  const discountCents = Math.min(valueCents, eligibleSubtotalCents);
+  const discountCents = type === 'fixed'
+    ? Math.min(value, eligibleSubtotalCents)
+    : Math.round((eligibleSubtotalCents * value) / 100);
   return {
     code: cleanCode(promotion.code),
-    type: promotion.type,
-    valueCents,
+    type,
+    value,
     eligibleSubtotalCents,
     discountCents,
     eligibleProductIds: [...eligibleProductIds]

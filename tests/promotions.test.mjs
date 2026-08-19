@@ -26,7 +26,7 @@ function item(productId, unitAmountNzdCents, quantity = 1) {
   };
 }
 
-const springRow = { id: 1, code: 'SPRING', type: 'fixed', value_cents: 2000, active: 1, starts_at: null, ends_at: null, usage_limit: null, per_customer_limit: null };
+const springRow = { id: 1, code: 'SPRING', type: 'percentage', value_cents: 20, active: 1, starts_at: null, ends_at: null, usage_limit: null, per_customer_limit: null };
 
 function promotionDb({ promotion = springRow, products = [TRACKSUIT_ID] } = {}) {
   return {
@@ -43,11 +43,11 @@ function promotionDb({ promotion = springRow, products = [TRACKSUIT_ID] } = {}) 
   };
 }
 
-test('SPRING normalises case and applies a fixed NZD 20 only to the explicit tracksuit ID', async () => {
+test('SPRING normalises case and applies 20 percent only to the explicit tracksuit ID', async () => {
   for (const supplied of ['SPRING', 'spring', 'Spring', '  SpRiNg  ']) {
     assert.equal(normalisePromotionCode(supplied), 'SPRING');
     const result = await resolvePromotion(promotionDb(), supplied, [item(TRACKSUIT_ID, 11500), item(TRAINING_KIT_ID, 9500)]);
-    assert.deepEqual({ code: result.promotion.code, eligible: result.promotion.eligibleSubtotalCents, discount: result.promotion.discountCents }, { code: 'SPRING', eligible: 11500, discount: 2000 });
+    assert.deepEqual({ code: result.promotion.code, eligible: result.promotion.eligibleSubtotalCents, discount: result.promotion.discountCents }, { code: 'SPRING', eligible: 11500, discount: 2300 });
   }
 });
 
@@ -60,14 +60,14 @@ test('SPRING rejects ineligible carts and unsafe code shapes with generic messag
   }
 });
 
-test('fixed promotion caps at the eligible subtotal and excludes personalisation and unrelated merchandise', () => {
+test('percentage promotion excludes personalisation and unrelated merchandise', () => {
   const eligible = item(TRACKSUIT_ID, 1500);
   eligible.nameAddOn = 2000;
   const snapshot = calculatePromotion([eligible, item(TRAINING_KIT_ID, 9500)], springRow, new Set([TRACKSUIT_ID]));
   assert.equal(snapshot.eligibleSubtotalCents, 1500);
-  assert.equal(snapshot.discountCents, 1500);
+  assert.equal(snapshot.discountCents, 300);
   const summary = buildTrustedOrderSummary([eligible, item(TRAINING_KIT_ID, 9500)], 500, { PAYMENT_SURCHARGE_ENABLED: 'false' }, snapshot);
-  assert.deepEqual([summary.merchandiseSubtotalCents, summary.discountCents, summary.personalisationCents, summary.shippingCents, summary.totalCents], [11000, 1500, 2000, 500, 12000]);
+  assert.deepEqual([summary.merchandiseSubtotalCents, summary.discountCents, summary.personalisationCents, summary.shippingCents, summary.totalCents], [11000, 300, 2000, 500, 13200]);
 });
 
 test('surcharge is recalculated after the merchandise discount using integer cents', () => {
@@ -76,7 +76,7 @@ test('surcharge is recalculated after the merchandise discount using integer cen
   const summary = buildTrustedOrderSummary(cart, 500, {
     PAYMENT_SURCHARGE_ENABLED: 'true', PAYMENT_SURCHARGE_PERCENT: '2.65', PAYMENT_SURCHARGE_FIXED_CENTS: '30'
   }, promotion);
-  assert.deepEqual([summary.merchandiseSubtotalCents, summary.discountCents, summary.paymentSurchargeCents, summary.totalCents], [21000, 2000, 534, 20034]);
+  assert.deepEqual([summary.merchandiseSubtotalCents, summary.discountCents, summary.paymentSurchargeCents, summary.totalCents], [21000, 2300, 526, 19726]);
 });
 
 test('Stripe line pricing allocates the discount once and leaves ineligible products unchanged', () => {
@@ -86,29 +86,29 @@ test('Stripe line pricing allocates the discount once and leaves ineligible prod
   const lines = buildStripeLineItems(cart, summary, { type: 'pickup' });
   const base = lines.filter(line => line.metadata.item_kind === 'base_product');
   assert.deepEqual(base.map(line => [line.metadata.product_id, line.unitAmount, line.quantity]), [
-    [TRACKSUIT_ID, 9500, 1], [TRACKSUIT_ID, 11500, 1], [TRAINING_KIT_ID, 9500, 1]
+    [TRACKSUIT_ID, 6900, 1], [TRACKSUIT_ID, 11500, 1], [TRAINING_KIT_ID, 9500, 1]
   ]);
-  assert.equal(base.reduce((sum, line) => sum + line.unitAmount * line.quantity, 0), 30500);
-  assert.equal(summary.merchandiseSubtotalCents - summary.discountCents, 30500);
+  assert.equal(base.reduce((sum, line) => sum + line.unitAmount * line.quantity, 0), 27900);
+  assert.equal(summary.merchandiseSubtotalCents - summary.discountCents, 27900);
 });
 
 test('paid Stripe snapshot rejects browser or metadata discount manipulation down to one cent', () => {
-  const lineItems = [{ quantity: 1, amount_total: 9500, price: { product: { metadata: {
+  const lineItems = [{ quantity: 1, amount_total: 9200, price: { product: { metadata: {
     item_kind: 'base_product', product_id: TRACKSUIT_ID, variant_id: '101', cart_item_key: 'track:1', original_unit_amount_cents: '11500'
   } } } }];
   const session = {
-    amount_subtotal: 9500, amount_total: 9500,
+    amount_subtotal: 9200, amount_total: 9200,
     total_details: { amount_shipping: 0, amount_discount: 0 },
     metadata: {
-      subtotal_cents: '11500', personalisation_cents: '0', discount_cents: '2000',
-      promotion_code: 'SPRING', promotion_type: 'fixed', promotion_value_cents: '2000', promotion_eligible_subtotal_cents: '11500',
+      subtotal_cents: '11500', personalisation_cents: '0', discount_cents: '2300',
+      promotion_code: 'SPRING', promotion_type: 'percentage', promotion_value_cents: '20', promotion_eligible_subtotal_cents: '11500',
       shipping_cents: '0', payment_surcharge_cents: '0', payment_surcharge_enabled: '0', payment_surcharge_fixed_cents: '30',
-      fulfilment_type: 'pickup', shipping_method: 'Pick up from Training Centre', total_cents: '9500'
+      fulfilment_type: 'pickup', shipping_method: 'Pick up from Training Centre', total_cents: '9200'
     }
   };
-  assert.equal(verifyStripeCheckoutSnapshot(session, lineItems, 0).discountCents, 2000);
-  assert.throws(() => verifyStripeCheckoutSnapshot({ ...session, metadata: { ...session.metadata, discount_cents: '2001' } }, lineItems, 0), /promotion discount/i);
-  assert.throws(() => verifyStripeCheckoutSnapshot({ ...session, amount_total: 9499 }, lineItems, 0), /paid total/i);
+  assert.equal(verifyStripeCheckoutSnapshot(session, lineItems, 0).discountCents, 2300);
+  assert.throws(() => verifyStripeCheckoutSnapshot({ ...session, metadata: { ...session.metadata, discount_cents: '2301' } }, lineItems, 0), /promotion/i);
+  assert.throws(() => verifyStripeCheckoutSnapshot({ ...session, amount_total: 9199 }, lineItems, 0), /paid total/i);
 });
 
 test('customer and business emails disclose the exact promotion snapshot', () => {
@@ -118,22 +118,28 @@ test('customer and business emails disclose the exact promotion snapshot', () =>
     pickupLocation: 'Training Centre', pickupAddress: '', pickupInstructions: 'We will contact you.', shippingAddress: '', shippingRural: false,
     items: [{ quantity: 1, name: 'Patagonia FC Performance Tracksuit', amountTotal: 11500, details: [] }],
     merchandiseSubtotal: 11500, personalisationAmount: 0, promotionCode: 'SPRING', promotionEligibleSubtotal: 11500,
-    discountAmount: 2000, shippingAmount: 0, paymentSurchargeEnabled: false, paymentSurchargeAmount: 0,
-    totalPaid: 9500, currency: 'nzd', sessionId: 'cs_test', paymentIntentId: 'pi_test', eventId: 'evt_test'
+    discountAmount: 2300, shippingAmount: 0, paymentSurchargeEnabled: false, paymentSurchargeAmount: 0,
+    totalPaid: 9200, currency: 'nzd', sessionId: 'cs_test', paymentIntentId: 'pi_test', eventId: 'evt_test'
   };
   for (const email of [buildCustomerOrderEmail(order), buildBusinessOrderEmail(order)]) {
-    assert.match(email.text, /Discount \(SPRING\): -NZD \$20\.00/);
-    assert.match(email.text, /Total paid: NZD \$95\.00/);
+    assert.match(email.text, /Discount \(SPRING\): -NZD \$23\.00/);
+    assert.match(email.text, /Total paid: NZD \$92\.00/);
   }
 });
 
-test('promotion migration is additive, seeds only the intended tracksuit, and preserves historical defaults', async () => {
-  const sql = await readFile(new URL('../migrations/0022_spring_tracksuit_promotion.sql', import.meta.url), 'utf8');
-  assert.doesNotMatch(sql, /^\s*(?:DROP|DELETE|TRUNCATE)\b/im);
-  assert.match(sql, /VALUES \('SPRING', 'fixed', 2000, 1\)/);
-  assert.match(sql, /'patagonia-fc-performance-tracksuit'/);
-  assert.doesNotMatch(sql, /patagonia-fc-training-kit/);
-  assert.match(sql, /promotion_code TEXT NOT NULL DEFAULT ''/);
+test('promotion migrations retain tracksuit-only eligibility and convert SPRING to 20 percent', async () => {
+  const [initialSql, percentageSql] = await Promise.all([
+    readFile(new URL('../migrations/0022_spring_tracksuit_promotion.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0023_spring_percentage_promotion.sql', import.meta.url), 'utf8')
+  ]);
+  assert.doesNotMatch(initialSql, /^\s*(?:DROP|DELETE|TRUNCATE)\b/im);
+  assert.match(percentageSql, /type IN \('fixed', 'percentage'\)/);
+  assert.match(percentageSql, /type = 'percentage', value_cents = 20/);
+  assert.match(initialSql, /'patagonia-fc-performance-tracksuit'/);
+  assert.doesNotMatch(initialSql, /patagonia-fc-training-kit/);
+  assert.match(initialSql, /promotion_code TEXT NOT NULL DEFAULT ''/);
+  assert.match(percentageSql, /PRAGMA foreign_keys = OFF/);
+  assert.match(percentageSql, /PRAGMA foreign_keys = ON/);
 });
 
 test('cart UI provides accessible Apply and Remove controls and clears promotion after payment', async () => {

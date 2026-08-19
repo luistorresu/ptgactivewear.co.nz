@@ -93,7 +93,7 @@ async function listPromotions(db) {
   const promotions = new Map();
   for (const row of result.results || []) {
     if (!promotions.has(row.id)) promotions.set(row.id, {
-      id: Number(row.id), code: row.code, type: row.type, valueCents: Number(row.value_cents),
+      id: Number(row.id), code: row.code, type: row.type, value: Number(row.value_cents),
       active: Boolean(row.active), startsAt: row.starts_at || '', endsAt: row.ends_at || '',
       usageLimit: row.usage_limit === null ? null : Number(row.usage_limit),
       perCustomerLimit: row.per_customer_limit === null ? null : Number(row.per_customer_limit), products: []

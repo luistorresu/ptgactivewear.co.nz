@@ -360,12 +360,14 @@ export function verifyStripeCheckoutSnapshot(session, lineItems, personalisation
   if (baseTotals.originalCents !== subtotalCents || baseTotals.originalCents - baseTotals.stripeCents !== discountCents) {
     throw new Error('Checkout promotion discount does not match Stripe line items.');
   }
-  if (discountCents > promotionEligibleSubtotalCents || discountCents > promotionValueCents) {
-    throw new Error('Checkout promotion snapshot is invalid.');
-  }
   const promotionCode = cleanText(metadata.promotion_code, 64).toUpperCase();
   const promotionType = cleanText(metadata.promotion_type, 20).toLowerCase();
-  if ((discountCents > 0 && (!promotionCode || promotionType !== 'fixed'))
+  const expectedPromotionDiscountCents = promotionType === 'fixed'
+    ? Math.min(promotionValueCents, promotionEligibleSubtotalCents)
+    : promotionType === 'percentage' && promotionValueCents >= 1 && promotionValueCents <= 100
+      ? Math.round((promotionEligibleSubtotalCents * promotionValueCents) / 100)
+      : null;
+  if ((discountCents > 0 && (!promotionCode || expectedPromotionDiscountCents === null || discountCents !== expectedPromotionDiscountCents))
     || (discountCents === 0 && (promotionCode || promotionType || promotionValueCents || promotionEligibleSubtotalCents))) {
     throw new Error('Checkout promotion metadata is invalid.');
   }
