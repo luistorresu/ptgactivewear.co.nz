@@ -682,11 +682,18 @@ export async function updateRaffleNumberStatus(env, { raffleId, number, action }
     if (current.status !== 'reserved' || current.reservation_status !== 'reserved' || !current.reservation_token) {
       return { error: 'Only an active reserved number can be confirmed.', status: 409 };
     }
-    const confirmed = await env.DB.prepare(`UPDATE raffle_numbers SET status = 'sold',
-      reservation_expires_at = NULL, sold_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE raffle_id = ? AND number = ? AND status = 'reserved' AND reservation_token = ?
-      RETURNING number`).bind(safeRaffleId, safeNumber, current.reservation_token).all();
-    return resultChanges(confirmed) || (confirmed.results || []).length
+    const [confirmed, committed] = await env.DB.batch([
+      env.DB.prepare(`UPDATE raffle_numbers SET status = 'sold',
+        reservation_expires_at = NULL, sold_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE raffle_id = ? AND number = ? AND status = 'reserved' AND reservation_token = ?
+        RETURNING number`).bind(safeRaffleId, safeNumber, current.reservation_token),
+      env.DB.prepare(`UPDATE raffle_reservations SET status = 'committed', updated_at = CURRENT_TIMESTAMP
+        WHERE reservation_token = ? AND raffle_id = ? AND status = 'reserved'
+        RETURNING id`).bind(current.reservation_token, safeRaffleId)
+    ]);
+    const numberChanged = resultChanges(confirmed) || (confirmed.results || []).length;
+    const reservationChanged = resultChanges(committed) || (committed.results || []).length;
+    return numberChanged && reservationChanged
       ? { ok: true, action, number: safeNumber }
       : { error: 'The reservation changed before it could be confirmed.', status: 409 };
   }

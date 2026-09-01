@@ -59,3 +59,10 @@ INSERT INTO raffle_orders (
   0, 0, '0', 0, 'Card processing surcharge', 4000, 'NZD', 'paid',
   'card', 'sent'
 );
+
+UPDATE raffle_numbers
+SET status = 'sold', reservation_token = NULL, reserved_at = NULL,
+    reservation_expires_at = NULL,
+    raffle_order_id = (SELECT id FROM raffle_orders WHERE stripe_checkout_session_id = 'cs_test_raffle_local_seed'),
+    sold_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE raffle_id = 'patagonia-fc-tournament-2026' AND number IN (5, 6);

@@ -92,51 +92,6 @@ CREATE INDEX IF NOT EXISTS idx_raffle_numbers_reservation ON raffle_numbers(rese
 CREATE INDEX IF NOT EXISTS idx_raffle_reservations_expiry ON raffle_reservations(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_raffle_orders_created ON raffle_orders(created_at DESC);
 
-CREATE TRIGGER IF NOT EXISTS raffle_number_range_insert
-BEFORE INSERT ON raffle_numbers
-BEGIN
-  SELECT CASE WHEN NEW.number > (SELECT total_numbers FROM raffles WHERE id = NEW.raffle_id)
-    THEN RAISE(ABORT, 'raffle number is outside the configured range') END;
-END;
-
--- A paid raffle order and its sold numbers are committed by one SQLite
--- statement. Any mismatch aborts the order insert and the number updates.
-CREATE TRIGGER IF NOT EXISTS raffle_order_commit_numbers
-AFTER INSERT ON raffle_orders
-BEGIN
-  UPDATE raffle_numbers
-  SET status = 'sold',
-      reservation_token = NULL,
-      reserved_at = NULL,
-      reservation_expires_at = NULL,
-      raffle_order_id = NEW.id,
-      sold_at = CURRENT_TIMESTAMP,
-      updated_at = CURRENT_TIMESTAMP
-  WHERE raffle_id = NEW.raffle_id
-    AND status = 'reserved'
-    AND reservation_token = NEW.reservation_token
-    AND stripe_checkout_session_id = NEW.stripe_checkout_session_id
-    AND number IN (SELECT CAST(value AS INTEGER) FROM json_each(NEW.numbers_json))
-    AND EXISTS (
-      SELECT 1 FROM raffle_reservations rr
-      WHERE rr.reservation_token = NEW.reservation_token
-        AND rr.raffle_id = NEW.raffle_id
-        AND rr.stripe_checkout_session_id = NEW.stripe_checkout_session_id
-        AND rr.numbers_json = NEW.numbers_json
-        AND rr.ticket_count = NEW.ticket_count
-        AND rr.status IN ('session_created', 'payment_pending')
-        AND (rr.status = 'payment_pending' OR rr.expires_at > CURRENT_TIMESTAMP)
-    );
-
-  SELECT CASE WHEN changes() <> NEW.ticket_count
-    THEN RAISE(ABORT, 'raffle reservation mismatch') END;
-
-  UPDATE raffle_reservations
-  SET status = 'committed', updated_at = CURRENT_TIMESTAMP
-  WHERE reservation_token = NEW.reservation_token
-    AND status IN ('session_created', 'payment_pending');
-END;
-
 INSERT OR IGNORE INTO raffles (
   id, slug, name, description, prize_name, ticket_price_cents,
   total_numbers, currency, status, reservation_minutes, terms_status
