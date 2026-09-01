@@ -2,7 +2,7 @@ import { validateCheckoutCustomerDetails } from './customer-details.js';
 import { calculatePaymentSurcharge, calculateRefundBreakdown, getPaymentSurchargeConfig } from './surcharge.js';
 
 export const RAFFLE_SLUG = 'patagonia-fc-tournament-fundraising-raffle';
-export const RAFFLE_CHECKOUT_MAX_NUMBERS = 36;
+export const RAFFLE_CHECKOUT_MAX_NUMBERS = 40;
 export const GIVEALITTLE_URL = 'https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026';
 
 const ACTIVE_RESERVATION_STATES = new Set(['reserved', 'session_created', 'payment_pending']);

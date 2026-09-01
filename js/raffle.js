@@ -38,7 +38,7 @@
 
   function renderProgress() {
     const soldCount = Number(state.raffle?.soldCount || 0);
-    const total = Number(state.raffle?.totalNumbers || 36);
+    const total = Number(state.raffle?.totalNumbers || 40);
     const percentage = total ? Math.round((soldCount / total) * 100) : 0;
     document.querySelector('[data-raffle-progress-label]').textContent = `${soldCount} of ${total} numbers sold`;
     document.querySelector('[data-raffle-progress-percent]').textContent = `${percentage}% sold`;

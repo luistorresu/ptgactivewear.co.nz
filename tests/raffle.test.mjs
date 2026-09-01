@@ -107,6 +107,7 @@ async function testDatabase({ localSeed = false } = {}) {
     );`);
   sqlite.exec(await readFile(new URL('migrations/0024_fundraising_raffles.sql', root), 'utf8'));
   sqlite.exec(await readFile(new URL('migrations/0025_givealittle_fundraiser.sql', root), 'utf8'));
+  sqlite.exec(await readFile(new URL('migrations/0026_expand_drawing_to_40.sql', root), 'utf8'));
   if (localSeed) sqlite.exec(await readFile(new URL('seed/seed-raffle-test.sql', root), 'utf8'));
   return { sqlite, DB: new D1Database(sqlite) };
 }
@@ -180,12 +181,17 @@ async function reserve(env, number, requestId, now = Date.now()) {
 test('raffle migration is additive, reusable and enforces unique numbers', async () => {
   const migration = await readFile(new URL('migrations/0024_fundraising_raffles.sql', root), 'utf8');
   const givealittleMigration = await readFile(new URL('migrations/0025_givealittle_fundraiser.sql', root), 'utf8');
+  const expansionMigration = await readFile(new URL('migrations/0026_expand_drawing_to_40.sql', root), 'utf8');
   assert.doesNotMatch(migration, /^\s*(?:DROP|DELETE|TRUNCATE|ALTER\s+TABLE)\b/im);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS raffles/);
   assert.match(migration, /PRIMARY KEY \(raffle_id, number\)/);
   assert.match(givealittleMigration, /customer_email/);
   assert.match(givealittleMigration, /reservation_minutes = 1440/);
+  assert.match(expansionMigration, /total_numbers = 40/);
+  assert.match(expansionMigration, /'patagonia-fc-tournament-2026', 40/);
   const { sqlite } = await testDatabase();
+  assert.equal(sqlite.prepare(`SELECT COUNT(*) AS count FROM raffle_numbers
+    WHERE raffle_id = 'patagonia-fc-tournament-2026'`).get().count, 40);
   assert.throws(() => sqlite.prepare(`INSERT INTO raffle_numbers (raffle_id, number) VALUES (?, ?)`)
     .run('patagonia-fc-tournament-2026', 1), /UNIQUE constraint/i);
 });
@@ -209,7 +215,7 @@ test('sold-out raffles remain visible and cannot start another reservation', asy
     WHERE raffle_id = 'patagonia-fc-tournament-2026'`).run();
   const env = raffleEnv(DB);
   const raffle = await getPublicRaffle(env);
-  assert.equal(raffle.soldCount, 36);
+  assert.equal(raffle.soldCount, 40);
   assert.equal(raffle.soldOut, true);
   const attempt = await reserve(env, 9, 'soldout-test-123');
   assert.equal(attempt.code, 'RAFFLE_NUMBER_UNAVAILABLE');
@@ -217,10 +223,10 @@ test('sold-out raffles remain visible and cannot start another reservation', asy
 });
 
 test('raffle number validation rejects duplicates, decimals, strings, negatives and out-of-range values', () => {
-  for (const invalid of [[1, 1], [1.5], ['1'], [-1], [0], [37], [], null]) {
-    assert.ok(normaliseRaffleNumbers(invalid, 36).error, JSON.stringify(invalid));
+  for (const invalid of [[1, 1], [1.5], ['1'], [-1], [0], [41], [], null]) {
+    assert.ok(normaliseRaffleNumbers(invalid, 40).error, JSON.stringify(invalid));
   }
-  assert.deepEqual(normaliseRaffleNumbers([36, 2, 11], 36).numbers, [2, 11, 36]);
+  assert.deepEqual(normaliseRaffleNumbers([40, 2, 11], 40).numbers, [2, 11, 40]);
 });
 
 test('exactly one simultaneous reservation for the same number succeeds', async () => {
@@ -373,7 +379,7 @@ test('admin raffle data contains sold ownership while the public response remain
   assert.equal(soldFive.customerName, 'Local Test Customer');
   assert.equal(soldFive.orderNumber, 'PTG-RAF-TEST-000001');
   assert.equal(adminRaffles[0].fundsRaisedCents, 4000);
-  assert.equal(adminRaffles[0].maximumRevenueCents, 72000);
+  assert.equal(adminRaffles[0].maximumRevenueCents, 80000);
 });
 
 test('raffle emails identify the purchase and escape customer-provided HTML', () => {
