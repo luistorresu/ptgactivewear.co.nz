@@ -1741,9 +1741,9 @@ html[data-theme="dark"] .raffle-checkout-status.is-error { color: #ffb4b4; backg
 }
 
 @media (max-width: 560px) {
-  .raffle-section-inner, .raffle-hero-inner { width: min(1180px, calc(100% - 1rem)); }
+  .raffle-section-inner, .raffle-hero-inner { width: min(1180px, calc(100% - 2rem)); }
   .raffle-hero { padding-block: 2.8rem; }
-  .raffle-hero h1 { overflow-wrap: anywhere; font-size: 2.05rem; }
+  .raffle-hero h1 { overflow-wrap: anywhere; font-size: 1.85rem; }
   .raffle-hero-copy, .raffle-story-copy { text-align: center; }
   .raffle-hero-actions { display: grid; }
   .raffle-hero-action { width: 100%; justify-content: center; }
