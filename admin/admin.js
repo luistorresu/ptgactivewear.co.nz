@@ -3,6 +3,7 @@ const state = {
   products: [],
   orders: [],
   promotions: [],
+  raffles: [],
   currentOrder: null,
   reportPage: 1,
   reportTotal: 0,
@@ -26,6 +27,7 @@ const reportFilters = document.querySelector('[data-report-filters]');
 const reportSales = document.querySelector('[data-report-sales]');
 const reportInvoices = document.querySelector('[data-report-invoices]');
 const promotionList = document.querySelector('[data-promotion-list]');
+const raffleList = document.querySelector('[data-raffle-list]');
 const productForm = document.querySelector('[data-product-form]');
 const createVariants = document.querySelector('[data-create-variants]');
 const createVariantTemplate = document.querySelector('[data-create-variant-template]');
@@ -152,6 +154,7 @@ function routeFor(viewName) {
   if (viewName === 'orders') return '/admin/orders';
   if (viewName === 'reports') return '/admin/reports';
   if (viewName === 'promotions') return '/admin/promotions';
+  if (viewName === 'raffles') return '/admin/raffles';
   if (viewName === 'editor') return state.currentProduct ? `/admin?edit=${encodeURIComponent(state.currentProduct.id)}` : '/admin?new=1';
   return '/admin';
 }
@@ -254,6 +257,73 @@ async function loadPromotions() {
   const data = await api('/api/admin/promotions');
   state.promotions = data.promotions || [];
   renderPromotions();
+}
+
+function renderRaffles() {
+  if (!state.raffles.length) {
+    raffleList.innerHTML = '<div class="empty-state"><p>No prize drawings are configured.</p></div>';
+    return;
+  }
+  raffleList.innerHTML = state.raffles.map(raffle => `
+    <article class="raffle-admin-card">
+      <div class="raffle-admin-heading">
+        <div><p class="eyebrow">${escapeHtml(raffle.status)}</p><h2>${escapeHtml(raffle.name)}</h2><p>Prize: ${escapeHtml(raffle.prize)}</p></div>
+        <span class="status-pill status-${raffle.status === 'active' ? 'active' : 'archived'}">${escapeHtml(raffle.status)}</span>
+      </div>
+      <dl class="raffle-admin-stats">
+        <div><dt>Entry price</dt><dd>${formatMoney(raffle.ticketPriceCents)}</dd></div>
+        <div><dt>Available</dt><dd>${raffle.availableCount}</dd></div>
+        <div><dt>Reserved</dt><dd>${raffle.reservedCount}</dd></div>
+        <div><dt>Sold</dt><dd>${raffle.soldCount} / ${raffle.totalNumbers}</dd></div>
+        <div><dt>Confirmed entry value</dt><dd>${formatMoney(raffle.fundsRaisedCents)}</dd></div>
+        <div><dt>Maximum revenue</dt><dd>${formatMoney(raffle.maximumRevenueCents)}</dd></div>
+      </dl>
+      <p class="raffle-admin-terms"><strong>Terms:</strong> ${raffle.termsStatus === 'confirmed' ? 'Confirmed' : 'Additional prize drawing terms still need confirmation before launch.'}</p>
+      <div class="raffle-admin-grid" aria-label="${escapeHtml(raffle.name)} number statuses">
+        ${raffle.numbers.map(item => `
+          <div class="raffle-admin-number is-${escapeHtml(item.status)}" data-raffle-id="${escapeHtml(raffle.id)}" data-raffle-number="${item.number}">
+            <strong>${String(item.number).padStart(2, '0')}</strong>
+            <span>${escapeHtml(item.status)}</span>
+            ${item.status === 'sold' ? `<small>${escapeHtml(item.orderNumber || 'Order pending')}<br>${escapeHtml(item.customerName || 'Customer not recorded')}${item.childName ? `<br>Child: ${escapeHtml(item.childName)}` : ''}${item.customerEmail ? `<br>${escapeHtml(item.customerEmail)}` : ''}${item.purchasedAt ? `<br>${escapeHtml(orderDateTime(item.purchasedAt))}` : ''}</small>` : ''}
+            ${item.status === 'reserved' ? `<small>${escapeHtml(item.customerName || 'Customer not recorded')}${item.childName ? `<br>Child: ${escapeHtml(item.childName)}` : ''}${item.customerEmail ? `<br>${escapeHtml(item.customerEmail)}` : ''}${item.reservationExpiresAt ? `<br>Expires ${escapeHtml(orderDateTime(item.reservationExpiresAt))}` : ''}</small>
+              <div class="raffle-admin-actions">
+                <button class="button button-primary" type="button" data-raffle-action="confirm">Mark Sold</button>
+                <button class="button button-secondary" type="button" data-raffle-action="release">Release</button>
+              </div>` : ''}
+          </div>`).join('')}
+      </div>
+    </article>`).join('');
+}
+
+async function loadRaffles() {
+  raffleList.innerHTML = '<div class="empty-state"><p>Loading prize drawings...</p></div>';
+  const data = await api('/api/admin/raffles');
+  state.raffles = data.raffles || [];
+  renderRaffles();
+}
+
+async function handleRaffleAction(button) {
+  const item = button.closest('[data-raffle-id][data-raffle-number]');
+  if (!item) return;
+  const action = button.dataset.raffleAction;
+  const number = Number(item.dataset.raffleNumber);
+  const message = action === 'confirm'
+    ? `Mark drawing number ${number} as Sold? Confirm the Givealittle donation first.`
+    : `Release drawing number ${number} and make it available again?`;
+  if (!window.confirm(message)) return;
+  button.disabled = true;
+  try {
+    await api(`/api/admin/raffles/${encodeURIComponent(item.dataset.raffleId)}/numbers/${number}`, {
+      method: 'POST',
+      body: JSON.stringify({ action })
+    });
+    showNotice(action === 'confirm' ? `Number ${number} marked Sold.` : `Number ${number} released.`, 'success');
+    await loadRaffles();
+  } catch (error) {
+    showNotice(errorMessage(error), 'error', true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderOrders() {
@@ -1230,6 +1300,11 @@ document.querySelector('[data-order-collection-state]').addEventListener('change
 document.querySelector('[data-refresh-orders]').addEventListener('click', () => loadOrders().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-refresh-reports]').addEventListener('click', () => loadReports().catch(error => showNotice(errorMessage(error), 'error')));
 document.querySelector('[data-refresh-promotions]').addEventListener('click', () => loadPromotions().catch(error => showNotice(errorMessage(error), 'error')));
+document.querySelector('[data-refresh-raffles]').addEventListener('click', () => loadRaffles().catch(error => showNotice(errorMessage(error), 'error')));
+raffleList.addEventListener('click', event => {
+  const button = event.target.closest('[data-raffle-action]');
+  if (button) handleRaffleAction(button);
+});
 reportFilters.addEventListener('submit', event => {
   event.preventDefault();
   state.reportPage = 1;
@@ -1262,6 +1337,7 @@ document.querySelectorAll('[data-view-target]').forEach(button => button.addEven
   else if (target === 'orders') loadOrders().then(() => switchView('orders')).catch(error => showNotice(errorMessage(error), 'error'));
   else if (target === 'reports') loadReports().then(() => switchView('reports')).catch(error => showNotice(errorMessage(error), 'error'));
   else if (target === 'promotions') loadPromotions().then(() => switchView('promotions')).catch(error => showNotice(errorMessage(error), 'error'));
+  else if (target === 'raffles') loadRaffles().then(() => switchView('raffles')).catch(error => showNotice(errorMessage(error), 'error'));
   else switchView(target);
 }));
 
@@ -1368,6 +1444,9 @@ async function initialiseRoute(updateHistory = false) {
   } else if (url.pathname === '/admin/promotions') {
     await loadPromotions();
     switchView('promotions', updateHistory);
+  } else if (url.pathname === '/admin/raffles') {
+    await loadRaffles();
+    switchView('raffles', updateHistory);
   } else if (url.searchParams.get('edit')) {
     await openEditor(url.searchParams.get('edit'), updateHistory);
   } else if (url.searchParams.has('new')) {

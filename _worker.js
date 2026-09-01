@@ -16,6 +16,22 @@ import {
 import { handlePicturesApi, serveProductPicture } from './worker/pictures.js';
 import { resolvePromotion } from './worker/promotions.js';
 import { buildTrustedOrderSummary } from './worker/surcharge.js';
+import {
+  RAFFLE_SLUG,
+  attachRaffleCheckoutSession,
+  buildRaffleBusinessEmail,
+  buildRaffleCustomerEmail,
+  commitPaidRaffleOrder,
+  getPublicRaffle,
+  getRaffleOrderEmailData,
+  getRaffleOrderStatus,
+  markRaffleOrderEmailResult,
+  markRaffleReservationPaymentPending,
+  raffleCheckoutTotals,
+  recordRaffleRefund,
+  releaseRaffleReservation,
+  reserveRaffleNumbers
+} from './worker/raffles.js';
 import { publicFulfilment, selectFulfilment } from './worker/fulfilment.js';
 import { validateCheckoutCustomerDetails } from './worker/customer-details.js';
 import {
@@ -50,6 +66,7 @@ const CONTACT_BODY_BYTES = 16 * 1024;
 const ELIGIBILITY_BODY_BYTES = 4 * 1024;
 const CHECKOUT_BODY_BYTES = 64 * 1024;
 const STRIPE_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
+const RAFFLE_BODY_BYTES = 16 * 1024;
 
 const SERVER_PRODUCTS = {
   'patagonia-fc-beanie': {
@@ -573,13 +590,13 @@ export function buildStripeLineItems(validatedItems, summary, fulfilment) {
   return lines;
 }
 
-async function createStripeCheckoutSession(env, sessionParams, idempotencyKey = '') {
+async function createStripeCheckoutSession(env, sessionParams, idempotencyKey = '', idempotencyPrefix = 'ptg-checkout') {
   const headers = {
     Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
     'Content-Type': 'application/x-www-form-urlencoded',
     'Stripe-Version': STRIPE_API_VERSION
   };
-  if (idempotencyKey) headers['Idempotency-Key'] = `ptg-checkout-${idempotencyKey}`;
+  if (idempotencyKey) headers['Idempotency-Key'] = `${idempotencyPrefix}-${idempotencyKey}`;
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
     headers,
@@ -834,6 +851,222 @@ async function handleCreateCheckoutSession(request, env) {
   }
 }
 
+function publicRaffleCheckoutSummary(raffle, totals, numbers) {
+  return {
+    raffle: raffle.name,
+    prize: raffle.prize_name,
+    numbers,
+    currency: totals.currency,
+    ticketPriceCents: totals.ticketPriceCents,
+    ticketCount: totals.ticketCount,
+    subtotalCents: totals.subtotalCents,
+    shippingCents: 0,
+    discountCents: 0,
+    paymentSurchargeCents: totals.paymentSurchargeCents,
+    totalCents: totals.totalCents,
+    surcharge: {
+      enabled: totals.surcharge.enabled,
+      label: totals.surcharge.label,
+      description: totals.surcharge.description,
+      percent: totals.surcharge.percent,
+      fixedCents: totals.surcharge.fixedCents
+    }
+  };
+}
+
+async function handlePublicRaffle(request, env, slug = RAFFLE_SLUG) {
+  if (request.method !== 'GET') return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  if (!env.DB) return jsonResponse({ ok: false, error: 'Raffle availability is temporarily unavailable.' }, 503);
+  const limited = await rateLimitResponse(env, request, 'raffle-availability', {
+    limit: 90,
+    windowSeconds: 10 * 60
+  });
+  if (limited) return limited;
+  try {
+    const raffle = await getPublicRaffle(env, slug);
+    return raffle
+      ? jsonResponse({ ok: true, raffle })
+      : jsonResponse({ ok: false, error: 'Raffle not found.' }, 404);
+  } catch (error) {
+    console.error('Public raffle request failed', { slug, message: error.message });
+    return jsonResponse({ ok: false, error: 'Raffle availability is temporarily unavailable.' }, 503);
+  }
+}
+
+async function handleReserveRaffleNumber(request, env, slug = RAFFLE_SLUG) {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: jsonHeaders });
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  if (!verifiedBrowserJsonRequest(request)) return jsonResponse({ ok: false, error: 'Request verification failed.' }, 403);
+  if (!env.DB) return jsonResponse({ ok: false, error: 'Number reservations are temporarily unavailable.' }, 503);
+  const parsed = await limitedJsonResponse(request, RAFFLE_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const payload = parsed.body;
+  if (!Array.isArray(payload?.numbers) || payload.numbers.length !== 1) {
+    return jsonResponse({ ok: false, error: 'Choose exactly one available drawing number.' }, 400);
+  }
+  const limited = await rateLimitResponse(env, request, 'raffle-number-reservation', {
+    limit: 10,
+    windowSeconds: 10 * 60
+  });
+  if (limited) return limited;
+  const requestId = /^[A-Za-z0-9_-]{8,64}$/.test(String(payload?.reservationRequestId || ''))
+    ? String(payload.reservationRequestId)
+    : '';
+  let reservation;
+  try {
+    reservation = await reserveRaffleNumbers(env, {
+      slug,
+      numbers: payload.numbers,
+      requestId,
+      customerDetails: payload.customerDetails
+    });
+  } catch (error) {
+    console.error('Drawing reservation failed', { requestId, message: error.message });
+    return jsonResponse({ ok: false, error: 'The number could not be reserved. Please try again.' }, 503);
+  }
+  if (reservation.error) {
+    return jsonResponse({
+      ok: false,
+      error: reservation.error,
+      code: reservation.code,
+      unavailableNumber: reservation.unavailableNumber
+    }, reservation.status || 409);
+  }
+  return jsonResponse({
+    ok: true,
+    reservation: {
+      number: reservation.numbers[0],
+      expiresAt: reservation.expiresAt,
+      provider: 'Givealittle',
+      url: 'https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026',
+      donationMessage: `Patagonia FC drawing number #${String(reservation.numbers[0]).padStart(2, '0')}`
+    }
+  });
+}
+
+async function handleCreateRaffleCheckout(request, env, slug = RAFFLE_SLUG) {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: jsonHeaders });
+  if (request.method !== 'POST') return jsonResponse({ ok: false, error: 'Method not allowed.' }, 405);
+  if (!verifiedBrowserJsonRequest(request)) return jsonResponse({ ok: false, error: 'Request verification failed.' }, 403);
+  if (!env.DB) return jsonResponse({ ok: false, error: 'Raffle checkout is temporarily unavailable.' }, 503);
+  if (String(env.CHECKOUT_ENABLED || 'true').toLowerCase() !== 'true') {
+    return jsonResponse({ ok: false, error: 'Checkout is temporarily unavailable.' }, 503);
+  }
+  if (!env.STRIPE_SECRET_KEY) return jsonResponse({ ok: false, error: 'Checkout is not configured yet.' }, 503);
+  const parsed = await limitedJsonResponse(request, RAFFLE_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const payload = parsed.body;
+  const limited = await rateLimitResponse(env, request, 'raffle-checkout-session', {
+    limit: 10,
+    windowSeconds: 10 * 60
+  });
+  if (limited) return limited;
+  const customerDetails = validateCheckoutCustomerDetails(payload?.customerDetails, { required: true });
+  if (customerDetails.error) return jsonResponse({ ok: false, error: customerDetails.error }, 400);
+  const requestId = /^[A-Za-z0-9_-]{8,64}$/.test(String(payload?.checkoutRequestId || ''))
+    ? String(payload.checkoutRequestId)
+    : '';
+
+  let reservation;
+  try {
+    reservation = await reserveRaffleNumbers(env, {
+      slug,
+      numbers: payload?.numbers,
+      requestId,
+      customerDetails
+    });
+  } catch (error) {
+    console.error('Raffle reservation failed', { requestId, message: error.message });
+    return jsonResponse({ ok: false, error: 'Raffle numbers could not be reserved. Please try again.' }, 503);
+  }
+  if (reservation.error) {
+    return jsonResponse({
+      ok: false,
+      error: reservation.error,
+      code: reservation.code,
+      unavailableNumber: reservation.unavailableNumber
+    }, reservation.status || 409);
+  }
+
+  let totals;
+  try {
+    totals = raffleCheckoutTotals(reservation.raffle, reservation.numbers.length, env);
+  } catch (error) {
+    await releaseRaffleReservation(env, { reservationId: reservation.reservationId, reason: 'total_configuration' }).catch(() => {});
+    console.error('Raffle total configuration failed', { requestId, message: error.message });
+    return jsonResponse({ ok: false, error: 'Raffle totals are temporarily unavailable.' }, 503);
+  }
+  const publicSummary = publicRaffleCheckoutSummary(reservation.raffle, totals, reservation.numbers);
+  if (reservation.checkoutUrl) {
+    return jsonResponse({ ok: true, url: reservation.checkoutUrl, summary: publicSummary });
+  }
+
+  const expiresAtUnix = Math.floor(Date.parse(`${String(reservation.expiresAt).replace(' ', 'T')}Z`) / 1000);
+  if (!Number.isSafeInteger(expiresAtUnix)) {
+    await releaseRaffleReservation(env, { reservationId: reservation.reservationId, reason: 'invalid_expiry' }).catch(() => {});
+    return jsonResponse({ ok: false, error: 'Raffle numbers could not be reserved. Please try again.' }, 503);
+  }
+
+  const siteUrl = getApprovedSiteUrl(request, env);
+  const params = new URLSearchParams();
+  params.append('mode', 'payment');
+  params.append('expires_at', String(expiresAtUnix));
+  if (totals.surcharge.enabled) params.append('payment_method_types[0]', 'card');
+  params.append('success_url', `${siteUrl}/order-success?session_id={CHECKOUT_SESSION_ID}&checkout_type=raffle`);
+  params.append('cancel_url', `${siteUrl}/raffle?checkout=cancelled#choose-number`);
+  params.append('billing_address_collection', 'required');
+  params.append('customer_creation', 'if_required');
+  params.append('phone_number_collection[enabled]', 'true');
+  params.append('payment_intent_data[description]', 'PTG Activewear prize drawing entries');
+  params.append('custom_text[submit][message]', 'Your selected drawing numbers are reserved for this checkout. No shipping is required.');
+  params.append('metadata[source]', 'ptgactivewear.co.nz');
+  params.append('metadata[order_type]', 'raffle');
+  params.append('metadata[checkout_details_version]', '1');
+  params.append('metadata[checkout_customer_name]', customerDetails.customerName);
+  params.append('metadata[child_name]', customerDetails.childName);
+  params.append('metadata[raffle_id]', reservation.raffle.id);
+  params.append('metadata[raffle_request_id]', reservation.reservationId);
+  params.append('metadata[raffle_reservation_token]', reservation.reservationToken);
+  params.append('metadata[raffle_numbers]', reservation.numbers.join(','));
+  params.append('metadata[raffle_ticket_price_cents]', String(totals.ticketPriceCents));
+  params.append('metadata[raffle_ticket_count]', String(totals.ticketCount));
+  params.append('metadata[raffle_subtotal_cents]', String(totals.subtotalCents));
+  params.append('metadata[payment_surcharge_cents]', String(totals.paymentSurchargeCents));
+  params.append('metadata[payment_surcharge_enabled]', totals.surcharge.enabled ? '1' : '0');
+  params.append('metadata[payment_surcharge_percent]', totals.surcharge.percent);
+  params.append('metadata[payment_surcharge_fixed_cents]', String(totals.surcharge.fixedCents));
+  params.append('metadata[payment_surcharge_label]', totals.surcharge.label);
+  params.append('metadata[total_cents]', String(totals.totalCents));
+
+  appendStripeLineItem(params, 0, {
+    name: reservation.raffle.name,
+    description: `Drawing number${reservation.numbers.length === 1 ? '' : 's'}: ${reservation.numbers.map(number => String(number).padStart(2, '0')).join(', ')}`,
+    unitAmount: totals.ticketPriceCents,
+    quantity: totals.ticketCount,
+    metadata: { item_kind: 'raffle_ticket', raffle_id: reservation.raffle.id }
+  });
+  if (totals.paymentSurchargeCents > 0) {
+    appendStripeLineItem(params, 1, {
+      name: totals.surcharge.label,
+      description: totals.surcharge.description,
+      unitAmount: totals.paymentSurchargeCents,
+      quantity: 1,
+      metadata: { item_kind: 'payment_surcharge' }
+    });
+  }
+
+  try {
+    const session = await createStripeCheckoutSession(env, params, requestId, 'ptg-raffle');
+    await attachRaffleCheckoutSession(env.DB, reservation, session);
+    return jsonResponse({ ok: true, url: session.url, summary: publicSummary });
+  } catch (error) {
+    if (error.safeToReleaseReservation) {
+      await releaseRaffleReservation(env, { reservationId: reservation.reservationId, reason: `stripe_${error.stripeStatus}` }).catch(() => {});
+    }
+    return jsonResponse({ ok: false, error: 'Raffle checkout could not be started. Please try again.' }, 502);
+  }
+}
+
 async function releaseExpiredInventoryBeforeCheckout(env) {
   if (!env.DB || String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() !== 'd1') return;
   try {
@@ -857,15 +1090,18 @@ async function handleCheckoutStatus(request, env) {
   }
   const order = await env.DB.prepare(`SELECT order_number, payment_status, fulfilment_status
     FROM orders WHERE stripe_checkout_session_id = ?`).bind(sessionId).first();
-  if (!order) return jsonResponse({ ok: true, status: 'pending' });
-  if (!['paid', 'no_payment_required'].includes(String(order.payment_status || '').toLowerCase())) {
+  const raffleOrder = order ? null : await getRaffleOrderStatus(env.DB, sessionId);
+  const confirmedOrder = order || raffleOrder;
+  if (!confirmedOrder) return jsonResponse({ ok: true, status: 'pending' });
+  if (!['paid', 'no_payment_required'].includes(String(confirmedOrder.payment_status || '').toLowerCase())) {
     return jsonResponse({ ok: true, status: 'pending' });
   }
   return jsonResponse({
     ok: true,
     status: 'confirmed',
-    orderNumber: order.order_number || '',
-    fulfilmentStatus: order.fulfilment_status || 'pending'
+    orderNumber: confirmedOrder.order_number || '',
+    orderType: raffleOrder ? 'raffle' : 'merchandise',
+    fulfilmentStatus: order?.fulfilment_status || 'not_required'
   });
 }
 
@@ -1274,11 +1510,73 @@ async function sendOrderEmails(env, session, providedLineItems = null, event = n
   }
 }
 
+async function sendRaffleOrderEmails(env, session, event = null) {
+  const toEmail = cleanText(env.CONTACT_TO_EMAIL, MAX_FIELD_LENGTHS.email);
+  const fromEmail = cleanText(env.CONTACT_FROM_EMAIL, MAX_FIELD_LENGTHS.email);
+  if (!toEmail || !fromEmail || !env.EMAIL_API_KEY) throw new Error('Order email service is not configured.');
+  const order = await getRaffleOrderEmailData(env.DB, session.id, event?.id || '');
+  const emailIdempotencyKey = String(session.id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 180);
+  if (!emailIdempotencyKey) throw new Error('Checkout session identifier is invalid.');
+
+  await sendWithResend(
+    { ...env, CONTACT_FROM_EMAIL: fromEmail },
+    {
+      ...buildRaffleBusinessEmail(order),
+      to: toEmail,
+      replyTo: order.customerEmail || undefined,
+      idempotencyKey: `ptg-raffle-business-${emailIdempotencyKey}`
+    }
+  );
+  if (order.customerEmail) {
+    await sendWithResend(
+      { ...env, CONTACT_FROM_EMAIL: fromEmail },
+      {
+        ...buildRaffleCustomerEmail(order),
+        to: order.customerEmail,
+        replyTo: toEmail,
+        idempotencyKey: `ptg-raffle-customer-${emailIdempotencyKey}`
+      }
+    );
+  }
+}
+
+async function handleSuccessfulRaffleCheckoutEvent(env, event, session) {
+  if (session.payment_status && session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
+    if (env.DB) await markRaffleReservationPaymentPending(env.DB, session);
+    return;
+  }
+  if (!env.DB || !env.ORDER_EVENT_STORE) {
+    throw new Error('D1 and ORDER_EVENT_STORE are required for raffle webhook processing.');
+  }
+  const kvState = await env.ORDER_EVENT_STORE.get(event.id);
+  if (kvState === 'processed') return;
+  await env.ORDER_EVENT_STORE.put(event.id, 'processing', { expirationTtl: 60 * 60 * 24 * 90 });
+  const lineItems = await fetchStripeLineItems(env, session.id);
+  const result = await commitPaidRaffleOrder(env, event, session, lineItems);
+  await env.ORDER_EVENT_STORE.put(event.id, 'inventory_committed', { expirationTtl: 60 * 60 * 24 * 90 });
+
+  if (result.emailStatus !== 'sent') {
+    try {
+      await sendRaffleOrderEmails(env, session, event);
+      await markRaffleOrderEmailResult(env, result.orderId, event.id, true);
+    } catch (error) {
+      await markRaffleOrderEmailResult(env, result.orderId, event.id, false, error.message);
+      throw error;
+    }
+  }
+  await markWebhookEventProcessed(env, event.id);
+}
+
 async function handleSuccessfulCheckoutEvent(env, event) {
   const session = event.data?.object;
 
   if (!session?.id) {
     throw new Error('Webhook session is missing.');
+  }
+
+  if (session.metadata?.order_type === 'raffle') {
+    await handleSuccessfulRaffleCheckoutEvent(env, event, session);
+    return;
   }
 
   if (session.payment_status && session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') {
@@ -1330,11 +1628,25 @@ async function handleSuccessfulCheckoutEvent(env, event) {
 }
 
 async function handleReleasedCheckoutEvent(env, event, reason) {
-  if (!env.DB || String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() !== 'd1') return;
+  if (!env.DB) return;
   const reserved = await reserveWebhookEvent(env, event.id);
   if (!reserved) return;
   try {
     const session = event.data?.object || {};
+    if (session.metadata?.order_type === 'raffle') {
+      const bySession = session.id
+        ? await releaseRaffleReservation(env, { sessionId: session.id, reason })
+        : { released: false };
+      if (!bySession.released && session.metadata?.raffle_request_id) {
+        await releaseRaffleReservation(env, { reservationId: session.metadata.raffle_request_id, reason });
+      }
+      await markWebhookEventProcessed(env, event.id);
+      return;
+    }
+    if (String(env.INVENTORY_ENFORCEMENT || '').toLowerCase() !== 'd1') {
+      await markWebhookEventProcessed(env, event.id);
+      return;
+    }
     const bySession = session.id
       ? await releaseCheckoutInventory(env, { sessionId: session.id, reason })
       : { released: false };
@@ -1387,7 +1699,10 @@ async function handleStripeWebhook(request, env) {
       const reserved = await reserveWebhookEvent(env, event.id);
       if (reserved) {
         try {
-          if (env.DB) await recordStripeRefund(env, event, event.data?.object || {});
+          if (env.DB) {
+            const merchandiseRefund = await recordStripeRefund(env, event, event.data?.object || {});
+            if (!merchandiseRefund.matched) await recordRaffleRefund(env, event, event.data?.object || {});
+          }
           await markWebhookEventProcessed(env, event.id);
         } catch (error) {
           await releaseWebhookEvent(env, event.id);
@@ -1563,7 +1878,7 @@ async function merchantFeed(env) {
 
 async function dynamicSitemap(env) {
   const products = isD1CatalogueEnabled(env) ? await getPublicProducts(env) : [];
-  const urls = ['/', '/shop', '/about', '/contact', ...products.map(product => `/products/${encodeURIComponent(product.slug)}`)];
+  const urls = ['/', '/shop', '/raffle', '/about', '/contact', ...products.map(product => `/products/${encodeURIComponent(product.slug)}`)];
   const xml = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.map(path => `<url><loc>${xmlEscape(absoluteSiteUrl(path, env))}</loc></url>`).join('')}</urlset>`;
   return secureAssetResponse(new Response(xml, { headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' } }));
 }
@@ -1620,6 +1935,16 @@ export default {
 
     if (url.pathname.startsWith('/api/products/')) {
       return handlePublicProducts(request, env, decodeURIComponent(url.pathname.slice('/api/products/'.length)));
+    }
+
+    const raffleApiMatch = url.pathname.match(/^\/api\/raffles\/([^/]+)(\/(?:checkout|reserve))?$/);
+    if (raffleApiMatch) {
+      const slug = decodeURIComponent(raffleApiMatch[1]);
+      if (raffleApiMatch[2] === '/reserve') return handleReserveRaffleNumber(request, env, slug);
+      if (raffleApiMatch[2] === '/checkout') {
+        return jsonResponse({ ok: false, error: 'Website payment is disabled. Please reserve a number and donate through Givealittle.' }, 410);
+      }
+      return handlePublicRaffle(request, env, slug);
     }
 
     if (url.pathname.startsWith('/products/') && ['GET', 'HEAD'].includes(request.method.toUpperCase())) {

@@ -18,6 +18,7 @@
       <button class="nav-button" type="button" data-view-target="orders">Orders</button>
       <button class="nav-button" type="button" data-view-target="reports">Reports</button>
       <button class="nav-button" type="button" data-view-target="promotions">Promotions</button>
+      <button class="nav-button" type="button" data-view-target="raffles">Prize Drawings</button>
       <button class="nav-button" type="button" data-view-target="editor">Add Product</button>
       <button class="nav-button" type="button" data-view-target="pictures">Pictures</button>
     </nav>
@@ -152,6 +153,20 @@
       </div>
       <div class="promotion-list" data-promotion-list aria-live="polite">
         <div class="empty-state"><p>Loading promotions...</p></div>
+      </div>
+    </section>
+
+    <section class="admin-view" data-view="raffles" hidden>
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">Fundraising</p>
+          <h1>Prize Drawings</h1>
+          <p>Review drawing availability, paid entries and funds raised. This view is read-only.</p>
+        </div>
+        <button class="button button-secondary" type="button" data-refresh-raffles>Refresh</button>
+      </div>
+      <div class="raffle-admin-list" data-raffle-list aria-live="polite">
+        <div class="empty-state"><p>Loading prize drawings...</p></div>
       </div>
     </section>
 

@@ -1,4 +1,5 @@
 import { ensureInvoiceSnapshot } from './invoices.js';
+import { getAdminRaffles, releaseExpiredRaffleReservations, updateRaffleNumberStatus } from './raffles.js';
 import {
   buildPreparedEmail,
   buildReadyToCollectEmail,
@@ -1409,6 +1410,23 @@ async function routeAdminApi(request, env, identity) {
     }
     if (method === 'GET' && segments[0] === 'promotions' && segments.length === 1) {
       return json({ ok: true, promotions: await listPromotions(env.DB) });
+    }
+    if (method === 'GET' && segments[0] === 'raffles' && segments.length === 1) {
+      await releaseExpiredRaffleReservations(env, 50);
+      return json({ ok: true, raffles: await getAdminRaffles(env.DB) });
+    }
+    if (method === 'POST' && segments[0] === 'raffles' && segments[2] === 'numbers' && segments.length === 4) {
+      const parsed = await readBody(request);
+      if (parsed.error) return json({ ok: false, error: parsed.error }, parsed.status || 400);
+      const result = await updateRaffleNumberStatus(env, {
+        raffleId: segments[1],
+        number: segments[3],
+        action: parsed.body?.action
+      });
+      if (result.error) return json({ ok: false, error: result.error }, result.status || 400);
+      await audit(env.DB, identity, `drawing_${result.action}`, 'raffle_number', `${segments[1]}:${result.number}`,
+        `${result.action === 'confirm' ? 'Confirmed' : 'Released'} drawing number ${result.number}`);
+      return json({ ok: true, result });
     }
     if (method === 'POST' && segments[0] === 'products' && segments.length === 1) {
       const parsed = await readBody(request);

@@ -561,3 +561,39 @@ input:focus, textarea:focus, select:focus { border-color: var(--brand); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }
+
+.raffle-admin-list { display: grid; gap: 18px; }
+.raffle-admin-card { padding: clamp(18px, 3vw, 28px); background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.raffle-admin-heading { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
+.raffle-admin-heading h2 { margin: 3px 0 5px; font-size: 1.5rem; }
+.raffle-admin-heading p:last-child { margin: 0; color: var(--muted); }
+.raffle-admin-stats { margin: 20px 0; display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; }
+.raffle-admin-stats > div { padding: 13px; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
+.raffle-admin-stats dt { color: var(--muted); font-size: .7rem; font-weight: 750; text-transform: uppercase; }
+.raffle-admin-stats dd { margin: 5px 0 0; font-weight: 850; overflow-wrap: anywhere; }
+.raffle-admin-terms { padding: 12px 14px; color: #724a00; background: var(--warning-soft); border-left: 4px solid #bd7b05; border-radius: 4px; }
+.raffle-admin-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 9px; }
+.raffle-admin-number { min-width: 0; min-height: 90px; padding: 10px 7px; display: grid; place-items: center; align-content: center; gap: 2px; text-align: center; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
+.raffle-admin-number > strong { font-size: 1.08rem; }
+.raffle-admin-number > span { color: var(--muted); font-size: .65rem; font-weight: 800; text-transform: uppercase; }
+.raffle-admin-number small { margin-top: 5px; max-width: 100%; color: inherit; font-size: .61rem; line-height: 1.35; overflow-wrap: anywhere; }
+.raffle-admin-actions { width: 100%; margin-top: 7px; display: grid; gap: 5px; }
+.raffle-admin-actions .button { min-height: 34px; padding: 6px 8px; font-size: .68rem; }
+.raffle-admin-number.is-reserved { color: #684500; background: #fff4da; border-color: #d9a84a; }
+.raffle-admin-number.is-sold { color: #fff; background: #36414b; border-color: #293139; }
+.raffle-admin-number.is-sold > span { color: #d7e1e7; }
+
+@media (max-width: 1120px) {
+  .raffle-admin-stats { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
+  .raffle-admin-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .raffle-admin-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .raffle-admin-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 420px) {
+  .raffle-admin-heading { display: grid; }
+  .raffle-admin-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

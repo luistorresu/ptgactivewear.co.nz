@@ -2,6 +2,26 @@
 
 All notable changes to this website should be documented here.
 
+## 2026-08-31
+
+### Added
+
+* Added a locally implemented Patagonia FC Tournament Fundraising Prize Drawing page with a responsive, accessible 1–36 number grid, live D1 availability, single-number selection, progress, sold-out handling, Shop and navigation links, SEO metadata, and all three public themes.
+* Added reusable D1 raffle, reservation, number and order tables with atomic reservation and paid-order constraints, plus safe local-only raffle seed data.
+* Added a 24-hour Givealittle reservation flow that stores donor details server-side, supplies the exact drawing-number message for the donation note, and directs all drawing payments to the official Givealittle fundraiser.
+* Replaced the temporary prize placeholder with the supplied DJI Neo Drone photograph and updated customer-facing, email and admin wording from raffle/ticket to prize drawing/entry while preserving stable internal identifiers.
+* Added authenticated Admin Raffles controls to confirm a reserved number as sold after checking Givealittle or release the reservation, with private donor details and audit logging.
+* Added drawing race-condition, validation, reservation, manual-confirmation, privacy, theme, navigation and regression coverage.
+
+### Security
+
+* Drawing prices and availability are authoritative in D1, reservations use conditional atomic updates, and only an explicit authenticated admin confirmation commits a reserved number as sold.
+* Public drawing responses expose only number statuses; donor contact details remain restricted to authenticated admin workflows.
+
+### Deployment
+
+* Raffle changes, migration and sample data remain local only pending legal and business-detail confirmation. No production migration or deployment was performed.
+
 ## 2026-08-19
 
 ### Changed

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en-NZ">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#ffffff">
+  <title>Patagonia FC Tournament Fundraising Prize Drawing | PTG Activewear</title>
+  <meta name="description" content="Support Patagonia FC players heading to the Cambridge International Tournament and McCartney Taupō Cup 2026. Choose a drawing number for NZ$20 and be in to win a DJI Neo Drone.">
+  <link rel="canonical" href="https://ptgactivewear.co.nz/raffle">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Patagonia FC Tournament Fundraising Prize Drawing">
+  <meta property="og:description" content="Choose a NZ$20 drawing number, support Patagonia FC players and be in to win a DJI Neo Drone.">
+  <meta property="og:url" content="https://ptgactivewear.co.nz/raffle">
+  <meta property="og:image" content="https://ptgactivewear.co.nz/assets/images/dji-neo-prize.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Patagonia FC Tournament Fundraising Prize Drawing">
+  <meta name="twitter:description" content="Choose a NZ$20 drawing number and support Patagonia FC tournament players.">
+
+  <script src="/js/theme.js"></script>
+  <link rel="preconnect" href="https://cdn.tailwindcss.com">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { brand: { DEFAULT: '#5BB8D4', dark: '#3A9CBD', light: '#EBF7FB' } }, fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] } } }
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="favicon-ptg.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="font-sans text-gray-900 bg-white">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <header class="site-header sticky top-0 z-50 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+      <a href="index.html" class="site-logo-link flex items-center shrink-0" aria-label="PTG Activewear home">
+        <img src="photos/ptg-logo-dark-transparent.webp" alt="PTG Activewear" class="site-logo" width="2016" height="702" data-theme-logo>
+      </a>
+      <nav class="hidden md:flex items-center gap-6" aria-label="Main navigation">
+        <a href="index.html" class="site-nav-link">Home</a>
+        <a href="shop.html" class="site-nav-link">Shop</a>
+        <a href="raffle.html" class="site-nav-link active" aria-current="page">Prize Drawing</a>
+        <a href="about.html" class="site-nav-link">About</a>
+        <a href="contact.html" class="site-nav-link">Contact</a>
+      </nav>
+      <div class="flex items-center gap-4">
+        <label class="theme-selector"><span class="sr-only">Website theme</span><svg class="theme-selector-icon" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3a9 9 0 100 18h1.5a1.5 1.5 0 000-3H12a1.5 1.5 0 010-3h2a7 7 0 000-14h-2z"/><path stroke-linecap="round" stroke-width="2" d="M7.5 10h.01M9.5 6.5h.01M14.5 6.5h.01"/></svg><span class="theme-selector-label" data-theme-label>Light</span><svg class="theme-selector-chevron" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9l6 6 6-6"/></svg><select data-theme-select aria-label="Website theme"><option value="light">Light</option><option value="dark">Dark</option><option value="sky">Sky Blue</option></select></label>
+        <button onclick="toggleCart()" class="site-icon-button relative p-1" aria-label="Cart">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13l-1.4 5.6A1 1 0 007 20h10a1 1 0 00.97-.76L19 13M7 13H5.4M10 21a1 1 0 100-2 1 1 0 000 2zm7 0a1 1 0 100-2 1 1 0 000 2z"/></svg>
+          <span id="cart-count" class="hidden absolute -top-1 -right-1 bg-brand text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">0</span>
+        </button>
+        <button onclick="toggleMobileMenu()" class="site-icon-button md:hidden p-1" aria-label="Menu"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      </div>
+    </div>
+    <div id="mobile-menu" class="site-mobile-menu hidden md:hidden px-4 py-5">
+      <nav class="flex flex-col gap-4" aria-label="Mobile navigation">
+        <a href="index.html" class="site-mobile-link">Home</a>
+        <a href="shop.html" class="site-mobile-link">Shop</a>
+        <a href="raffle.html" class="site-mobile-link active" aria-current="page">Prize Drawing</a>
+        <a href="about.html" class="site-mobile-link">About</a>
+        <a href="contact.html" class="site-mobile-link">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main-content" class="raffle-page">
+    <section class="raffle-hero" aria-labelledby="raffle-title">
+      <div class="raffle-hero-inner">
+        <div class="raffle-hero-copy">
+          <p class="raffle-kicker">Support the team · Be in to win</p>
+          <h1 id="raffle-title">PATAGONIA FC TOURNAMENT FUNDRAISING PRIZE DRAWING</h1>
+          <p class="raffle-hero-lead">Help support our Patagonia FC players as they prepare to represent the academy at the Cambridge International Tournament and McCartney Taupō Cup 2026!</p>
+          <div class="raffle-hero-actions">
+            <a class="btn-primary raffle-hero-action" href="#choose-number">Choose Your Number</a>
+            <a class="raffle-givealittle-link raffle-hero-action" href="https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026" target="_blank" rel="noopener noreferrer">Donate on Givealittle</a>
+          </div>
+        </div>
+        <div class="raffle-prize" aria-label="Big prize: DJI Neo Drone">
+          <span class="raffle-prize-label">Big Prize</span>
+          <div class="raffle-prize-visual">
+            <img src="assets/images/dji-neo-prize.jpg" alt="DJI Neo Drone prize in its retail box" width="1086" height="1448" loading="eager" decoding="async">
+          </div>
+          <h2>DJI Neo Drone</h2>
+          <p>One winning number. Good luck!</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="raffle-story" aria-labelledby="raffle-story-title">
+      <div class="raffle-section-inner">
+        <div class="raffle-story-copy">
+          <p class="raffle-kicker">A tournament journey together</p>
+          <h2 id="raffle-story-title">Every drawing entry makes a difference.</h2>
+          <p>These tournaments are fantastic opportunities for our young players to compete against teams from across New Zealand, challenge themselves at a higher level, and create unforgettable football memories together.</p>
+          <p>We are running this fundraising prize drawing to help reduce the costs associated with attending these tournaments, including travel, accommodation, tournament entry fees and team expenses.</p>
+          <p>Every drawing entry makes a difference and helps support our players and families on their tournament journey.</p>
+          <p><strong>Choose a number, support our teams and be in to win an amazing prize!</strong></p>
+          <p>Thank you to our Patagonia FC families, friends, sponsors and wider community for getting behind our young players.</p>
+          <p class="raffle-story-finish">Together, let’s get our teams to Cambridge &amp; Taupō!</p>
+        </div>
+        <dl class="raffle-facts">
+          <div><dt>Entry price</dt><dd>NZ$20</dd><span>per drawing number</span></div>
+          <div><dt>Numbers</dt><dd>01–36</dd><span>choose your favourites</span></div>
+          <div><dt>Big prize</dt><dd>DJI Neo Drone</dd><span>one winning number</span></div>
+        </dl>
+      </div>
+    </section>
+
+    <section id="choose-number" class="raffle-selection" aria-labelledby="number-selection-title">
+      <div class="raffle-section-inner raffle-selection-layout">
+        <div class="raffle-number-panel">
+          <div class="raffle-section-heading">
+            <div>
+              <p class="raffle-kicker">NZ$20 per number</p>
+              <h2 id="number-selection-title">Choose your drawing number</h2>
+              <p>Select one available number. It will be reserved securely before you continue to Givealittle.</p>
+            </div>
+            <button type="button" class="raffle-refresh" data-raffle-refresh>Refresh availability</button>
+          </div>
+
+          <div class="raffle-progress" aria-labelledby="raffle-progress-label">
+            <div><strong id="raffle-progress-label" data-raffle-progress-label>Loading drawing progress…</strong><span data-raffle-progress-percent></span></div>
+            <div class="raffle-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="36" aria-valuenow="0" data-raffle-progress><span></span></div>
+          </div>
+
+          <div class="raffle-legend" aria-label="Number status legend">
+            <span><i class="is-available"></i>Available</span>
+            <span><i class="is-selected"></i>Selected</span>
+            <span><i class="is-reserved"></i>Reserved</span>
+            <span><i class="is-sold"></i>Sold</span>
+          </div>
+
+          <div class="raffle-number-grid" data-raffle-number-grid aria-label="Prize drawing numbers 1 to 36" aria-busy="true"></div>
+          <p class="raffle-live-status" data-raffle-live-status role="status" aria-live="polite">Loading current drawing availability…</p>
+          <div class="raffle-sold-out" data-raffle-sold-out hidden>
+            <strong>DRAWING SOLD OUT</strong>
+            <span>Thank you for supporting Patagonia FC!</span>
+          </div>
+        </div>
+
+        <aside class="raffle-checkout-panel" aria-labelledby="raffle-checkout-title">
+          <h2 id="raffle-checkout-title">Reserve your number</h2>
+          <div class="raffle-selection-summary">
+            <span>Selected number</span>
+            <strong data-raffle-selected>None selected</strong>
+          </div>
+          <dl class="raffle-totals">
+            <div><dt>Numbers</dt><dd data-raffle-ticket-count>0</dd></div>
+            <div class="raffle-total"><dt>Requested donation</dt><dd data-raffle-total>NZ$0.00</dd></div>
+          </dl>
+          <form data-raffle-checkout-form novalidate>
+            <label><span>Customer Name</span><input name="customerName" maxlength="100" autocomplete="name" required></label>
+            <label><span>Child's Name</span><input name="childName" maxlength="60" autocomplete="off" required></label>
+            <label><span>Email</span><input name="customerEmail" type="email" maxlength="254" autocomplete="email" required></label>
+            <p class="raffle-form-note">Your details are used only to match this reservation with the Givealittle donation. No payment is processed on this website.</p>
+            <p class="raffle-checkout-status" data-raffle-checkout-status role="status" aria-live="polite" hidden></p>
+            <button class="btn-primary raffle-checkout-button" type="submit" data-raffle-checkout disabled>Reserve Number</button>
+          </form>
+          <div class="raffle-reservation-confirmation" data-raffle-confirmation hidden>
+            <p class="raffle-confirmation-number">Your selected number is <strong data-raffle-confirmed-number></strong>.</p>
+            <p>Please donate NZ$20 on Givealittle and enter <strong data-raffle-donation-message></strong> in your donation comment so we can match it to your reservation.</p>
+            <p class="raffle-confirmation-expiry" data-raffle-confirmation-expiry></p>
+            <a class="btn-primary raffle-givealittle-button" data-raffle-givealittle href="https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026" target="_blank" rel="noopener noreferrer">Donate on Givealittle</a>
+            <p>Opening Givealittle does not automatically confirm the donation. Your number changes to Sold only after an administrator verifies it.</p>
+          </div>
+          <p class="raffle-payment-note">The requested donation is NZ$20 per number. All donations are completed securely on Givealittle; PTG Activewear does not take payment for this fundraiser.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="raffle-terms" aria-labelledby="raffle-terms-title">
+      <div class="raffle-section-inner">
+        <h2 id="raffle-terms-title">Prize drawing information</h2>
+        <p><strong>Number reservations are held for 24 hours while the Givealittle donation is matched.</strong></p>
+        <p>Reserved numbers are not treated as sold until the donation is confirmed by an administrator. Unconfirmed reservations are released automatically. The draw date, draw method, eligibility, winner notification, prize collection or delivery, cancellation and refund rules, and all required New Zealand disclosures must be confirmed before the drawing closes.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="bg-gray-950 text-gray-500 pt-16 pb-8 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto text-center">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+        <div class="md:col-span-2 footer-brand"><a href="index.html" class="footer-logo-link" aria-label="PTG Activewear home"><img src="photos/ptg-logo-light-transparent.webp" alt="PTG Activewear" class="footer-logo" width="2016" height="702"></a><p class="footer-brand-copy text-sm leading-relaxed">Premium football apparel designed and shipped from New Zealand. Built for performance, made to last.</p></div>
+        <div class="footer-column"><h4 class="text-white font-semibold text-xs mb-5 uppercase tracking-wider">Quick Links</h4><ul class="space-y-3 text-sm"><li><a href="index.html" class="hover:text-brand transition-colors">Home</a></li><li><a href="shop.html" class="hover:text-brand transition-colors">Shop</a></li><li><a href="raffle.html" class="hover:text-brand transition-colors">Prize Drawing</a></li><li><a href="about.html" class="hover:text-brand transition-colors">About Us</a></li><li><a href="contact.html" class="hover:text-brand transition-colors">Contact Us</a></li></ul></div>
+        <div class="footer-column"><h4 class="text-white font-semibold text-xs mb-5 uppercase tracking-wider">Support</h4><ul class="space-y-3 text-sm"><li><a href="contact.html" class="hover:text-brand transition-colors">Custom Teamwear</a></li><li><a href="contact.html" class="hover:text-brand transition-colors">Club Orders</a></li><li><a href="mailto:info@ptgactivewear.co.nz" class="hover:text-brand transition-colors">Email Support</a></li></ul></div>
+      </div>
+      <div class="footer-bottom border-t border-gray-800 pt-8 flex flex-col items-center justify-center gap-4 text-xs"><p>&copy; 2026 PTG Activewear. All rights reserved.</p><span>Secure payments powered by Stripe</span></div>
+    </div>
+  </footer>
+
+  <div id="cart-overlay" onclick="toggleCart()" class="fixed inset-0 bg-black/50 z-40 hidden"></div>
+  <aside id="cart-sidebar" class="fixed right-0 top-0 h-full w-full sm:w-96 bg-white z-50 shadow-2xl flex flex-col">
+    <div class="flex items-center justify-between px-6 py-5 border-b"><h2 class="text-base font-bold">Your Cart</h2><button onclick="toggleCart()" class="text-gray-400 hover:text-gray-900 transition-colors" aria-label="Close cart"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
+    <div id="cart-items" class="flex-1 overflow-y-auto px-6"></div>
+    <div class="px-6 py-5 border-t bg-gray-50"><div class="flex justify-between mb-4 text-sm"><span class="text-gray-600">Subtotal</span><span id="cart-total" class="font-bold text-lg">$0.00</span></div><p data-checkout-status class="hidden rounded-xl px-4 py-3 text-sm font-medium mb-3" role="status" aria-live="polite"></p><button type="button" data-checkout-button class="w-full btn-primary py-4 text-sm">Proceed to Checkout</button><p class="text-center text-xs text-gray-400 mt-3">Shipping calculated at checkout</p></div>
+  </aside>
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full text-sm font-medium z-[60] whitespace-nowrap shadow-lg"></div>
+
+  <script src="js/products.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/raffle.js"></script>
+</body>
+</html>

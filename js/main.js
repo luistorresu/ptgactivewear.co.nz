@@ -996,10 +996,34 @@ function renderProductCards() {
       ? products.filter(product => product.featured)
       : products;
 
-    grid.innerHTML = cardProducts.length
-      ? cardProducts.map(product => renderProductCard(product, isShop, Boolean(requestedSlug))).join('')
-      : '<p class="product-load-error">This product is not currently available.</p>';
+    const productCards = cardProducts.map(product => renderProductCard(product, isShop, Boolean(requestedSlug))).join('');
+    grid.innerHTML = isShop && !requestedSlug
+      ? `${productCards}${renderRaffleShopCard()}`
+      : productCards || '<p class="product-load-error">This product is not currently available.</p>';
   });
+}
+
+function renderRaffleShopCard() {
+  return `
+    <article class="product-card product-card-shop product-item raffle-shop-card group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-gray-100" data-category="accessories">
+      <a class="raffle-card-visual" href="/raffle" aria-label="View Patagonia FC Tournament Fundraising Prize Drawing">
+        <img src="/assets/images/dji-neo-prize.jpg" alt="DJI Neo Drone prize in its retail box" width="1086" height="1448" loading="lazy" decoding="async">
+        <span>Big Prize</span>
+        <strong>DJI Neo Drone</strong>
+      </a>
+      <div class="p-5 sm:p-6 product-card-content">
+        <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">Fundraising prize drawing</p>
+        <h3 class="font-semibold text-gray-900 text-base leading-snug"><a href="/raffle" class="hover:text-brand transition-colors">Patagonia FC Tournament Fundraising Prize Drawing</a></h3>
+        <p class="text-gray-400 text-sm mt-2 leading-relaxed product-card-description">Support our tournament players and choose your own number from 01 to 36.</p>
+        <div class="raffle-shop-actions mt-5">
+          <span class="text-lg font-bold text-gray-900">NZ$20 <small>per number</small></span>
+          <div class="raffle-shop-cta-row">
+            <a href="/raffle#choose-number" class="btn-primary px-5 py-2.5 text-sm">Choose Number</a>
+            <a href="https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026" class="raffle-shop-givealittle px-5 py-2.5 text-sm" target="_blank" rel="noopener noreferrer">Donate on Givealittle</a>
+          </div>
+        </div>
+      </div>
+    </article>`;
 }
 
 function renderHomeProductCarousel() {

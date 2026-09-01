@@ -150,6 +150,16 @@ Stripe test payment setup:
 2. Do not use live-mode Stripe keys until testing is complete and approved.
 3. Use test card `4242 4242 4242 4242` with any future expiry date and any CVC.
 
+## Fundraising Prize Drawing (Local Only)
+
+The local implementation includes a reusable Patagonia FC Tournament Fundraising Prize Drawing at `/raffle` with 36 numbers at NZD 20.00 each and a DJI Neo Drone prize. Customer-facing wording uses prize drawing, entry and drawing number. The established internal raffle identifiers remain unchanged to preserve tested routes and database compatibility. It is intentionally separate from the merchandise cart: customers reserve exactly one available number, then donate on the official Givealittle fundraiser at `https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026`. The website does not process drawing payments, add shipping or apply merchandise promotions or payment surcharges.
+
+Migration `0024_fundraising_raffles.sql` adds raffle definitions, temporary reservations, durable raffle orders and unique number ownership. Migration `0025_givealittle_fundraiser.sql` adds donor contact metadata and the external Givealittle reference. Conditional D1 updates allow only one competing reservation to claim each number. Reservations last 24 hours so an administrator can confirm the donation in Givealittle. No documented Givealittle payment-verification webhook is integrated, so opening or returning from Givealittle never marks a number sold. The donor is instructed to include `Patagonia FC drawing number #NN` in the Givealittle message, and an authorised administrator must explicitly mark the matching reserved number sold or release it.
+
+Local development loads `seed/seed-raffle-test.sql`, which leaves 1–3 available, 4 reserved and 5–6 sold. This test seed must never be applied to production. The authenticated Admin Raffles view shows private reservation details only to authorised administrators and provides explicit `Mark Sold` and `Release` actions for reserved numbers.
+
+The supplied DJI Neo Drone photograph is stored at `assets/images/dji-neo-prize.jpg` and is used in the prize panel and social metadata. Before production launch, confirm and publish the draw date, draw method, eligibility, winner notification, prize collection or delivery, cancellation and refund rules, and all required New Zealand gambling disclosures. Changing the customer-facing name does not alter the paid chance-based mechanics. Until these details are confirmed, the page must retain its explicit terms-pending notice and the production migration must not be applied.
+
 ## Admin And D1 Inventory
 
 The local Phase 2 implementation adds a protected admin portal at `/admin`, D1 migrations and seed data, public D1 catalogue endpoints, admin APIs, checkout inventory validation, paid-order storage, atomic stock deduction, and stock audit history.

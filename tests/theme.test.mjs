@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const root = new URL('../', import.meta.url);
-const publicPages = ['index.html', 'shop.html', 'product.html', 'about.html', 'contact.html', 'cart.html', 'order-success.html'];
+const publicPages = ['index.html', 'shop.html', 'product.html', 'raffle.html', 'about.html', 'contact.html', 'cart.html', 'order-success.html'];
 
 async function source(path) {
   return readFile(new URL(path, root), 'utf8');

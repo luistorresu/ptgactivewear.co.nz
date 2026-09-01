@@ -53,9 +53,11 @@ try {
 
   & $runner @runnerPrefix d1 execute ptgactivewear-catalog --local --persist-to $state --file seed\seed-products.sql
   if ($LASTEXITCODE -ne 0) { throw 'Local product seed failed.' }
+  & $runner @runnerPrefix d1 execute ptgactivewear-catalog --local --persist-to $state --file seed\seed-raffle-test.sql
+  if ($LASTEXITCODE -ne 0) { throw 'Local raffle seed failed.' }
 
   Copy-Item -LiteralPath 'assets', 'css', 'js', 'admin', 'photos' -Destination $site -Recurse -Force
-  Copy-Item -LiteralPath 'index.html', 'shop.html', 'product.html', 'about.html', 'contact.html', 'cart.html', 'order-success.html', 'robots.txt', 'sitemap.xml', 'favicon.png' -Destination $site -Force
+  Copy-Item -LiteralPath 'index.html', 'shop.html', 'product.html', 'raffle.html', 'about.html', 'contact.html', 'cart.html', 'order-success.html', 'robots.txt', 'sitemap.xml', 'favicon.png' -Destination $site -Force
 
   Write-Host "Starting PTG Activewear locally at http://127.0.0.1:$Port"
   & $runner @runnerPrefix dev --port $Port --persist-to $state --assets $site `
