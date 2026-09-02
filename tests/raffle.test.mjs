@@ -402,8 +402,9 @@ test('raffle emails identify the purchase and escape customer-provided HTML', ()
 });
 
 test('public page, shop, navigation, admin, SEO and security wiring are present', async () => {
-  const [page, shop, main, client, worker, adminHtml, adminJs, sitemap, script] = await Promise.all([
-    readFile(new URL('raffle.html', root), 'utf8'), readFile(new URL('shop.html', root), 'utf8'),
+  const [page, home, shop, main, client, worker, adminHtml, adminJs, sitemap, script] = await Promise.all([
+    readFile(new URL('raffle.html', root), 'utf8'), readFile(new URL('index.html', root), 'utf8'),
+    readFile(new URL('shop.html', root), 'utf8'),
     readFile(new URL('js/main.js', root), 'utf8'), readFile(new URL('js/raffle.js', root), 'utf8'),
     readFile(new URL('_worker.js', root), 'utf8'), readFile(new URL('admin/index.html', root), 'utf8'),
     readFile(new URL('admin/admin.js', root), 'utf8'), readFile(new URL('sitemap.xml', root), 'utf8'),
@@ -411,8 +412,15 @@ test('public page, shop, navigation, admin, SEO and security wiring are present'
   ]);
   assert.match(page, /PATAGONIA FC TOURNAMENT FUNDRAISING PRIZE DRAWING/);
   assert.match(page, /Number reservations are held for 24 hours/);
+  assert.match(page, /Use the same email address for your number reservation and Givealittle donation/);
+  assert.doesNotMatch(page, /donation comment|Patagonia FC drawing number #/i);
   assert.match(page, /assets\/images\/dji-neo-prize\.jpg/);
   assert.match(page, /data-raffle-number-grid/);
+  assert.match(home, /home-drawing-spotlight/);
+  assert.match(home, /home-drawing-bottom-link/);
+  assert.match(home, /The winning number could be yours/);
+  assert.match(home, /raffle\.html#choose-number/);
+  assert.match(home, /assets\/images\/dji-neo-prize\.jpg/);
   assert.match(shop, /raffle\.html/);
   assert.match(main, /renderRaffleShopCard/);
   assert.match(main, /assets\/images\/dji-neo-prize\.jpg/);
@@ -460,7 +468,7 @@ test('Givealittle reservation route never processes payment or marks the number 
     assert.equal(reserveBody.reservation.number, 7);
     assert.equal(reserveBody.reservation.provider, 'Givealittle');
     assert.equal(reserveBody.reservation.url, 'https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026');
-    assert.match(reserveBody.reservation.donationMessage, /#07/);
+    assert.equal('donationMessage' in reserveBody.reservation, false);
     const reserved = await DB.prepare(`SELECT status FROM raffle_numbers WHERE raffle_id = ? AND number = 7`)
       .bind('patagonia-fc-tournament-2026').first();
     assert.equal(reserved.status, 'reserved');

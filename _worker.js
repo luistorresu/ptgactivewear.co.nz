@@ -938,8 +938,7 @@ async function handleReserveRaffleNumber(request, env, slug = RAFFLE_SLUG) {
       number: reservation.numbers[0],
       expiresAt: reservation.expiresAt,
       provider: 'Givealittle',
-      url: 'https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026',
-      donationMessage: `Patagonia FC drawing number #${String(reservation.numbers[0]).padStart(2, '0')}`
+      url: 'https://givealittle.co.nz/cause/patagonia-fc-tournament-fundraiser-2026'
     }
   });
 }

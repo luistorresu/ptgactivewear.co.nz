@@ -7,6 +7,8 @@ All notable changes to this website should be documented here.
 ### Changed
 
 * Expanded the Patagonia FC Tournament Fundraising Prize Drawing from 36 to 40 numbers while preserving every existing number and reservation.
+* Replaced the donation-comment matching instruction with a same-email requirement and added a prominent responsive fundraiser shortcut to the homepage.
+* Added a footer-adjacent numbered prize-drawing link with responsive layout and reduced-motion-safe interaction.
 
 ## 2026-08-31
 

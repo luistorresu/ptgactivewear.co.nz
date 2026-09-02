@@ -116,7 +116,6 @@
   function showConfirmation(reservation) {
     const number = String(reservation.number).padStart(2, '0');
     document.querySelector('[data-raffle-confirmed-number]').textContent = `#${number}`;
-    document.querySelector('[data-raffle-donation-message]').textContent = reservation.donationMessage;
     document.querySelector('[data-raffle-confirmation-expiry]').textContent = `Reserved until ${new Intl.DateTimeFormat('en-NZ', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(`${reservation.expiresAt.replace(' ', 'T')}Z`))}.`;
     const link = document.querySelector('[data-raffle-givealittle]');
     link.href = reservation.url || GIVEALITTLE_URL;
