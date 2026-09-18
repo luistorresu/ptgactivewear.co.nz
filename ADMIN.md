@@ -26,7 +26,14 @@ Paid orders include the required checkout Child's Name in D1 and show it in the 
 
 ## Authentication
 
-Required Worker variables and secrets:
+Required production Worker variables:
+
+* `ADMIN_AUTH_MODE=access`: accepts only a cryptographically verified Cloudflare Access identity.
+* `CF_ACCESS_TEAM_DOMAIN`: the PTG Activewear Cloudflare Access team domain.
+* `CF_ACCESS_AUD`: the Admin Access application audience.
+* `ADMIN_ALLOWED_EMAILS`: the exact four approved administrator emails.
+
+Legacy/local-development variables and secrets:
 
 * `ADMIN_USERNAME`: the exact login username. It may be a normal environment variable or encrypted secret.
 * `ADMIN_PASSWORD_HASH`: encrypted secret in `pbkdf2-sha256$iterations$salt$hash` format.
@@ -47,21 +54,21 @@ The hardened authentication flow supports three explicit modes:
 * `transition`: a valid Cloudflare Access identity is preferred, with the signed Worker session retained as rollback protection.
 * `access`: only a cryptographically verified Cloudflare Access JWT is accepted. Local login is disabled.
 
-Access JWTs are accepted only after verifying the RS256 signature against the account's Access signing keys, issuer, configured audience, expiry, subject, and an allowlist containing exactly three email addresses. State-changing requests also require exact same-origin validation, a safe content type, and `X-PTG-Admin-Request: 1`.
+Access JWTs are accepted only after verifying the RS256 signature against the account's Access signing keys, issuer, configured audience, expiry, subject, and an allowlist containing exactly four email addresses. State-changing requests also require exact same-origin validation, a safe content type, and `X-PTG-Admin-Request: 1`.
 
-## Cloudflare Access Transition
+## Cloudflare Access Production And Rollback
 
-Do not set `ADMIN_AUTH_MODE=access` until Email OTP has been tested successfully for every approved administrator.
+Production uses `ADMIN_AUTH_MODE=access`. Microsoft Entra sign-in with Microsoft-reported MFA is available to all four approved administrators, with Email OTP retained as a Cloudflare Access fallback. The Worker does not present its local username/password screen after a valid Access sign-in.
 
 1. In Cloudflare Zero Trust, enable **One-time PIN** as an authentication method.
 2. Create a self-hosted Access application covering both `ptgactivewear.co.nz/admin*` and `ptgactivewear.co.nz/api/admin*`.
-3. Add one **Allow** policy whose include rule lists only the three approved email addresses. Do not use `Everyone`, an email-domain rule, or OTP login method alone as the allow rule.
+3. Add **Allow** policies whose include rules are restricted to the four approved email addresses. Do not use `Everyone` or an email-domain rule.
 4. Record the Access team domain and Application Audience tag.
-5. In the Worker variables, set `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and `ADMIN_AUTH_MODE=transition`. `CF_ACCESS_AUD` may contain a comma-separated list only if Cloudflare requires separate applications for the two paths.
-6. Keep `ADMIN_ALLOWED_EMAILS` restricted to exactly the three approved addresses already recorded in project configuration.
-7. Verify that an approved address receives its six-digit OTP, can enter the portal, and can perform a read-only admin request. Verify that an unapproved address is denied.
+5. In the production Worker variables, set `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and `ADMIN_AUTH_MODE=access`. Use `transition` only as a temporary, deliberate rollback mode. `CF_ACCESS_AUD` may contain a comma-separated list only if Cloudflare requires separate applications for the two paths.
+6. Keep `ADMIN_ALLOWED_EMAILS` restricted to exactly the four approved addresses already recorded in project configuration.
+7. Verify that every approved address can authenticate through its configured identity provider, enter the portal, and perform a read-only admin request. Verify that an unapproved address is denied.
 8. Set a separate encrypted `SHIRT_NUMBER_PROOF_SECRET` before removing `SESSION_SECRET`.
-9. After preview and production verification, change to `ADMIN_AUTH_MODE=access`. Remove the legacy username/password secrets and code only in a later deployment with a tested rollback point.
+9. Keep the legacy username/password secrets and code only as rollback protection. Do not enable the local login in production unless a tested Access incident rollback is deliberately performed.
 
 Cloudflare Access must protect both the browser pages and the admin API. Protecting only `/admin*` leaves `/api/admin*` exposed to direct requests.
 

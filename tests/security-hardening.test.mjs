@@ -23,7 +23,7 @@ const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 20
 const publicJwk = publicKey.export({ format: 'jwk' });
 const issuer = 'https://ptg-security-test.cloudflareaccess.com';
 const audience = 'ptg-admin-audience';
-const approvedEmails = 'first@example.com,second@example.com,third@example.com';
+const approvedEmails = 'first@example.com,second@example.com,third@example.com,fourth@example.com';
 const accessEnv = {
   ADMIN_AUTH_MODE: 'access',
   ADMIN_ALLOWED_EMAILS: approvedEmails,
@@ -80,7 +80,7 @@ test('Cloudflare Access identity validates signature, issuer, audience, expiry a
     assert.equal(await getAdminIdentity(accessRequest('/api/admin/me', `${accessToken()}x`), accessEnv), null);
     assert.equal(await getAdminIdentity(accessRequest(), {
       ...accessEnv,
-      ADMIN_ALLOWED_EMAILS: `${approvedEmails},fourth@example.com`
+      ADMIN_ALLOWED_EMAILS: `${approvedEmails},fifth@example.com`
     }), null);
   } finally {
     globalThis.fetch = originalFetch;
@@ -276,7 +276,7 @@ test('asset security headers avoid unverified HSTS subdomain scope', async () =>
   assert.doesNotMatch(response.headers.get('strict-transport-security'), /includeSubDomains/i);
 });
 
-test('Access configuration requires exactly three approved addresses', () => {
+test('Access configuration requires exactly four approved addresses', () => {
   assert.equal(authInternals.accessConfigured(accessEnv), true);
   assert.equal(authInternals.accessConfigured({ ...accessEnv, ADMIN_ALLOWED_EMAILS: 'first@example.com,second@example.com' }), false);
   assert.equal(authInternals.accessConfigured({ ...accessEnv, CF_ACCESS_AUD: '' }), false);

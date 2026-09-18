@@ -7,6 +7,7 @@ const LOGIN_MAX_FAILURES = 5;
 const PASSWORD_HASH_PATTERN = /^pbkdf2-sha256\$(\d+)\$([A-Za-z0-9_-]+)\$([A-Za-z0-9_-]+)$/;
 const ACCESS_CERT_CACHE_SECONDS = 5 * 60;
 const ACCESS_CLOCK_TOLERANCE_SECONDS = 30;
+const EXPECTED_ADMIN_EMAIL_COUNT = 4;
 let accessCertCache = { issuer: '', expiresAt: 0, keys: [] };
 
 function base64UrlToBytes(value) {
@@ -122,7 +123,7 @@ function accessIssuer(env) {
 function accessConfigured(env) {
   return Boolean(accessIssuer(env)
     && accessAudiences(env).size > 0
-    && allowedAdminEmails(env).size === 3);
+    && allowedAdminEmails(env).size === EXPECTED_ADMIN_EMAIL_COUNT);
 }
 
 async function accessSigningKeys(issuer, forceRefresh = false) {
@@ -438,5 +439,6 @@ export const authInternals = {
   cookieAttributes,
   LOGIN_MAX_FAILURES,
   LOGIN_WINDOW_SECONDS,
-  SESSION_SECONDS
+  SESSION_SECONDS,
+  EXPECTED_ADMIN_EMAIL_COUNT
 };

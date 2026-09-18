@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pbkdf2Sync, randomBytes } from 'node:crypto';
-import { getAdminIdentity, handleAdminAuth } from '../worker/auth.js';
+import { authInternals, getAdminIdentity, handleAdminAuth } from '../worker/auth.js';
 
 function base64Url(value) {
   return Buffer.from(value).toString('base64url');
@@ -101,4 +101,33 @@ test('admin authentication fails closed when required secrets are missing', asyn
   const response = await handleAdminAuth(loginRequest('anything'), { ORDER_EVENT_STORE: memoryKv() });
   assert.equal(response.status, 503);
   assert.equal((await response.json()).code, 'ADMIN_AUTH_NOT_CONFIGURED');
+});
+
+test('access-only mode disables the local username and password endpoint', async () => {
+  const env = {
+    ...environment(),
+    ADMIN_AUTH_MODE: 'access',
+    CF_ACCESS_TEAM_DOMAIN: 'https://ptgactivewear.cloudflareaccess.com',
+    CF_ACCESS_AUD: 'test-audience',
+    ADMIN_ALLOWED_EMAILS: 'nico@ptgactivewear.co.nz,nicosupremetech@gmail.com,info@ptgactivewear.co.nz,luis.torres.u@gmail.com'
+  };
+  const response = await handleAdminAuth(loginRequest('A-secure-test-password'), env);
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).error, 'Local administrator login is disabled.');
+});
+
+test('Cloudflare Access configuration requires all four approved administrators', () => {
+  const base = {
+    CF_ACCESS_TEAM_DOMAIN: 'https://ptgactivewear.cloudflareaccess.com',
+    CF_ACCESS_AUD: 'test-audience'
+  };
+  assert.equal(authInternals.EXPECTED_ADMIN_EMAIL_COUNT, 4);
+  assert.equal(authInternals.accessConfigured({
+    ...base,
+    ADMIN_ALLOWED_EMAILS: 'nico@ptgactivewear.co.nz,nicosupremetech@gmail.com,info@ptgactivewear.co.nz,luis.torres.u@gmail.com'
+  }), true);
+  assert.equal(authInternals.accessConfigured({
+    ...base,
+    ADMIN_ALLOWED_EMAILS: 'nicosupremetech@gmail.com,info@ptgactivewear.co.nz,luis.torres.u@gmail.com'
+  }), false);
 });
