@@ -571,7 +571,7 @@ async function loadSession() {
   const data = await response.json();
   state.csrfToken = data.csrfToken;
   document.querySelector('[data-admin-username]').textContent = data.identity?.username || '';
-  return Boolean(state.csrfToken);
+  return data.identity?.authMethod === 'cloudflare-access' || Boolean(state.csrfToken);
 }
 
 async function loadProducts() {

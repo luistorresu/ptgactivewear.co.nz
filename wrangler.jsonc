@@ -71,7 +71,7 @@
     "ENVIRONMENT": "production",
     "ADMIN_AUTH_MODE": "access",
     "CF_ACCESS_TEAM_DOMAIN": "https://ptgactivewear.cloudflareaccess.com",
-    "CF_ACCESS_AUD": "81109fd4ffd13baf9d577bc9cb07b00f2e4cac86f62a200cec0cbf39fec312c1,d4ed621b3dba1b825d5220d46672b8ec66d6c1e579a1dc2e447e19387ef44567",
+    "CF_ACCESS_AUD": "81109fd4ffd13baf9d577bc9cb07b00f2e4cac86f62a200cec0cbf39fec312c1",
     "ADMIN_ALLOWED_EMAILS": "nico@ptgactivewear.co.nz,nicosupremetech@gmail.com,info@ptgactivewear.co.nz,luis.torres.u@gmail.com"
   }
 }

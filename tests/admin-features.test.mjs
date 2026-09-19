@@ -32,6 +32,7 @@ test('admin frontend keeps catalogue tools and exposes protected order totals', 
   assert.match(script, /payment_surcharge_cents/);
   assert.match(login, /name="username"/);
   assert.match(login, /name="password"/);
+  assert.match(script, /data\.identity\?\.authMethod === 'cloudflare-access' \|\| Boolean\(state\.csrfToken\)/);
   assert.doesNotMatch(script, /localStorage|sessionStorage/);
 });
 
