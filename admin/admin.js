@@ -42,6 +42,7 @@ const picturePreview = document.querySelector('[data-picture-preview]');
 const uploadProgress = document.querySelector('[data-upload-progress]');
 let pendingPicturePromise = null;
 let slugEdited = false;
+let createSubmitMode = 'draft';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, character => ({
@@ -639,6 +640,7 @@ function setField(name, value) {
 function resetProductForm() {
   productForm.reset();
   state.currentProduct = null;
+  createSubmitMode = 'draft';
   slugEdited = false;
   setField('version', 1);
   setField('playerNamePrice', '20.00');
@@ -842,6 +844,9 @@ async function saveNewProduct(publishRequested, submitter) {
       submitter.textContent = 'Publishing...';
       const published = await api(`/api/admin/products/${encodeURIComponent(createdProduct.id)}/publish`, { method: 'POST', body: '{}' });
       createdProduct = published.product;
+      if (!createdProduct?.active || !createdProduct?.availableForSale) {
+        throw new Error('The product could not be published. It has been kept as a draft so no incomplete item is shown in the shop.');
+      }
     }
     await loadProducts();
     await openEditor(createdProduct.id);
@@ -1363,12 +1368,20 @@ productForm.elements.name.addEventListener('input', () => {
 productForm.elements.slug.addEventListener('input', () => { slugEdited = true; });
 productForm.elements.initialPictures.addEventListener('change', event => renderInitialPreviews([...event.target.files]));
 
+document.querySelector('[data-create-actions]').addEventListener('click', event => {
+  const button = event.target.closest('[data-submit-mode]');
+  if (button) createSubmitMode = button.dataset.submitMode;
+});
+
 productForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (state.submitting) return;
   clearNotice();
   if (state.currentProduct) await saveExistingProduct(event.submitter);
-  else await saveNewProduct(event.submitter?.dataset.submitMode === 'publish', event.submitter);
+  else {
+    const submitMode = event.submitter?.dataset.submitMode || createSubmitMode;
+    await saveNewProduct(submitMode === 'publish', event.submitter || document.querySelector(`[data-submit-mode="${submitMode}"]`));
+  }
 });
 
 existingVariants.addEventListener('click', event => {

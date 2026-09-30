@@ -373,4 +373,7 @@ test('new product form has clear Draft and Publish actions', async () => {
   assert.match(html, /Publish Product/);
   assert.match(admin, /publishRequested/);
   assert.match(admin, /Choose at least one product image before publishing/);
+  assert.match(admin, /let createSubmitMode = 'draft'/);
+  assert.match(admin, /event\.submitter\?\.dataset\.submitMode \|\| createSubmitMode/);
+  assert.match(admin, /createdProduct\?\.active \|\| !createdProduct\?\.availableForSale/);
 });
