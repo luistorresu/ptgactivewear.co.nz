@@ -115,6 +115,24 @@ html { scroll-behavior: smooth; }
   object-fit: contain;
   filter: drop-shadow(0 3px 10px rgba(91, 184, 212, 0.08));
   transition: filter 0.2s ease, transform 0.2s ease;
+  animation: logoEntrance 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes logoEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.95);
+    filter: drop-shadow(0 0 0 rgba(91, 184, 212, 0)) blur(2px);
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 8px 18px rgba(91, 184, 212, 0.35)) blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: drop-shadow(0 3px 10px rgba(91, 184, 212, 0.08));
+  }
 }
 
 .site-logo-link:hover .site-logo {
@@ -1802,4 +1820,5 @@ html[data-theme="dark"] .raffle-checkout-status.is-error { color: #ffb4b4; backg
 @media (prefers-reduced-motion: reduce) {
   body { transition: none; }
   .floating-football-animation { display: none; }
+  .site-logo { animation: none; }
 }
