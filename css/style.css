@@ -659,28 +659,30 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
 .uniform-size-advisory {
   display: grid;
   gap: 0.55rem;
-  padding: 0.95rem 1rem;
+  padding: 0.95rem 1.15rem;
   margin-top: 0.85rem;
   margin-bottom: 0.85rem;
   border: 1px solid #fed7aa;
-  border-left: 4px solid #f97316;
   border-radius: 0.75rem;
   background: #fffaf0;
   color: #7c2d12;
   font-size: 0.78rem;
   line-height: 1.5;
+  text-align: center;
   box-shadow: 0 2px 8px rgba(249, 115, 22, 0.06);
 }
 
 .uniform-size-advisory-title {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.45rem;
   font-size: 0.82rem;
   font-weight: 800;
   color: #9a3412;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+  text-align: center;
 }
 
 .uniform-size-advisory-title svg {
@@ -693,6 +695,7 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
 .uniform-size-advisory p {
   margin: 0;
   color: #7c2d12;
+  text-align: center;
 }
 
 .uniform-size-advisory p strong {
@@ -702,14 +705,18 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
 .uniform-size-advisory-cart {
   margin-top: 0.65rem;
   margin-bottom: 0.65rem;
-  padding: 0.85rem 0.95rem;
+  padding: 0.85rem 1rem;
   border: 1px solid #fed7aa;
-  border-left: 4px solid #f97316;
   border-radius: 8px;
   background: #fffaf0;
   color: #7c2d12;
   font-size: 0.74rem;
   line-height: 1.48;
+  text-align: center;
+}
+
+.uniform-size-advisory-cart p {
+  text-align: center;
 }
 
 html[data-theme="dark"] .uniform-size-advisory,
