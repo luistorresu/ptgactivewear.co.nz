@@ -517,6 +517,17 @@ function getCartSummaryElements() {
     fulfilment.dataset.fulfilmentSelector = '';
     fulfilment.className = 'fulfilment-selector';
     fulfilment.innerHTML = `
+      <div class="uniform-size-advisory-cart" role="note" aria-label="Uniform size and return policy notice">
+        <strong class="uniform-size-advisory-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          IMPORTANT – PLEASE CHECK YOUR SIZE BEFORE ORDERING
+        </strong>
+        <p style="margin-top: 0.35rem; margin-bottom: 0.25rem;">We strongly recommend trying on uniform sizes before placing your order to ensure the correct fit.</p>
+        <p style="margin-top: 0.25rem; margin-bottom: 0.25rem;"><strong>As uniforms are personalised, we do not offer refunds or exchanges for incorrect size selection.</strong></p>
+        <p style="margin-top: 0.25rem; margin-bottom: 0;">By placing your order, you acknowledge and accept responsibility for your selected size.</p>
+      </div>
       <p class="cart-review-note"><strong>Check your item selections</strong><span>Please review sizes, styles and personalisation before continuing. Customised items will be prepared using the selections shown in your cart.</span></p>
       <fieldset>
         <legend>Delivery method</legend>
@@ -1427,6 +1438,17 @@ function setupPersonalisationOptions() {
     const options = document.createElement('div');
     options.className = 'personalisation-options';
     options.innerHTML = `
+      <section class="uniform-size-advisory" aria-label="Uniform size notice">
+        <strong class="uniform-size-advisory-title">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          IMPORTANT – PLEASE CHECK YOUR SIZE BEFORE ORDERING
+        </strong>
+        <p>We strongly recommend trying on uniform sizes before placing your order to ensure the correct fit.</p>
+        <p><strong>As uniforms are personalised, we do not offer refunds or exchanges for incorrect size selection.</strong></p>
+        <p>By placing your order, you acknowledge and accept responsibility for your selected size.</p>
+      </section>
       ${allowName ? `<label class="personalisation-field" data-player-field="name" for="${idBase}-name">
         <span>Player Name <strong>${optionalPrice(namePrice)}</strong></span>
         <input id="${idBase}-name" data-personalisation="name" type="text" maxlength="20" autocomplete="off" placeholder="Optional player name">

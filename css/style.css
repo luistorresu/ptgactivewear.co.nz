@@ -654,6 +654,88 @@ html:not([data-theme="light"]) .site-icon-button:focus-visible {
   background: #fef2f2;
 }
 
+
+/* ── Uniform Size Advisory Notice ── */
+.uniform-size-advisory {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.95rem 1rem;
+  margin-top: 0.85rem;
+  margin-bottom: 0.85rem;
+  border: 1px solid #fed7aa;
+  border-left: 4px solid #f97316;
+  border-radius: 0.75rem;
+  background: #fffaf0;
+  color: #7c2d12;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  box-shadow: 0 2px 8px rgba(249, 115, 22, 0.06);
+}
+
+.uniform-size-advisory-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #9a3412;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.uniform-size-advisory-title svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
+  color: #ea580c;
+}
+
+.uniform-size-advisory p {
+  margin: 0;
+  color: #7c2d12;
+}
+
+.uniform-size-advisory p strong {
+  color: #431407;
+}
+
+.uniform-size-advisory-cart {
+  margin-top: 0.65rem;
+  margin-bottom: 0.65rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid #fed7aa;
+  border-left: 4px solid #f97316;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #7c2d12;
+  font-size: 0.74rem;
+  line-height: 1.48;
+}
+
+html[data-theme="dark"] .uniform-size-advisory,
+html[data-theme="dark"] .uniform-size-advisory-cart {
+  background: #2a1b12;
+  border-color: #592e17;
+  border-left-color: #ea580c;
+  color: #fed7aa;
+}
+
+html[data-theme="dark"] .uniform-size-advisory-title {
+  color: #fdba74;
+}
+
+html[data-theme="dark"] .uniform-size-advisory p strong {
+  color: #ffedd5;
+}
+
+html[data-theme="sky"] .uniform-size-advisory,
+html[data-theme="sky"] .uniform-size-advisory-cart {
+  background: #fefce8;
+  border-color: #fde047;
+  border-left-color: #ca8a04;
+  color: #713f12;
+}
+
 .personalisation-options {
   margin-top: 1rem;
   padding-top: 1rem;
